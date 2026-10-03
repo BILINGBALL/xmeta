@@ -39,6 +39,8 @@ nonce 方案证明的是「**你有权发布这个玩具的内容**」——要�
 
 ## 快速开始
 
+> 部署到线上服务器看 [DEPLOY.md](DEPLOY.md)，下面是本地开发。
+
 ```bash
 npm install
 cp .env.example .env      # 填 DATABASE_URL 等
@@ -105,9 +107,13 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 
 | 文件 | 放哪 |
 |---|---|
+| `index.html` | 中心玩具的入口。带 `?cid=` 时自动转发给 `bridge.html`，否则是导航页 |
 | `claim.html` | 上传到**中心玩具**，作者用来认领 |
 | `bridge.html` | 上传到**中心玩具**，用户过桥时落到这里 |
 | `ucs-client.js` | 给**第三方玩具**引入 |
+
+> 第三方玩具用 `toy.navigate({ type:'toy', id:'<中心玩具 slug>' })` 跳过来时，
+> 落点固定是 `index.html`，所以 `index.html` 必须保留那行转发逻辑。
 
 两个 HTML 里都有 `const API_BASE = '...'`，部署前改成你的域名。
 
