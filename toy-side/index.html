@@ -6,10 +6,9 @@
 <title>Toy 联机工具</title>
 <link rel="stylesheet" href="https://www.oxth.com:8443/xmeta-ui.css">
 <script>
-// 第三方玩具用 toy.navigate({type:'toy', id:'xmeta', extra:{...}}) 跳过来时，
-// 落点固定是 index.html。参数优先取 URL（Web 端 SDK 会把 extra 拼进去），
-// 拿不到时回落到 localStorage（App 内 navigate 不透传 extra，发起方
-// 会把参数另写一份到共享存储）。详见 README。
+// 第三方玩具用 toy.navigate 跳过来时落点固定是 index.html。
+// 参数优先取 URL（Web 端 SDK 会把 extra 拼进去），拿不到时回落到
+// localStorage（App 内不透传 extra，发起方会把参数另写一份）。
 window.__XMETA_HAD_CID__ = false
 ;(function () {
   var qs = new URLSearchParams(location.search)
@@ -32,46 +31,26 @@ window.__XMETA_HAD_CID__ = false
 <div class="xm-page xm-page--center">
 
   <div class="xm-hero">
-    <div class="xm-hero__title">Toy 联机工具</div>
-    <p class="xm-hero__sub">给 B站 玩具提供跨玩具的统一用户身份</p>
+    <div class="xm-hero__ring xm-hero__ring--empty" style="font-size:26px">x</div>
+    <h1 class="xm-hero__name">Toy 联机工具</h1>
+    <p class="xm-hero__ask">让玩家在不同玩具里是同一个玩家</p>
   </div>
 
-  <a class="xm-card" href="claim.html"
-     style="display:block;text-decoration:none;color:inherit">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-      <div>
-        <div style="font-size:15px;font-weight:600;margin-bottom:3px">认领你的玩具</div>
-        <div class="xm-small">作者在这里登记，拿到 client_id 后即可接入</div>
-      </div>
-      <div style="color:var(--xm-text-3);font-size:20px;flex:none">›</div>
-    </div>
-  </a>
-
-  <a class="xm-card" href="me.html"
-     style="display:block;text-decoration:none;color:inherit">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-      <div>
-        <div style="font-size:15px;font-weight:600;margin-bottom:3px">我的身份</div>
-        <div class="xm-small">查看你的联机身份，以及它在哪些玩具上被用过</div>
-      </div>
-      <div style="color:var(--xm-text-3);font-size:20px;flex:none">›</div>
-    </div>
-  </a>
-
-  <div class="xm-note">
-    <b>过桥授权</b>这一页不能直接打开 —— 它必须由游戏里的「开启联机」按钮带参数跳过来。
-    如果你是从游戏跳过来的但看到了这一页，说明参数在途中丢了，页面下方会给出诊断信息。
+  <div class="xm-actions xm-mt-lg" style="margin-top:32px">
+    <a class="xm-btn xm-btn--primary" href="claim.html">认领我的玩具</a>
+    <a class="xm-btn xm-btn--ghost" href="me.html">查看我的身份</a>
   </div>
+
+  <p class="xm-small xm-mt" style="text-align:center">
+    过桥授权页不能直接打开，它由游戏里的「开启联机」按钮带参数跳过来。
+  </p>
 
   <div class="xm-foot">
-    接入方式：在玩具里引入 <span class="xm-mono">xmeta-client.js</span>，
-    配置 <span class="xm-mono">clientId</span>，在按钮点击里调用
-    <span class="xm-mono">XMETA.login()</span><br>
     <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span>
   </div>
 
-  <!-- 开发诊断：只在参数丢失时出现，正常用户看不到 -->
-  <div id="dbg" class="xm-alert xm-alert--warn xm-hidden" style="margin-top:16px"></div>
+  <!-- 开发诊断：只在参数丢失时出现 -->
+  <div id="dbg" class="xm-alert xm-alert--warn xm-hidden"></div>
 </div>
 
 <script>
@@ -87,13 +66,14 @@ if (!window.__XMETA_HAD_CID__) {
     try { req = localStorage.getItem('xmeta:req') } catch (e) {}
 
     el.classList.remove('xm-hidden')
+    el.style.marginTop = '24px'
     el.innerHTML =
       '<b>诊断：没能进入过桥流程</b><br>' +
-      'URL 参数和 localStorage 两条通道都没有拿到参数。<br><br>' +
-      '<b>① 收到的地址</b><br><code>' + esc(location.href) + '</code><br><br>' +
-      '<b>② 发起方写的请求</b><br><code>' +
+      'URL 和 localStorage 两条通道都没拿到参数。<br><br>' +
+      '<b>收到的地址</b><br><code>' + esc(location.href) + '</code><br><br>' +
+      '<b>发起方写的请求</b><br><code>' +
       (req ? esc(req) : '（读不到 —— 要么上一页没点按钮，要么跨 toy 共享失败）') +
-      '</code><br><br>把这两段一起发给开发者。'
+      '</code>'
   }
 }
 </script>

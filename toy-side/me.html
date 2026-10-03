@@ -10,19 +10,17 @@
 <body class="xm">
 <div class="xm-page">
 
-  <!-- ① 说明 —— 授权之前先讲清楚 -->
+  <!-- ① 说明 -->
   <section id="s-intro">
-    <div class="xm-hero">
-      <div class="xm-hero__title">我的联机身份</div>
-      <p class="xm-hero__sub">查看你的身份，以及它在哪些玩具上被用过。</p>
-    </div>
-
-    <div class="xm-note">
-      点下面的按钮会请求一次你的公开资料（昵称、头像），用来确认你是这个身份的持有人。
+    <h1 class="xm-display">我的联机身份</h1>
+    <p class="xm-body xm-mt" style="margin-top:8px">看看你的身份，以及它在哪些玩具上被用过。</p>
+    <p class="xm-note xm-mt-lg" style="margin-top:28px">
+      点下面的按钮会请求一次你的公开资料（昵称、头像）来确认身份。
       平台会弹出确认框，你也可以拒绝。
+    </p>
+    <div class="xm-actions xm-mt-lg">
+      <button class="xm-btn xm-btn--primary" id="btnStart">查看我的身份</button>
     </div>
-
-    <button class="xm-btn xm-btn--primary" id="btnStart">查看我的身份</button>
   </section>
 
   <!-- ② 加载 -->
@@ -32,48 +30,44 @@
 
   <!-- ③ 内容 -->
   <section id="s-main" class="xm-hidden">
-    <div class="xm-card">
-      <div style="display:flex;align-items:center;gap:12px">
-        <img class="xm-avatar" id="avatar" alt="" hidden>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:16px;font-weight:650" id="nickname">—</div>
-          <div class="xm-small xm-mono" id="uidLine"></div>
-        </div>
+
+    <div style="display:flex;align-items:center;gap:15px">
+      <img class="xm-avatar" id="avatar" alt="" hidden>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:19px;font-weight:700;letter-spacing:-.015em" id="nickname">—</div>
+        <div class="xm-small xm-mono" id="uidLine"></div>
       </div>
-      <div class="xm-divider"></div>
-      <p class="xm-small">
-        这是 xmeta 给你分配的编号，不是 B站 账号。
-        你在每款玩具里都有一个平台生成的匿名标识，它们都指向这个编号。
-      </p>
     </div>
 
-    <!-- 作者视角 -->
-    <section id="secOwned" class="xm-hidden">
-      <div class="xm-h2">我认领的玩具</div>
-      <div class="xm-card" id="ownedList"></div>
+    <section id="secOwned" class="xm-hidden xm-mt-lg">
+      <p class="xm-label">我认领的玩具</p>
+      <div id="ownedList"></div>
     </section>
 
-    <!-- 用户视角 -->
-    <section id="secUsage" class="xm-hidden">
-      <div class="xm-h2">我的身份使用记录</div>
-      <div class="xm-card" id="usageList"></div>
+    <section id="secUsage" class="xm-hidden xm-mt-lg">
+      <p class="xm-label">身份使用记录</p>
+      <div id="usageList"></div>
     </section>
 
-    <div class="xm-card xm-hidden" id="emptyCard">
-      <p class="xm-p xm-center">
-        还没有任何记录。<br>
-        <span class="xm-small">去一款接入 xmeta 的游戏里点「开启联机」试试。</span>
-      </p>
+    <p class="xm-note xm-mt-lg xm-hidden" id="emptyNote">
+      还没有任何记录。去一款接入 xmeta 的游戏里点「开启联机」试试。
+    </p>
+
+    <div class="xm-actions xm-mt-lg">
+      <button class="xm-btn xm-btn--quiet" id="btnRefresh">刷新</button>
     </div>
 
-    <button class="xm-btn xm-btn--ghost" id="btnRefresh">刷新</button>
-    <div class="xm-foot" id="foot"></div>
+    <div class="xm-foot">
+      <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span>
+    </div>
   </section>
 
   <!-- 出错 -->
   <section id="s-error" class="xm-hidden">
     <div class="xm-alert xm-alert--error" id="errBox"></div>
-    <button class="xm-btn xm-btn--ghost" id="btnRetry">重试</button>
+    <div class="xm-actions">
+      <button class="xm-btn xm-btn--ghost" id="btnRetry">重试</button>
+    </div>
   </section>
 
   <div id="devWarn" class="xm-alert xm-alert--warn xm-hidden"></div>
@@ -107,9 +101,7 @@ const CACHE_PREFIX = 'xmeta:me:'
 const OK_KEY = 'xmeta:me:ok'
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
-function show(name) {
-  SECTIONS.forEach((s) => $(s).classList.toggle('xm-hidden', s !== name))
-}
+const show = (name) => SECTIONS.forEach((s) => $(s).classList.toggle('xm-hidden', s !== name))
 
 function escapeHtml(s) {
   return String(s).replace(/[<>&"]/g, (c) =>
@@ -125,18 +117,17 @@ function hashKey(s) {
   return (h >>> 0).toString(36)
 }
 
-function readCache(toyOpenId) {
+function readCache(id) {
   try {
-    const v = JSON.parse(localStorage.getItem(CACHE_PREFIX + hashKey(toyOpenId)) || 'null')
+    const v = JSON.parse(localStorage.getItem(CACHE_PREFIX + hashKey(id)) || 'null')
     if (!v || !v.ts || Date.now() - v.ts > CACHE_TTL_MS) return null
     return v.data
   } catch (e) { return null }
 }
 
-function writeCache(toyOpenId, data) {
+function writeCache(id, data) {
   try {
-    localStorage.setItem(CACHE_PREFIX + hashKey(toyOpenId),
-      JSON.stringify({ ts: Date.now(), data }))
+    localStorage.setItem(CACHE_PREFIX + hashKey(id), JSON.stringify({ ts: Date.now(), data }))
   } catch (e) { /* 忽略 */ }
 }
 
@@ -174,32 +165,27 @@ function timeAgo(iso) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 渲染
-// ─────────────────────────────────────────────────────────────
 function itemHtml(iconUrl, title, meta, tag) {
-  return '<div class="xm-item">' +
-    (iconUrl
-      ? '<img class="xm-item__icon" src="' + escapeHtml(iconUrl) + '" alt="">'
-      : '<div class="xm-item__icon"></div>') +
+  const icon = iconUrl
+    ? '<img class="xm-item__icon" src="' + escapeHtml(iconUrl) + '" alt="">'
+    : '<div class="xm-item__icon"></div>'
+  return '<div class="xm-item">' + icon +
     '<div class="xm-item__body">' +
       '<div class="xm-item__title">' + escapeHtml(title) + '</div>' +
       '<div class="xm-item__meta">' + escapeHtml(meta) + '</div>' +
-    '</div>' +
-    (tag || '') +
-  '</div>'
+    '</div>' + (tag || '') + '</div>'
 }
 
 function render(data) {
   const u = data.user
+
   if (!u) {
-    // 还没有任何记录 —— 说明这个身份是全新的
+    $('nickname').textContent = '新身份'
+    $('uidLine').textContent = ''
+    $('avatar').hidden = true
     $('secOwned').classList.add('xm-hidden')
     $('secUsage').classList.add('xm-hidden')
-    $('emptyCard').classList.remove('xm-hidden')
-    $('nickname').textContent = '新身份'
-    $('uidLine').textContent = '还没有可展示的记录'
-    $('avatar').hidden = true
-    $('foot').innerHTML = ''
+    $('emptyNote').classList.remove('xm-hidden')
     show('s-main')
     return
   }
@@ -220,9 +206,9 @@ function render(data) {
       let meta = t.slug
       if (t.clientId) meta += ' · ' + t.clientId
       if (t.pendingClaim) {
-        meta += ' · 验证码还剩 ' + Math.max(0,
-          Math.round((new Date(t.pendingClaim.expiresAt) - Date.now()) / 3600000)) + ' 小时'
-          + ' · 可试 ' + t.pendingClaim.attemptsLeft + ' 次'
+        const hours = Math.max(0,
+          Math.round((new Date(t.pendingClaim.expiresAt) - Date.now()) / 3600000))
+        meta += ' · 验证码剩 ' + hours + ' 小时 / 可试 ' + t.pendingClaim.attemptsLeft + ' 次'
       }
       return itemHtml(t.iconUrl, t.title || t.slug, meta, tag)
     }).join('')
@@ -235,21 +221,18 @@ function render(data) {
     $('secUsage').classList.remove('xm-hidden')
     $('usageList').innerHTML = data.usage.map((t) =>
       itemHtml(t.iconUrl, t.title || t.slug,
-        '最近 ' + timeAgo(t.lastUsedAt) + ' · 共 ' + t.uses + ' 次',
+        '最近 ' + timeAgo(t.lastUsedAt),
         '<span class="xm-tag xm-tag--muted">' + t.uses + ' 次</span>')
     ).join('')
   } else {
     $('secUsage').classList.add('xm-hidden')
   }
 
-  $('emptyCard').classList.toggle('xm-hidden',
+  $('emptyNote').classList.toggle('xm-hidden',
     data.ownedToys.length > 0 || data.usage.length > 0)
-  $('foot').innerHTML = '身份由 <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta</span> 统一管理'
   show('s-main')
 }
 
-// ─────────────────────────────────────────────────────────────
-// 加载
 // ─────────────────────────────────────────────────────────────
 let loading = false
 
@@ -264,9 +247,7 @@ async function load() {
 
     // 到这里平台已经授权过，不会重复弹窗
     const profile = await toy.getUserProfile()
-    if (!profile.toyOpenId) {
-      throw new Error('这款玩具没有开启 OpenID 模式，个人中心不可用。')
-    }
+    if (!profile.toyOpenId) throw new Error('这款玩具没有开启 OpenID 模式，个人中心不可用。')
 
     // 先拿缓存渲染，网络那趟慢慢来
     const cached = readCache(profile.toyOpenId)
@@ -277,7 +258,6 @@ async function load() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ toyOpenId: profile.toyOpenId })
     })
-
     writeCache(profile.toyOpenId, fresh)
     render(fresh)
 
@@ -289,7 +269,7 @@ async function load() {
   }
 }
 
-// 这台设备之前授权过就直接加载；没有就先看说明再点按钮，
+// 之前授权过的设备直接加载；没有就先看说明再点按钮，
 // 免得一进页面就被平台弹授权框。
 let seenOk = false
 try { seenOk = localStorage.getItem(OK_KEY) === '1' } catch (e) { /* 忽略 */ }

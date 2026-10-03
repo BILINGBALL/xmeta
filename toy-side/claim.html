@@ -12,81 +12,73 @@
 
   <!-- ① 填 slug -->
   <section id="s-step1">
-    <div class="xm-hero" style="padding-bottom:14px">
-      <div class="xm-hero__title">认领你的玩具</div>
-      <p class="xm-hero__sub">确认你是这款玩具的作者，然后拿到接入联机身份的凭证。</p>
-    </div>
+    <h1 class="xm-display">认领你的玩具</h1>
+    <p class="xm-body xm-mt" style="margin-top:8px">确认你是作者，拿到接入凭证。</p>
 
-    <div class="xm-card">
-      <div class="xm-h2">你的玩具 slug</div>
+    <div class="xm-mt-lg" style="margin-top:28px">
+      <p class="xm-label">玩具 slug</p>
       <input id="slug" class="xm-input" placeholder="例如 1mZNSjKoPhPTe2JW"
              autocomplete="off" autocapitalize="off" spellcheck="false">
-      <p class="xm-small xm-mt">
-        就是玩具地址 <span class="xm-mono">/toy/<b>这一段</b>/index.html</span> 里的那一段。
-      </p>
+      <p class="xm-small xm-mt">玩具地址 <span class="xm-mono">/toy/<b>这一段</b>/index.html</span></p>
     </div>
 
-    <div class="xm-note">
-      点「下一步」时会请求一次你的公开资料（昵称、头像），用来确认身份。
+    <p class="xm-note xm-mt">
+      点「下一步」时会请求一次你的公开资料（昵称、头像）来确认身份。
       平台会弹出确认框，你也可以拒绝。
-    </div>
+    </p>
 
-    <button class="xm-btn xm-btn--primary" id="btnStart">下一步</button>
-    <div class="xm-foot">由 <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta</span> 提供</div>
+    <div class="xm-actions xm-mt-lg">
+      <button class="xm-btn xm-btn--primary" id="btnStart">下一步</button>
+    </div>
   </section>
 
   <!-- ② 写验证码 -->
   <section id="s-step2" class="xm-hidden">
-    <div class="xm-hero" style="padding-bottom:14px">
-      <div class="xm-hero__title">第 2 步 · 验证归属</div>
-      <p class="xm-hero__sub">把一段代码写进你的玩具，证明你有发布权限。</p>
-    </div>
+    <h1 class="xm-display">把验证码写进玩具</h1>
+    <p class="xm-body xm-mt" style="margin-top:8px">发布后回来验证，验证通过就完成认领。</p>
 
-    <div class="xm-card">
-      <div class="xm-h2">正在认领</div>
-      <div class="xm-kv"><span class="xm-kv__k">玩具</span><span class="xm-kv__v" id="whichTitle">—</span></div>
-      <div class="xm-kv"><span class="xm-kv__k">slug</span><span class="xm-kv__v xm-mono" id="whichSlug">—</span></div>
-      <div class="xm-kv"><span class="xm-kv__k">toy_id</span><span class="xm-kv__v xm-mono" id="whichId">—</span></div>
-    </div>
-
-    <div class="xm-alert xm-alert--warn" id="reuseNote" style="display:none"></div>
-
-    <div class="xm-card">
-      <div class="xm-h2">加进你玩具的 index.html</div>
+    <div class="xm-card xm-mt-lg" style="margin-top:24px">
+      <div style="display:flex;align-items:center;gap:13px;margin-bottom:14px">
+        <div class="xm-item__icon" id="toyIcon"></div>
+        <div style="flex:1;min-width:0">
+          <div class="xm-item__title" id="whichTitle">—</div>
+          <div class="xm-item__meta xm-mono" id="whichSlug">—</div>
+        </div>
+      </div>
+      <div class="xm-divider" style="margin:0 0 14px"></div>
+      <p class="xm-label">加进 index.html 的 &lt;head&gt;</p>
       <pre class="xm-pre" id="snippet"></pre>
-      <ol class="xm-list xm-list--yes xm-mt">
-        <li>打开你的玩具源码，编辑 <b>index.html</b></li>
-        <li>把上面这行加到 <span class="xm-mono">&lt;head&gt;</span> 里任意位置</li>
-        <li>保存并<b>发布</b></li>
-      </ol>
       <p class="xm-small xm-mt">
-        验证通过后可以删掉这行，不影响已完成的认领。
-        这段代码一次性有效，验证成功即作废。
+        改完要<b>发布</b>才算数。验证码一次性，通过后可删。
       </p>
     </div>
 
-    <button class="xm-btn xm-btn--primary" id="btnVerify">我已发布，开始验证</button>
-    <button class="xm-btn xm-btn--ghost" id="btnBack1">返回上一步</button>
+    <div class="xm-alert xm-alert--warn xm-hidden" id="reuseNote"></div>
+
+    <div class="xm-actions">
+      <button class="xm-btn xm-btn--primary" id="btnVerify">我已发布，开始验证</button>
+      <button class="xm-btn xm-btn--quiet" id="btnBack1">返回</button>
+    </div>
   </section>
 
   <!-- ③ 成功 -->
   <section id="s-step3" class="xm-hidden">
     <div class="xm-hero">
-      <div class="xm-hero__title" style="color:var(--xm-ok)">认领成功</div>
-      <p class="xm-hero__sub" id="doneText"></p>
+      <div class="xm-hero__ring xm-hero__ring--empty" id="okRing">✓</div>
+      <h1 class="xm-hero__name">认领成功</h1>
+      <p class="xm-hero__ask" id="doneText"></p>
     </div>
 
-    <div class="xm-card">
-      <div class="xm-h2">你的 client_id</div>
+    <div class="xm-card xm-mt-lg" style="margin-top:28px">
+      <p class="xm-label">client_id</p>
       <pre class="xm-pre" id="clientId"></pre>
       <p class="xm-small xm-mt">
-        填进玩具的接入配置（<span class="xm-mono">XMETA.configure({ clientId })</span>）。
-        它不是密钥，会出现在跳转链接里，所以别拿它当密码用。
+        填进 <span class="xm-mono">XMETA.configure({ clientId })</span>。
+        它不是密钥，会出现在跳转链接里。
       </p>
     </div>
 
     <div class="xm-foot">
-      接入说明见仓库 README<br>
       <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span>
     </div>
   </section>
@@ -94,20 +86,22 @@
   <!-- 出错 -->
   <section id="s-error" class="xm-hidden">
     <div class="xm-alert xm-alert--error" id="errBox"></div>
-    <button class="xm-btn xm-btn--ghost" id="btnBackErr">返回</button>
+    <div class="xm-actions">
+      <button class="xm-btn xm-btn--ghost" id="btnBackErr">返回</button>
+    </div>
   </section>
 
   <div id="devWarn" class="xm-alert xm-alert--warn xm-hidden"></div>
 </div>
 
 <script>
-// ⚠️ 部署前改成你的 API 地址（必须是 https，且是外网可达的域名）
+// ⚠️ 部署前改成你的 API 地址
 const API_BASE = 'https://www.oxth.com:8443'
 
 ;(function guardApiBase() {
   const problems = []
   if (/\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(API_BASE)) {
-    problems.push('API_BASE 指向 127.0.0.1 —— 那指的是<b>访问者自己的设备</b>，不是你的服务器')
+    problems.push('API_BASE 指向 127.0.0.1 —— 那指的是访问者自己的设备，不是你的服务器')
   }
   if (location.protocol === 'https:' && /^http:\/\//.test(API_BASE)) {
     problems.push('API_BASE 是 http，而玩具页面是 https —— 会被浏览器按混合内容拦截')
@@ -133,7 +127,8 @@ function escapeHtml(s) {
 
 function fail(message, detail) {
   $('errBox').innerHTML =
-    message + (detail ? '<br><br><span class="xm-mono">' + escapeHtml(detail) + '</span>' : '')
+    escapeHtml(message) +
+    (detail ? '<br><br><span class="xm-mono">' + escapeHtml(detail) + '</span>' : '')
   show('s-error')
 }
 
@@ -156,30 +151,39 @@ const post = (path, body) =>
     body: JSON.stringify(body)
   })
 
-// 记住上次填的 slug —— 认领要改玩具并重新发布，中途退出是常态
 try {
   const saved = localStorage.getItem(SLUG_KEY)
   if (saved) $('slug').value = saved
-} catch (e) { /* 隐私模式，忽略 */ }
+} catch (e) { /* 忽略 */ }
 
 let profile = null
 
-/** 认领必须绑在一个具体的 toyOpenId 上，所以要先拿身份 */
 async function ensureProfile() {
   if (profile) return profile
   if (!(await toy.isSupport('getUserProfile'))) {
-    throw new Error('当前环境不支持获取用户信息。请在 B站 App 内或电脑浏览器打开本页。')
+    throw new Error('当前环境不支持获取用户信息，请在 B站 App 内或电脑浏览器打开。')
   }
   const p = await toy.getUserProfile()
-  if (!p.toyOpenId) {
-    throw new Error('这款玩具没有开启 OpenID 模式，认领功能不可用。')
-  }
+  if (!p.toyOpenId) throw new Error('这款玩具没有开启 OpenID 模式，认领功能不可用。')
   profile = p
   return p
 }
 
-function slugValue() {
-  return $('slug').value.trim()
+const slugValue = () => $('slug').value.trim()
+
+function paintIcon(title, iconUrl) {
+  const el = $('toyIcon')
+  if (iconUrl) {
+    el.innerHTML = '<img alt="" style="width:100%;height:100%;object-fit:cover;border-radius:11px">'
+    el.firstChild.src = iconUrl
+  } else {
+    el.textContent = (String(title || '?').trim()[0] || '?').toUpperCase()
+    el.style.display = 'flex'
+    el.style.alignItems = 'center'
+    el.style.justifyContent = 'center'
+    el.style.fontWeight = '700'
+    el.style.color = 'var(--xm-ink-3)'
+  }
 }
 
 // ── 第 1 步 ──
@@ -206,23 +210,21 @@ $('btnStart').addEventListener('click', async () => {
 
     try { localStorage.setItem(SLUG_KEY, slug) } catch (e) { /* 忽略 */ }
 
-    // 把「正在认领哪个玩具」写清楚。填错 slug 时这一行能立刻看出来，
-    // 否则验证码写进了 A 玩具、认领却挂在 B 玩具上，最后只会得到一个
-    // 莫名其妙的「源码里没找到验证码」。
+    // 把「正在认领哪个玩具」写清楚 —— 填错 slug 时一眼能看出来。
+    // 少了这一行，验证码写进 A 玩具、认领挂在 B 玩具上，最后只会得到
+    // 一句莫名其妙的「源码里没找到验证码」。
     $('whichTitle').textContent = res.title || '(无标题)'
-    $('whichSlug').textContent = res.slug
-    $('whichId').textContent = res.toyId
+    $('whichSlug').textContent = res.slug + ' · ' + res.toyId
+    paintIcon(res.title, res.iconUrl)
 
     if (res.reused) {
       const left = res.expiresAt
         ? Math.round((new Date(res.expiresAt) - Date.now()) / 3600000)
         : null
-      $('reuseNote').style.display = ''
+      $('reuseNote').classList.remove('xm-hidden')
       $('reuseNote').innerHTML =
         '这是你上次拿到的验证码，<b>没有变</b>，不用重新发布。' +
         (left !== null && left > 0 ? '还剩约 ' + left + ' 小时有效。' : '')
-    } else {
-      $('reuseNote').style.display = 'none'
     }
 
     $('snippet').textContent = res.instructions
@@ -236,17 +238,15 @@ $('btnStart').addEventListener('click', async () => {
 
 // ── 第 2 步 ──
 $('btnVerify').addEventListener('click', async () => {
-  const slug = slugValue()
   $('btnVerify').disabled = true
   try {
     const p = await ensureProfile()
     const res = await post('/api/claim/verify', {
-      slug,
+      slug: slugValue(),
       toyOpenId: p.toyOpenId,
       nickname: p.nickname,
       avatar: p.avatar
     })
-
     $('clientId').textContent = res.clientId || '(无)'
     $('doneText').textContent = '这款玩具已经归你所有。'
     show('s-step3')
