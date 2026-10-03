@@ -37,10 +37,20 @@ if (!parsed.success) {
 
 const env = parsed.data;
 
-if (env.MY_TOY_ID === '0' || env.MY_TOY_SLUG === 'CHANGE_ME') {
+/** .env.example 里的占位值。身份锚点没配不会崩，但所有身份都会归错档。 */
+const PLACEHOLDER_SLUGS = new Set(['CHANGE_ME', 'xxxxxxxxxxxxxxxx', '']);
+
+const anchorProblems: string[] = [];
+if (env.MY_TOY_ID === '0') anchorProblems.push('MY_TOY_ID 还是 0');
+if (PLACEHOLDER_SLUGS.has(env.MY_TOY_SLUG)) anchorProblems.push('MY_TOY_SLUG 还是占位值');
+
+if (anchorProblems.length > 0) {
   console.warn(
-    '[xmeta] 警告：MY_TOY_ID / MY_TOY_SLUG 还是占位值。\n' +
-      '      身份锚点没配好之前，认领和过桥拿到的身份都无法正确归档。',
+    `[xmeta] 警告：身份锚点没配好 —— ${anchorProblems.join('、')}\n` +
+      '      这两个值必须指向你的中心玩具：\n' +
+      '        MY_TOY_ID  = 中心玩具的 toy_id（数字）\n' +
+      '        MY_TOY_SLUG= 中心玩具的 slug\n' +
+      '      没配好之前，认领和过桥拿到的身份都无法正确归档。',
   );
 }
 
