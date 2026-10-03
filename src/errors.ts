@@ -42,7 +42,8 @@ export const Errors = {
   nonceNotInSource: () =>
     new AppError(
       'nonce_not_in_source',
-      '在你 toy 的源码里没找到验证码。确认已保存并发布，且验证码写在 index.html 里。',
+      '在你 toy 的源码里没找到验证码。常见原因：改完没点发布；写到了别的文件而不是 index.html；' +
+        '或者源码里还留着一个过期的旧验证码。回到认领页点一次「下一步」可以拿到当前有效的那个。',
       422,
     ),
 

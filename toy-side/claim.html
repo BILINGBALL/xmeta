@@ -44,6 +44,10 @@
 
   <div class="card" id="step2" hidden>
     <h2>第 2 步：把验证码写进你的玩具</h2>
+    <div id="reuseNote" hidden
+         style="background:#eef6ff;border:1px solid #cce4ff;color:#1a5c99;
+                border-radius:8px;padding:10px 12px;font-size:13px;
+                margin-bottom:12px;line-height:1.7"></div>
     <ol>
       <li>打开你的玩具源码，编辑 <code>index.html</code></li>
       <li>把下面这行加到 <code>&lt;head&gt;</code> 里任意位置</li>
@@ -91,6 +95,20 @@ const API_BASE = 'https://www.oxth.com:8443'
 
 const $ = (id) => document.getElementById(id)
 let profile = null
+
+/**
+ * 记住上次填的 slug。认领要改玩具并重新发布，中途退出很正常，
+ * 回到这一页不应该从零开始。slug 是公开信息，存着没有风险。
+ */
+const SLUG_KEY = 'xmeta:claim:slug'
+
+try {
+  const saved = localStorage.getItem(SLUG_KEY)
+  if (saved) {
+    $('slug').value = saved
+    $('start').textContent = '继续认领'
+  }
+} catch (e) { /* 隐私模式下写不了，忽略 */ }
 
 async function post(path, body) {
   let res
@@ -145,7 +163,25 @@ $('start').addEventListener('click', async () => {
       $('clientId').textContent = res.clientId || '(无)'
       $('done').textContent = res.message || '这个玩具已经归你所有'
       $('step3').hidden = false
+      $('step2').hidden = true
       return
+    }
+
+    try { localStorage.setItem(SLUG_KEY, slug) } catch (e) { /* 忽略 */ }
+
+    // 同一个用户 + 同一个玩具，有效期内 nonce 不会变。
+    // 说清楚这一点，免得他以为要重新发布一次。
+    if (res.reused) {
+      $('reuseNote').hidden = false
+      const left = res.expiresAt
+        ? Math.round((new Date(res.expiresAt) - Date.now()) / 3600000)
+        : null
+      $('reuseNote').innerHTML =
+        '这是你上次拿到的验证码，<b>没有变</b>，不用重新发布。' +
+        (left !== null && left > 0 ? `还剩约 ${left} 小时有效。` : '') +
+        '<br>如果你已经把它写进玩具了，直接点下面的验证即可。'
+    } else {
+      $('reuseNote').hidden = true
     }
 
     $('snippet').textContent = res.instructions

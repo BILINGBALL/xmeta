@@ -103,6 +103,22 @@ test('认领第一步：下发一次性 nonce', async () => {
   nonce = json.nonce;
 });
 
+test('中途退出再进来，验证码不变', async () => {
+  // 重新发布一次玩具要十几分钟，用户中途退出是常态。
+  // 如果这里换了 nonce，他已经发布出去的那个就作废了，
+  // 之后验证只会得到一个莫名其妙的「源码里没找到验证码」。
+  const { status, json } = await post('/api/claim/start', {
+    slug: SLUG,
+    toyOpenId: AUTHOR_OPENID,
+    nickname: '测试作者',
+  });
+
+  assert.equal(status, 200);
+  assert.equal(json.state, 'pending');
+  assert.equal(json.reused, true, '应该标明是沿用上次的验证码');
+  assert.equal(json.nonce, nonce, '同一个用户 + 同一个玩具必须拿到同一个验证码');
+});
+
 test('认领第二步：源码里搜到 nonce 才放行', async () => {
   const { status, json } = await post('/api/claim/verify', {
     slug: SLUG,

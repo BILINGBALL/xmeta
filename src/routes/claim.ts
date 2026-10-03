@@ -79,12 +79,13 @@ export async function claimRoutes(
       };
     }
 
-    const nonce = randomNonce();
-    const claim = await startClaim({
+    // 注意用 claim.nonce 而不是刚生成的那个：同一个人重复进来会沿用旧 nonce
+    const { claim, reused } = await startClaim({
       toyId: toy.toy_id,
       uid: user.id,
-      nonce,
+      nonce: randomNonce(),
       ttlHours: config.CLAIM_NONCE_TTL_HOURS,
+      maxAttempts: config.CLAIM_MAX_ATTEMPTS,
     });
 
     return {
@@ -94,11 +95,14 @@ export async function claimRoutes(
       title: toy.title,
       authorName: toy.author_name,
       iconUrl: toy.icon_url,
-      nonce,
+      nonce: claim.nonce,
+      /** 沿用了上次那个验证码 —— 前端据此换个说法，别让人以为又变了 */
+      reused,
       expiresAt: claim.expires_at,
+      attemptsLeft: Math.max(0, config.CLAIM_MAX_ATTEMPTS - claim.attempts),
       instructions:
         `把下面这行加进你 toy 的 index.html（<head> 里任意位置），保存并发布：\n\n` +
-        `<meta name="xmeta-verify" content="${nonce}">\n\n` +
+        `<meta name="xmeta-verify" content="${claim.nonce}">\n\n` +
         `发布完成后回来点「我已发布，开始验证」。验证码一次性，验证通过后可以删掉。`,
     };
   });

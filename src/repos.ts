@@ -144,17 +144,55 @@ export async function getToyById(toyId: string): Promise<Toy | null> {
 
 // ---------------------------------------------------------------- claims
 
+export type StartClaimResult = {
+  claim: ToyClaim;
+  /** true = 沿用了上次还没过期的验证码，没有换新的 */
+  reused: boolean;
+};
+
 /**
- * 发起认领：把 toy 标成 pending，写一条 nonce 记录。
- * 同一个 (toy, user) 已有的 pending 记录会被作废，避免 nonce 满天飞。
+ * 发起认领：把 toy 标成 pending，需要时写一条 nonce 记录。
+ *
+ * 关键语义：**同一个 (toy, user) 在验证码有效期内永远拿到同一个 nonce。**
+ * 用户中途退出、过一会儿再进来，必须还是那一个——因为他可能已经把它
+ * 写进 index.html 并发布了，而重新发布一次玩具要十几分钟。
+ * 换 nonce 会让他做的功白费，还会得到一个莫名其妙的「源码里没找到验证码」。
+ *
+ * 只有两种情况才发新 nonce：没有可用的（首次 / 已过期 / 尝试次数用尽）。
+ * 换 nonce 后旧的那个自然作废，因为它已经不在 pending 且未过期的集合里了。
  */
 export async function startClaim(input: {
   toyId: string;
   uid: string;
   nonce: string;
   ttlHours: number;
-}): Promise<ToyClaim> {
+  maxAttempts: number;
+}): Promise<StartClaimResult> {
   return withTransaction(async (client) => {
+    const existing = await client.query<ToyClaim>(
+      `select id, toy_id, claimant_uid, nonce, state, attempts, expires_at
+         from toy_claim
+        where toy_id = $1
+          and claimant_uid = $2
+          and state = 'pending'
+          and expires_at > now()
+          and attempts < $3
+        order by created_at desc
+        limit 1`,
+      [input.toyId, input.uid, input.maxAttempts],
+    );
+
+    const found = existing.rows[0];
+    if (found) {
+      await client.query(
+        `update toy set state = 'pending', updated_at = now()
+          where toy_id = $1 and state = 'unclaimed'`,
+        [input.toyId],
+      );
+      return { claim: found, reused: true };
+    }
+
+    // 没有可用的，作废旧的再建一个新的
     await client.query(
       `update toy_claim
           set state = 'expired'
@@ -174,7 +212,7 @@ export async function startClaim(input: {
        returning id, toy_id, claimant_uid, nonce, state, attempts, expires_at`,
       [input.toyId, input.uid, input.nonce, input.ttlHours],
     );
-    return res.rows[0]!;
+    return { claim: res.rows[0]!, reused: false };
   });
 }
 
@@ -239,6 +277,14 @@ export async function completeClaim(input: {
           set state = 'verified', owner_uid = $2, verified_at = now(), updated_at = now()
         where toy_id = $1`,
       [input.toyId, input.uid],
+    );
+
+    // 这个 toy 已经被赢了，其他人还挂着的 pending 认领不会再有机会
+    await client.query(
+      `update toy_claim
+          set state = 'failed', last_error = 'claimed_by_someone_else'
+        where toy_id = $1 and state = 'pending'`,
+      [input.toyId],
     );
 
     await client.query(
