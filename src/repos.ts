@@ -381,8 +381,87 @@ export async function recordUsage(uid: string, toyId: string): Promise<void> {
   );
 }
 
+// ---------------------------------------------------------------- refresh token
+
+export type RefreshTokenRow = {
+  token_hash: string;
+  uid: string;
+  client_id: string;
+  family_id: string;
+  expires_at: Date;
+  used_at: Date | null;
+  revoked_at: Date | null;
+};
+
+/** 写入一枚新的刷新令牌。存的是哈希，明文只在这一刻存在。 */
+export async function insertRefreshToken(input: {
+  tokenHash: string;
+  uid: string;
+  clientId: string;
+  familyId: string;
+  ttlDays: number;
+}): Promise<void> {
+  await query(
+    `insert into refresh_token (token_hash, uid, client_id, family_id, expires_at)
+     values ($1, $2, $3, $4, now() + make_interval(days => $5))`,
+    [input.tokenHash, input.uid, input.clientId, input.familyId, input.ttlDays],
+  );
+}
+
+export async function getRefreshToken(tokenHash: string): Promise<RefreshTokenRow | null> {
+  return queryOne<RefreshTokenRow>(
+    `select token_hash, uid, client_id, family_id, expires_at, used_at, revoked_at
+       from refresh_token where token_hash = $1`,
+    [tokenHash],
+  );
+}
+
+/**
+ * 原子地消费一枚刷新令牌。
+ * 只有「没用过、没作废、没过期」才能被取走；返回 null 表示没抢到。
+ *
+ * 两个并发请求同时刷新时，只有一个能成功 —— 另一个会拿到 null，
+ * 调用方据此判定为「已用过的令牌又出现」，按泄漏处理。
+ */
+export async function consumeRefreshToken(tokenHash: string): Promise<RefreshTokenRow | null> {
+  return queryOne<RefreshTokenRow>(
+    `update refresh_token
+        set used_at = now()
+      where token_hash = $1
+        and used_at is null
+        and revoked_at is null
+        and expires_at > now()
+      returning token_hash, uid, client_id, family_id, expires_at, used_at, revoked_at`,
+    [tokenHash],
+  );
+}
+
+/**
+ * 作废整条轮换链。用于检测到令牌被复制的情况 ——
+ * 合法的使用者和窃取者里有一个是假的，分不清是谁，所以两边都踢掉，
+ * 让他们重新走一次过桥。
+ */
+export async function revokeRefreshFamily(familyId: string): Promise<number> {
+  const res = await query(
+    `update refresh_token set revoked_at = now()
+      where family_id = $1 and revoked_at is null`,
+    [familyId],
+  );
+  return res.rowCount ?? 0;
+}
+
+/** 作废某个用户在某个玩具上的全部刷新令牌（用于将来做「退出登录」） */
+export async function revokeUserClientRefreshTokens(uid: string, clientId: string): Promise<number> {
+  const res = await query(
+    `update refresh_token set revoked_at = now()
+      where uid = $1 and client_id = $2 and revoked_at is null`,
+    [uid, clientId],
+  );
+  return res.rowCount ?? 0;
+}
+
 /** 清掉过期数据，交给定时任务调用即可 */
-export async function cleanupExpired(): Promise<{ codes: number; claims: number }> {
+export async function cleanupExpired(): Promise<{ codes: number; claims: number; tokens: number }> {
   // auth_code 只保留还活着的码。1 小时的宽限纯粹是为了排查问题时
   // 还能看到刚过期的记录，使用统计已经搬到 identity_usage 了。
   const codes = await query(`delete from auth_code where expires_at < now() - interval '1 hour'`);
@@ -390,7 +469,16 @@ export async function cleanupExpired(): Promise<{ codes: number; claims: number 
     `update toy_claim set state = 'expired'
       where state = 'pending' and expires_at < now()`,
   );
-  return { codes: codes.rowCount ?? 0, claims: claims.rowCount ?? 0 };
+  // 刷新令牌过期后再留 7 天：万一是「过期后又被拿来用」的情况，
+  // 还能查到它属于哪条链，有助于判断是真过期还是被复制过。
+  const tokens = await query(
+    `delete from refresh_token where expires_at < now() - interval '7 days'`,
+  );
+  return {
+    codes: codes.rowCount ?? 0,
+    claims: claims.rowCount ?? 0,
+    tokens: tokens.rowCount ?? 0,
+  };
 }
 
 export type { pg };

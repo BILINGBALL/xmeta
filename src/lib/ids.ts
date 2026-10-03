@@ -1,8 +1,16 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 /** URL 安全的 base64（去掉 padding），用于 code / nonce / client_id */
 export function base64url(buf: Buffer): string {
   return buf.toString('base64url');
+}
+
+/**
+ * sha256 十六进制。刷新令牌只存这个，不存明文 ——
+ * 库被读走也不能直接拿去当令牌用。
+ */
+export function sha256Hex(input: string): string {
+  return createHash('sha256').update(input).digest('hex');
 }
 
 /** 默认 32 字节的随机标识 */

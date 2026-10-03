@@ -260,6 +260,104 @@ test('授权码是一次性的', async () => {
   assert.equal(second.json.error.code, 'code_used');
 });
 
+/** 走一遍过桥，拿一对 access + refresh */
+async function bridgeOnce(): Promise<{ accessToken: string; refreshToken: string }> {
+  const { json: auth } = await post('/api/bridge/authorize', {
+    cid: clientId,
+    toyOpenId: PLAYER_OPENID,
+  });
+  const { json } = await post('/api/oauth/token', {
+    grant_type: 'authorization_code',
+    code: auth.code,
+    client_id: clientId,
+  });
+  return { accessToken: json.access_token, refreshToken: json.refresh_token };
+}
+
+test('静默续期：刷新令牌换出新的一对，并且轮换', async () => {
+  const first = await bridgeOnce();
+  assert.ok(first.refreshToken, '首次授权应该同时下发刷新令牌');
+
+  const { status, json } = await post('/api/oauth/token', {
+    grant_type: 'refresh_token',
+    refresh_token: first.refreshToken,
+    client_id: clientId,
+  });
+
+  assert.equal(status, 200);
+  assert.ok(json.access_token);
+  assert.ok(json.refresh_token);
+  assert.notEqual(json.refresh_token, first.refreshToken, '刷新令牌必须轮换');
+  assert.equal(json.audience, TOY_ID, '续期出来的 token 仍然只对 ta 自己的玩具有效');
+
+  // 新 token 能验签，且 exp 是往后推的
+  const jwksRes = await app.inject({ method: 'GET', url: '/.well-known/jwks.json' });
+  const { keys } = JSON.parse(jwksRes.body) as { keys: JWK[] };
+  const key = await importJWK(keys[0]!, 'ES256');
+  const { payload } = await jwtVerify(json.access_token, key, {
+    issuer: config.PUBLIC_BASE_URL,
+    audience: TOY_ID,
+  });
+  assert.ok(payload.exp! > payload.iat!);
+});
+
+test('刷新令牌被重复使用 → 整条链作废（重放检测）', async () => {
+  const first = await bridgeOnce();
+
+  // 正常用一次
+  const { json: rotated } = await post('/api/oauth/token', {
+    grant_type: 'refresh_token',
+    refresh_token: first.refreshToken,
+    client_id: clientId,
+  });
+  assert.ok(rotated.refresh_token);
+
+  // 把旧的那个再拿来用一次 —— 说明它被复制走了
+  const replay = await post('/api/oauth/token', {
+    grant_type: 'refresh_token',
+    refresh_token: first.refreshToken,
+    client_id: clientId,
+  });
+  assert.equal(replay.status, 401);
+  assert.equal(replay.json.error.code, 'refresh_token_reused');
+
+  // 窃取者和合法用户分不清，所以整条链一起作废 ——
+  // 连刚才轮换出来的那枚新令牌也不能再用了
+  const afterKill = await post('/api/oauth/token', {
+    grant_type: 'refresh_token',
+    refresh_token: rotated.refresh_token,
+    client_id: clientId,
+  });
+  assert.equal(afterKill.status, 401);
+  assert.equal(afterKill.json.error.code, 'refresh_token_revoked');
+});
+
+test('刷新令牌不能拿去换别的 client 的 token', async () => {
+  const { refreshToken } = await bridgeOnce();
+
+  const { status, json } = await post('/api/oauth/token', {
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_id: 'xmeta_someone_else',
+  });
+
+  assert.equal(status, 400);
+  assert.equal(json.error.code, 'invalid_grant');
+});
+
+test('拿 access_token 冒充刷新令牌 → 无效', async () => {
+  const { accessToken } = await bridgeOnce();
+
+  const { status, json } = await post('/api/oauth/token', {
+    grant_type: 'refresh_token',
+    refresh_token: accessToken,
+    client_id: clientId,
+  });
+
+  assert.equal(status, 400);
+  assert.equal(json.error.code, 'invalid_grant');
+});
+
 test('未认领的玩具不能过桥', async () => {
   const { status, json } = await post('/api/bridge/authorize', {
     cid: 'xmeta_does_not_exist',

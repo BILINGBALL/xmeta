@@ -12,6 +12,11 @@ const schema = z.object({
   MY_TOY_SLUG: z.string().min(1),
   ALLOWED_ORIGINS: z.string().default('https://www.bilibilitoy.com'),
   JWT_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  /**
+   * 刷新令牌的有效期（滑动）。每次刷新都往后推这么多天，
+   * 所以「活跃用户永远不掉线，X 天不活跃才需要重新过桥」。
+   */
+  REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(30),
   AUTH_CODE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
   CLAIM_NONCE_TTL_HOURS: z.coerce.number().int().positive().default(24),
   CLAIM_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),

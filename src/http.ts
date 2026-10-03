@@ -42,9 +42,16 @@ export const bridgeAuthorizeSchema = identitySchema.extend({
   st: z.string().max(256).nullish(),
 });
 
-export const tokenSchema = z.object({
-  grant_type: z.literal('authorization_code'),
-  code: z.string().min(1).max(256),
-  client_id: z.string().min(1).max(128),
-  code_verifier: z.string().min(16).max(256).nullish(),
-});
+export const tokenSchema = z.discriminatedUnion('grant_type', [
+  z.object({
+    grant_type: z.literal('authorization_code'),
+    code: z.string().min(1).max(256),
+    client_id: z.string().min(1).max(128),
+    code_verifier: z.string().min(16).max(256).nullish(),
+  }),
+  z.object({
+    grant_type: z.literal('refresh_token'),
+    refresh_token: z.string().min(1).max(512),
+    client_id: z.string().min(1).max(128),
+  }),
+]);
