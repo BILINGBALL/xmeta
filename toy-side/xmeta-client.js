@@ -115,6 +115,21 @@
       localStorage.setItem(VERIFIER_KEY + ':st', state)
     } catch (e) { /* 隐私模式下写不进去，下面换 code 会失败并提示 */ }
 
+    // 诊断：记下「我打算带哪些参数跳过去」。
+    // B站 所有玩具的内层 iframe 同在 www.bilibilitoy.com 这个源下，
+    // 所以中心玩具那边读得到，可以用来判断参数是发出去就没带、
+    // 还是中途被丢了。定位完可以删掉这几行。
+    try {
+      localStorage.setItem('xmeta:diag', JSON.stringify({
+        stage: 'login',
+        cid: CFG.clientId,
+        centerToySlug: CFG.centerToySlug,
+        cc: challenge,
+        st: state,
+        at: new Date().toISOString()
+      }))
+    } catch (e) { /* 忽略 */ }
+
     await toy.navigate({
       type: 'toy',
       id: CFG.centerToySlug,

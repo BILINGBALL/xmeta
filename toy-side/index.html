@@ -8,9 +8,11 @@
 // 第三方玩具用 toy.navigate({type:'toy', id:'xmeta', extra:{cid,...}}) 跳过来时，
 // 落点固定是 index.html，query 会被 B站 shell 原样转发到这一层。
 // 所以这里必须先把带 cid 的请求转交给真正的过桥页。
-(function () {
+window.__XMETA_HAD_CID__ = false
+;(function () {
   var qs = new URLSearchParams(location.search)
   if (qs.get('cid')) {
+    window.__XMETA_HAD_CID__ = true
     location.replace('bridge.html?' + location.search.slice(1))
   }
 })()
@@ -37,6 +39,11 @@
   <h1>Toy 联机工具</h1>
   <p class="sub">给 B站 玩具提供跨玩具的统一用户身份。</p>
 
+  <div id="dbg" hidden
+       style="background:#fff3cd;border:1px solid #ffe69c;color:#664d03;
+              border-radius:10px;padding:12px 14px;font-size:12px;
+              line-height:1.8;margin-bottom:14px;word-break:break-all"></div>
+
   <a class="card" href="claim.html">
     <span class="arrow">›</span>
     <h2>认领我的玩具</h2>
@@ -57,5 +64,32 @@
     详细说明见仓库 README。
   </div>
 </div>
+
+<script>
+// 诊断用：没收到 cid 说明参数在跳转过程中丢了，页面只能停在首页。
+// 把实际收到的地址显示出来，好判断是丢在哪一环。
+if (!window.__XMETA_HAD_CID__) {
+  var el = document.getElementById('dbg')
+  if (el) {
+    var esc = function (s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]
+      })
+    }
+    var diag = null
+    try { diag = localStorage.getItem('xmeta:diag') } catch (e) {}
+
+    el.hidden = false
+    el.innerHTML =
+      '<b>诊断：这个页面没有收到 cid 参数</b><br>' +
+      '所以没能进入过桥流程，只能停在首页。<br><br>' +
+      '<b>① 实际收到的地址</b><br><code>' + esc(location.href) + '</code><br><br>' +
+      '<b>② 上一个玩具说要带的参数</b><br><code>' +
+      (diag ? esc(diag) : '（读不到 —— 要么上一页根本没点按钮，要么它没写进来）') +
+      '</code><br><br>' +
+      '把这两段一起发给开发者。'
+  }
+}
+</script>
 </body>
 </html>
