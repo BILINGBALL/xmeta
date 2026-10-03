@@ -31,7 +31,7 @@ if (!parsed.success) {
   const issues = parsed.error.issues
     .map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`)
     .join('\n');
-  console.error(`[ucs] 环境变量校验失败：\n${issues}\n\n请检查 .env（可参考 .env.example）`);
+  console.error(`[xmeta] 环境变量校验失败：\n${issues}\n\n请检查 .env（可参考 .env.example）`);
   process.exit(1);
 }
 
@@ -39,7 +39,7 @@ const env = parsed.data;
 
 if (env.MY_TOY_ID === '0' || env.MY_TOY_SLUG === 'CHANGE_ME') {
   console.warn(
-    '[ucs] 警告：MY_TOY_ID / MY_TOY_SLUG 还是占位值。\n' +
+    '[xmeta] 警告：MY_TOY_ID / MY_TOY_SLUG 还是占位值。\n' +
       '      身份锚点没配好之前，认领和过桥拿到的身份都无法正确归档。',
   );
 }

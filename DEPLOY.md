@@ -40,9 +40,9 @@ node -v   # 应 >= v20
 
 ```bash
 sudo mkdir -p /srv && cd /srv
-sudo git clone https://github.com/BILINGBALL/xmeta.git ucs
-sudo chown -R $USER:$USER /srv/ucs
-cd /srv/ucs
+sudo git clone https://github.com/BILINGBALL/xmeta.git xmeta
+sudo chown -R $USER:$USER /srv/xmeta
+cd /srv/xmeta
 npm ci
 ```
 
@@ -56,7 +56,7 @@ nano .env
 **必须改的**：
 
 ```ini
-DATABASE_URL=postgresql://<用户名>:<密码>@<RDS内网地址>:5432/ucs
+DATABASE_URL=postgresql://<用户名>:<密码>@<RDS内网地址>:5432/xmeta
 PUBLIC_BASE_URL=https://api.你的域名.com     # ← 必须和真实访问地址完全一致
 MY_TOY_ID=39945062320128                     # xmeta 的 toy_id
 MY_TOY_SLUG=xmeta
@@ -64,7 +64,7 @@ ALLOWED_ORIGINS=https://www.bilibilitoy.com
 TRUST_PROXY=true                             # 在 nginx 后面，必须开
 ```
 
-> `PUBLIC_BASE_URL` 会写进 JWT 的 `iss`，也是 `/.well-known/ucs-configuration`
+> `PUBLIC_BASE_URL` 会写进 JWT 的 `iss`，也是 `/.well-known/xmeta-configuration`
 > 里发布的 issuer。**写成 http 或写成内网地址都会让接入方的验签失败。**
 > RDS 建议用**内网地址**，走公网既慢又可能被白名单挡。
 
@@ -82,13 +82,13 @@ npm run build
 
 ```bash
 sudo npm i -g pm2
-pm2 start dist/server.js --name ucs
+pm2 start dist/server.js --name xmeta
 pm2 save
 pm2 startup     # 照着输出的提示再执行一次它给的那行命令
 ```
 
 服务启动时会自动跑一次迁移并加载签名密钥，日志里会打印
-`[ucs] 签名密钥就绪` 和 `[ucs] 监听 http://...`。
+`[xmeta] 签名密钥就绪` 和 `[xmeta] 监听 http://...`。
 
 > ⚠️ `MY_TOY_ID` / `MY_TOY_SLUG` 还是占位值时启动会打警告。看到警告说明没配好。
 
@@ -144,11 +144,11 @@ sudo certbot --nginx -d api.你的域名.com
 ```bash
 curl https://api.你的域名.com/health
 curl https://api.你的域名.com/.well-known/jwks.json
-curl https://api.你的域名.com/.well-known/ucs-configuration
+curl https://api.你的域名.com/.well-known/xmeta-configuration
 ```
 
 `jwks.json` 应该返回一把 `"kty":"EC","crv":"P-256"` 的密钥。
-`ucs-configuration` 里的 `issuer` 应该等于你的 `PUBLIC_BASE_URL`。
+`xmeta-configuration` 里的 `issuer` 应该等于你的 `PUBLIC_BASE_URL`。
 
 再验一下 CORS（玩具是跨域调用的，这条不过整个链路就废了）：
 
@@ -171,7 +171,7 @@ curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
    > 忘了改是新手最常见的坑：`127.0.0.1` 在用户手机上指的是用户自己的手机。
 
 2. 把三个文件上传到 `xmeta`（覆盖原来的 `index.html`），发布。
-   `ucs-client.js` 是给第三方玩具作者用的，不用传到 xmeta。
+   `xmeta-client.js` 是给第三方玩具作者用的，不用传到 xmeta。
 
 3. **在 B站 玩具后台开启 `xmeta` 的 OpenID 模式。**
    不开的话 `getUserProfile()` 不返回 `toyOpenId`，整条链断在第一环。
@@ -198,11 +198,11 @@ curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
 ## 7. 升级
 
 ```bash
-cd /srv/ucs
+cd /srv/xmeta
 git pull
 npm ci
 npm run build
-pm2 restart ucs
+pm2 restart xmeta
 ```
 
 迁移是幂等的，启动时自动跑，不用单独执行。

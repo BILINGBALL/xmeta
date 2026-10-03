@@ -98,7 +98,7 @@ export async function claimRoutes(
       expiresAt: claim.expires_at,
       instructions:
         `把下面这行加进你 toy 的 index.html（<head> 里任意位置），保存并发布：\n\n` +
-        `<meta name="ucs-verify" content="${nonce}">\n\n` +
+        `<meta name="xmeta-verify" content="${nonce}">\n\n` +
         `发布完成后回来点「我已发布，开始验证」。验证码一次性，验证通过后可以删掉。`,
     };
   });

@@ -51,7 +51,7 @@ async function loadOrCreateKey(): Promise<ActiveKey> {
 
   // 生成新密钥。用 advisory lock 保证多实例并发启动时只生成一把。
   return withTransaction(async (client) => {
-    await client.query(`select pg_advisory_xact_lock(hashtext('ucs:jwt_signing_key'))`);
+    await client.query(`select pg_advisory_xact_lock(hashtext('xmeta:jwt_signing_key'))`);
 
     const raced = await client.query<KeyRow>(
       `select kid, private_jwk, public_jwk

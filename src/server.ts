@@ -9,29 +9,29 @@ async function main(): Promise<void> {
   // 迁移是幂等的，启动时顺手跑一遍，省得部署时漏步骤
   await runMigrations();
   await getActiveKey();
-  console.log('[ucs] 签名密钥就绪');
+  console.log('[xmeta] 签名密钥就绪');
 
   const app = await buildApp();
 
   await app.listen({ host: config.HOST, port: config.PORT });
-  console.log(`[ucs] 监听 http://${config.HOST}:${config.PORT}`);
+  console.log(`[xmeta] 监听 http://${config.HOST}:${config.PORT}`);
 
   const cleanupTimer = setInterval(
     () => {
       cleanupExpired()
         .then((r) => {
           if (r.codes || r.claims) {
-            console.log(`[ucs] 清理过期授权码 ${r.codes} 条 / 认领 ${r.claims} 条`);
+            console.log(`[xmeta] 清理过期授权码 ${r.codes} 条 / 认领 ${r.claims} 条`);
           }
         })
-        .catch((err) => console.error('[ucs] 清理失败：', err));
+        .catch((err) => console.error('[xmeta] 清理失败：', err));
     },
     30 * 60 * 1000,
   );
   cleanupTimer.unref();
 
   const shutdown = async (signal: string) => {
-    console.log(`[ucs] 收到 ${signal}，正在关闭…`);
+    console.log(`[xmeta] 收到 ${signal}，正在关闭…`);
     clearInterval(cleanupTimer);
     try {
       await app.close();
@@ -46,6 +46,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('[ucs] 启动失败：', err);
+  console.error('[xmeta] 启动失败：', err);
   process.exit(1);
 });

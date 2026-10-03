@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   const targetDb = decodeURIComponent(url.pathname.replace(/^\//, ''));
 
   if (!targetDb) {
-    console.error('[ucs] DATABASE_URL 里没有库名，无法确定要创建哪个库');
+    console.error('[xmeta] DATABASE_URL 里没有库名，无法确定要创建哪个库');
     process.exit(1);
   }
 
@@ -22,19 +22,19 @@ async function main(): Promise<void> {
   try {
     const exists = await admin.query('select 1 from pg_database where datname = $1', [targetDb]);
     if ((exists.rowCount ?? 0) > 0) {
-      console.log(`[ucs] 库 ${targetDb} 已存在，跳过`);
+      console.log(`[xmeta] 库 ${targetDb} 已存在，跳过`);
       return;
     }
     // 标识符不能参数化，只能自己转义
     const safe = `"${targetDb.replace(/"/g, '""')}"`;
     await admin.query(`create database ${safe} encoding 'UTF8'`);
-    console.log(`[ucs] 已创建库 ${targetDb}`);
+    console.log(`[xmeta] 已创建库 ${targetDb}`);
   } finally {
     await admin.end();
   }
 }
 
 main().catch((err) => {
-  console.error('[ucs] 建库失败：', err);
+  console.error('[xmeta] 建库失败：', err);
   process.exit(1);
 });

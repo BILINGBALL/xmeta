@@ -1,4 +1,4 @@
--- ucs: B站 Toy 跨 toy 身份桥 —— 初始 schema
+-- xmeta: B站 Toy 跨 toy 身份桥 —— 初始 schema
 -- 约定：toy_id / mid 一律用 bigint；代码里当字符串传递，避免 JS number 精度问题。
 
 -- 身份表。唯一的身份源是「我的 toy 内的 toyOpenId」。

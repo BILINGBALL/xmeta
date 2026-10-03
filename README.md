@@ -1,4 +1,4 @@
-# ucs — B站 Toy 跨 toy 身份桥
+# xmeta — B站 Toy 跨 toy 身份桥
 
 给 B站 Toy 提供「跨玩具的稳定用户身份」。第三方玩具把用户送到中心玩具完成一次授权，
 拿回一个只对它自己有效的 JWT，用这个 JWT 认人。
@@ -76,7 +76,7 @@ npm run dev               # http://127.0.0.1:8787
 | POST | `/api/bridge/authorize` | 用 toyOpenId 换一次性 code |
 | POST | `/api/oauth/token` | 用 code 换 JWT |
 | GET | `/.well-known/jwks.json` | 公钥，接入方拿来验签 |
-| GET | `/.well-known/ucs-configuration` | 接入方元信息 |
+| GET | `/.well-known/xmeta-configuration` | 接入方元信息 |
 | GET | `/health` | 健康检查 |
 
 > 所有带 `toyOpenId` 的调用都必须是 POST。它是密钥级数据，
@@ -110,7 +110,7 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 | `index.html` | 中心玩具的入口。带 `?cid=` 时自动转发给 `bridge.html`，否则是导航页 |
 | `claim.html` | 上传到**中心玩具**，作者用来认领 |
 | `bridge.html` | 上传到**中心玩具**，用户过桥时落到这里 |
-| `ucs-client.js` | 给**第三方玩具**引入 |
+| `xmeta-client.js` | 给**第三方玩具**引入 |
 
 > 第三方玩具用 `toy.navigate({ type:'toy', id:'<中心玩具 slug>' })` 跳过来时，
 > 落点固定是 `index.html`，所以 `index.html` 必须保留那行转发逻辑。
@@ -121,18 +121,18 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 
 ```html
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
-<script src="ucs-client.js"></script>
+<script src="xmeta-client.js"></script>
 <script>
-  UCS.configure({
+  XMETA.configure({
     apiBase: 'https://your-api.example.com',
     myToySlug: '<中心玩具 slug>',
     clientId: '<认领拿到的 client_id>'
   })
 
   // 必须在用户手势里调用，toy.navigate 需要手势
-  document.querySelector('#login').onclick = () => UCS.login()
+  document.querySelector('#login').onclick = () => XMETA.login()
 
-  UCS.onSession(s => {
+  XMETA.onSession(s => {
     // 把 s.jwt 交给自己的服务端验签
     console.log('登录成功，uid =', s.uid)
   })
@@ -149,7 +149,7 @@ npm run typecheck
 ```
 
 B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / PKCE / 签名都是真的。
-测试会往 `ucs` 库里写 `testtoy*` 前缀的临时数据，跑完自己清理。
+测试会往 `xmeta` 库里写 `testtoy*` 前缀的临时数据，跑完自己清理。
 
 ---
 
@@ -164,7 +164,7 @@ B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / PKCE / �
 5. **`/x/sunflower/artifex/toy/detail` 是未公开接口**，随时可能变更或限流。
    抓 shell 页面解 `__TOY_META__` 是可用的兜底路径。生产环境建议给 toy 元数据加缓存。
 6. **`localStorage` 在 `www.bilibilitoy.com` 下是所有玩具共享的**（同源），
-   所以 `ucs-client.js` 的 key 都带 clientId 前缀，且只存一次性的 PKCE verifier。
+   所以 `xmeta-client.js` 的 key 都带 clientId 前缀，且只存一次性的 PKCE verifier。
 7. **nonce 的钓鱼风险无技术解**：不能阻止作者被别人骗着把验证码贴进代码。
    这是所有域名验证方案的共同弱点，只能靠文案提示降低概率。
 

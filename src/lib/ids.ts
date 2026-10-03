@@ -19,7 +19,7 @@ export function randomNonce(bytes = 24): string {
 }
 
 export function clientId(): string {
-  return `ucs_${randomToken(16)}`;
+  return `xmeta_${randomToken(16)}`;
 }
 
 export function newUuid(): string {

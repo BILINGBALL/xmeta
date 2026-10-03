@@ -11,10 +11,11 @@ export async function wellKnownRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /** 给接入方用的元信息，省得把 issuer 写死在文档里 */
-  app.get('/.well-known/ucs-configuration', async () => ({
+  app.get('/.well-known/xmeta-configuration', async () => ({
     issuer: config.PUBLIC_BASE_URL,
     jwks_uri: `${config.PUBLIC_BASE_URL}/.well-known/jwks.json`,
-    authorization_endpoint: `${config.MY_TOY_SLUG}`,
+    /** 接入方把用户送过来的入口 */
+    authorization_endpoint: `https://www.bilibili.com/toy/${config.MY_TOY_SLUG}/index.html`,
     token_endpoint: `${config.PUBLIC_BASE_URL}/api/oauth/token`,
     token_endpoint_auth_methods_supported: ['none'],
     code_challenge_methods_supported: ['S256'],

@@ -13,7 +13,7 @@ export async function runMigrations(): Promise<void> {
   const files = (await readdir(SQL_DIR)).filter((f) => f.endsWith('.sql')).sort();
 
   await withTransaction(async (client) => {
-    await client.query(`select pg_advisory_xact_lock(hashtext('ucs:migrations'))`);
+    await client.query(`select pg_advisory_xact_lock(hashtext('xmeta:migrations'))`);
     await client.query(
       `create table if not exists schema_migration (
          name       text primary key,
@@ -29,7 +29,7 @@ export async function runMigrations(): Promise<void> {
       const sql = await readFile(path.join(SQL_DIR, file), 'utf8');
       await client.query(sql);
       await client.query(`insert into schema_migration (name) values ($1)`, [file]);
-      console.log(`[ucs] 已应用迁移 ${file}`);
+      console.log(`[xmeta] 已应用迁移 ${file}`);
     }
   });
 }
@@ -41,11 +41,11 @@ const invokedDirectly =
 if (invokedDirectly) {
   runMigrations()
     .then(() => {
-      console.log('[ucs] 迁移完成');
+      console.log('[xmeta] 迁移完成');
       return pool.end();
     })
     .catch((err) => {
-      console.error('[ucs] 迁移失败：', err);
+      console.error('[xmeta] 迁移失败：', err);
       process.exit(1);
     });
 }

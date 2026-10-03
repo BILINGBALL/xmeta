@@ -46,7 +46,7 @@ const stubBili: BiliDeps = {
       shellUrl: `https://www.bilibili.com/toy/${slug}/index.html`,
       contentUrl: `https://www.bilibilitoy.com/toy/${slug}/${TOY_ID}-v1/index.html`,
       // nonce 在 start 阶段才生成，所以这里在调用时读取
-      html: `<html><head><meta name="ucs-verify" content="${nonce}"></head><body>toy</body></html>`,
+      html: `<html><head><meta name="xmeta-verify" content="${nonce}"></head><body>toy</body></html>`,
     };
   },
 };
@@ -246,7 +246,7 @@ test('授权码是一次性的', async () => {
 
 test('未认领的玩具不能过桥', async () => {
   const { status, json } = await post('/api/bridge/authorize', {
-    cid: 'ucs_does_not_exist',
+    cid: 'xmeta_does_not_exist',
     toyOpenId: PLAYER_OPENID,
   });
 

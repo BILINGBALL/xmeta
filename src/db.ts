@@ -12,7 +12,7 @@ export const pool = new Pool({
 });
 
 pool.on('error', (err) => {
-  console.error('[ucs] 空闲连接异常：', err);
+  console.error('[xmeta] 空闲连接异常：', err);
 });
 
 export type QueryParam = unknown;

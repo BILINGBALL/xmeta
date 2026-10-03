@@ -1,21 +1,21 @@
 /**
- * ucs-client.js —— 第三方玩具接入脚本
+ * xmeta-client.js —— 第三方玩具接入脚本
  *
  * 用法：
  *   <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
- *   <script src="ucs-client.js"></script>
+ *   <script src="xmeta-client.js"></script>
  *   <script>
- *     UCS.configure({
+ *     XMETA.configure({
  *       apiBase: 'https://your-api.example.com',
  *       myToySlug: '<中心玩具的 slug>',
  *       clientId: '<认领后拿到的 client_id>'
  *     })
  *
  *     // 必须在用户点击里调用（toy.navigate 需要手势）
- *     btn.onclick = () => UCS.login()
+ *     btn.onclick = () => XMETA.login()
  *
  *     // 从中心玩具跳回来之后会自动换取 JWT 并派发事件
- *     UCS.onSession(s => console.log(s.jwt, s.uid))
+ *     XMETA.onSession(s => console.log(s.jwt, s.uid))
  *   </script>
  *
  * 注意：localStorage 在 www.bilibilitoy.com 下是所有玩具共享的，
@@ -65,21 +65,21 @@
 
   function emit() {
     listeners.forEach(function (fn) {
-      try { fn(SESSION) } catch (e) { console.error('[ucs] listener 出错', e) }
+      try { fn(SESSION) } catch (e) { console.error('[xmeta] listener 出错', e) }
     })
   }
 
   function configure(opts) {
     CFG = Object.assign(CFG, opts || {})
     if (!CFG.apiBase || !CFG.myToySlug || !CFG.clientId) {
-      throw new Error('[ucs] 请先配置 apiBase / myToySlug / clientId')
+      throw new Error('[xmeta] 请先配置 apiBase / myToySlug / clientId')
     }
-    VERIFIER_KEY = 'ucs:pkce:' + CFG.clientId
+    VERIFIER_KEY = 'xmeta:pkce:' + CFG.clientId
   }
 
   /** 发起过桥。必须在用户手势（click）里调用。 */
   async function login() {
-    if (!CFG.clientId) throw new Error('[ucs] 还没 configure')
+    if (!CFG.clientId) throw new Error('[xmeta] 还没 configure')
 
     var verifier = randomString(32)
     var challenge = await s256(verifier)
@@ -123,10 +123,10 @@
     } catch (e) { /* 忽略 */ }
 
     if (!verifier) {
-      throw new Error('[ucs] 找不到本次登录的 PKCE 记录，是不是换了设备或清了缓存？')
+      throw new Error('[xmeta] 找不到本次登录的 PKCE 记录，是不是换了设备或清了缓存？')
     }
     if (expectState && state !== expectState) {
-      throw new Error('[ucs] state 不匹配，可能被伪造，已中止')
+      throw new Error('[xmeta] state 不匹配，可能被伪造，已中止')
     }
 
     var res = await post('/api/oauth/token', {
@@ -172,7 +172,7 @@
     return null
   }
 
-  global.UCS = {
+  global.XMETA = {
     configure: configure,
     login: login,
     handleRedirect: handleRedirect,
@@ -180,12 +180,12 @@
     getSession: getSession
   }
 
-  // 自动处理回跳。必须等 load —— 调用方的 UCS.configure() 在
+  // 自动处理回跳。必须等 load —— 调用方的 XMETA.configure() 在
   // 本文件之后的 inline script 里执行，那时配置才就绪。
   function autoHandle() {
     if (!CFG.clientId) return
     handleRedirect().catch(function (e) {
-      console.error('[ucs] 换取 JWT 失败：', e.message)
+      console.error('[xmeta] 换取 JWT 失败：', e.message)
     })
   }
 
