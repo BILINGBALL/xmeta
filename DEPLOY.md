@@ -53,20 +53,41 @@ cp .env.example .env
 nano .env
 ```
 
-**必须改的**：
+**完整配置**（照抄，把尖括号里的换掉）：
 
 ```ini
 DATABASE_URL=postgresql://<用户名>:<密码>@<RDS内网地址>:5432/xmeta
-PUBLIC_BASE_URL=https://api.你的域名.com     # ← 必须和真实访问地址完全一致
-MY_TOY_ID=39945062320128                     # xmeta 的 toy_id
+HOST=127.0.0.1
+PORT=8787
+PUBLIC_BASE_URL=https://api.你的域名.com
+MY_TOY_ID=39945062320128
 MY_TOY_SLUG=xmeta
 ALLOWED_ORIGINS=https://www.bilibilitoy.com
-TRUST_PROXY=true                             # 在 nginx 后面，必须开
+JWT_TTL_SECONDS=900
+AUTH_CODE_TTL_SECONDS=60
+CLAIM_NONCE_TTL_HOURS=24
+CLAIM_MAX_ATTEMPTS=10
+TRUST_PROXY=true
 ```
 
-> `PUBLIC_BASE_URL` 会写进 JWT 的 `iss`，也是 `/.well-known/xmeta-configuration`
-> 里发布的 issuer。**写成 http 或写成内网地址都会让接入方的验签失败。**
-> RDS 建议用**内网地址**，走公网既慢又可能被白名单挡。
+三个最容易配错的：
+
+**① `PUBLIC_BASE_URL` 必须和真实访问地址逐字符一致。**
+它会写进 JWT 的 `iss`，也是 `/.well-known/xmeta-configuration` 发布的 issuer。
+写成 `http://` 或内网地址，接入方验签会全部失败。
+
+**② `DATABASE_URL` 用 RDS 内网地址，并且不要加 `sslmode`。**
+这台 RDS **不支持 SSL**（实测 `sslmode=require` 直接报
+`The server does not support SSL connections`）。所以：
+
+- 加了 `sslmode=require` → 连不上
+- 用**公网地址** → 密码和数据在全网明文传输
+
+服务器和 RDS 同地域的话，一定要用控制台上的**内网地址**，流量不出 VPC。
+
+**③ `HOST=127.0.0.1`（在 nginx 后面时）。**
+默认的 `0.0.0.0` 会让 8787 对全网可访问。绑到回环地址后，
+即使安全组配错了端口也不会暴露。
 
 ### 2.4 建库建表
 
@@ -82,10 +103,14 @@ npm run build
 
 ```bash
 sudo npm i -g pm2
-pm2 start dist/server.js --name xmeta
+pm2 start dist/server.js --name xmeta --cwd /srv/xmeta
 pm2 save
 pm2 startup     # 照着输出的提示再执行一次它给的那行命令
 ```
+
+> `--cwd` 不能省。`.env` 是由 dotenv 按**进程工作目录**读取的，
+> 而 pm2 守护进程的工作目录未必是 `/srv/xmeta`。不指定的话会读到
+> 空配置，启动时报「环境变量校验失败」。
 
 服务启动时会自动跑一次迁移并加载签名密钥，日志里会打印
 `[xmeta] 签名密钥就绪` 和 `[xmeta] 监听 http://...`。
