@@ -138,7 +138,8 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 
   XMETA.onSession(s => {
     // 把 s.jwt 交给自己的服务端验签
-    console.log('登录成功，uid =', s.uid)
+    // s.uid 是 xmeta 内的用户 id，不是 B站 UID
+    console.log('已就绪，uid =', s.uid)
   })
 </script>
 ```

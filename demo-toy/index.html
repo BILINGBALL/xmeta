@@ -66,12 +66,12 @@
   <div class="card">
     <h2>状态</h2>
     <div class="kv"><span>client_id</span><code id="cid">—</code></div>
-    <div class="kv"><span>登录状态</span><b id="state" class="no">未登录</b></div>
+    <div class="kv"><span>联机身份</span><b id="state" class="no">未获取</b></div>
     <div class="kv" id="uidRow" hidden><span>uid</span><code id="uid">—</code></div>
   </div>
 
   <div class="card">
-    <button id="login">用 B站 账号登录</button>
+    <button id="login">开启联机</button>
     <button id="who" class="ghost">查看我的 toyOpenId（调试）</button>
     <div class="muted" id="tip"></div>
   </div>
@@ -125,7 +125,7 @@ if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
   try {
     XMETA.configure(CONFIG)
     configured = true
-    $('tip').textContent = '点登录会先跳到中心玩具完成一次授权，然后带着授权码跳回来。'
+    $('tip').textContent = '点「开启联机」会先跳到中心玩具完成一次授权，然后带着授权码跳回来。这里拿到的只是你在本玩具内的一个匿名标识，不是 B站 账号。'
   } catch (e) {
     fail('configure 失败：' + e.message)
     $('login').disabled = true
@@ -135,13 +135,13 @@ if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
 if (configured) {
   // 回跳之后 xmeta-client.js 会自动用 code 换 JWT，换好了通知这里
   XMETA.onSession((s) => {
-    $('state').textContent = '已登录'
+    $('state').textContent = '已就绪'
     $('state').className = 'ok'
     if (s.uid) { $('uid').textContent = s.uid; $('uidRow').hidden = false }
     $('result').hidden = false
     $('jwt').textContent = s.jwt
     $('claims').textContent = JSON.stringify(decodePayload(s.jwt), null, 2)
-    $('login').textContent = '重新登录'
+    $('login').textContent = '重新获取'
   })
 }
 
@@ -153,7 +153,7 @@ $('login').addEventListener('click', async () => {
     await XMETA.login()
     // 成功的话页面就被跳走了，这行不会执行到
   } catch (e) {
-    fail('登录失败：' + (e.message || e))
+    fail('开启失败：' + (e.message || e))
     $('login').disabled = false
   }
 })
