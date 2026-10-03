@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>过桥授权</title>
+<!-- 官方 SDK -->
+<script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin:0; font:16px/1.6 system-ui,-apple-system,"PingFang SC",sans-serif;
+         display:flex; align-items:center; justify-content:center; min-height:100vh;
+         background:#f5f6fa; color:#18191c; padding:24px; box-sizing:border-box; }
+  .card { background:#fff; border-radius:16px; padding:28px 24px; max-width:420px; width:100%;
+          box-shadow:0 4px 24px rgba(0,0,0,.06); text-align:center; }
+  .icon { width:72px; height:72px; border-radius:16px; object-fit:cover; background:#eef0f4; }
+  h1 { font-size:18px; margin:16px 0 6px; }
+  p  { font-size:14px; color:#61666d; margin:0 0 20px; }
+  button { width:100%; padding:14px; font-size:16px; font-weight:600; border:0;
+           border-radius:10px; background:#00aeec; color:#fff; cursor:pointer; }
+  button:disabled { background:#c9ccd0; cursor:not-allowed; }
+  button.ghost { background:#f1f2f3; color:#18191c; margin-top:10px; }
+  .hint { font-size:12px; color:#9499a0; margin-top:14px; word-break:break-all; }
+  .err  { color:#f25d8e; font-size:14px; margin-top:12px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <img class="icon" id="icon" alt="" hidden>
+  <h1 id="title">正在加载…</h1>
+  <p id="desc"></p>
+  <button id="go" disabled>开始联机</button>
+  <button id="back" class="ghost" hidden>返回游戏</button>
+  <div class="hint" id="hint"></div>
+  <div class="err" id="err"></div>
+</div>
+
+<script>
+// ⚠️ 部署前改成你的 API 地址
+const API_BASE = 'http://127.0.0.1:8787'
+
+const qs = new URLSearchParams(location.search)
+const CID = qs.get('cid')          // 第三方 toy 的 client_id
+const CC  = qs.get('cc')           // PKCE challenge
+const ST  = qs.get('st')           // 第三方 toy 的 state，原样带回
+
+const $ = (id) => document.getElementById(id)
+let pendingReturn = null
+
+function fail(msg) { $('err').textContent = msg }
+
+async function post(path, body) {
+  const res = await fetch(API_BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json?.error?.message || ('HTTP ' + res.status))
+  return json
+}
+
+// 1. 确认 client_id 有效，展示是哪个玩具在要身份
+;(async function loadContext() {
+  if (!CID) { fail('缺少 cid 参数，请从玩具内重新进入'); return }
+  try {
+    const res = await fetch(API_BASE + '/api/bridge/context?cid=' + encodeURIComponent(CID))
+    const json = await res.json()
+    if (!res.ok) throw new Error(json?.error?.message || ('HTTP ' + res.status))
+    $('title').textContent = `《${json.title || json.slug}》想获取你的身份`
+    $('desc').textContent = '仅用于在这款游戏中识别你，不会拿到你的 B站 账号信息。'
+    if (json.iconUrl) { $('icon').src = json.iconUrl; $('icon').hidden = false }
+    $('go').disabled = false
+  } catch (e) {
+    fail(e.message)
+  }
+})()
+
+// 2. 用户手势里调 getUserProfile（平台会弹确认框）
+$('go').addEventListener('click', async () => {
+  $('go').disabled = true
+  $('err').textContent = ''
+  try {
+    const supported = await toy.isSupport('getUserProfile')
+    if (!supported) throw new Error('当前环境不支持获取用户信息，请在 B站 App 内打开')
+
+    const profile = await toy.getUserProfile()
+    if (!profile.toyOpenId) {
+      throw new Error('这个玩具没有开启 OpenID 模式，拿不到用户标识')
+    }
+
+    const res = await post('/api/bridge/authorize', {
+      cid: CID,
+      cc: CC,
+      st: ST,
+      toyOpenId: profile.toyOpenId,
+      nickname: profile.nickname,
+      avatar: profile.avatar
+    })
+
+    pendingReturn = res
+    $('desc').textContent = '授权成功。点击下面按钮回到《' +
+      (res.returnToyTitle || res.returnSlug) + '》继续。'
+    $('go').hidden = true
+    $('back').hidden = false
+    $('hint').textContent = '授权码 ' + res.expiresIn + ' 秒内有效'
+  } catch (e) {
+    fail(e.message || String(e))
+    $('go').disabled = false
+  }
+})
+
+// 3. navigate 必须在用户手势中调用，所以这里必须是独立的一次点击
+$('back').addEventListener('click', async () => {
+  if (!pendingReturn) return
+  $('back').disabled = true
+  try {
+    await toy.navigate({
+      type: 'toy',
+      id: pendingReturn.returnSlug,
+      extra: { code: pendingReturn.code, st: ST || '' }
+    })
+  } catch (e) {
+    fail('跳转失败：' + (e.message || e))
+    $('back').disabled = false
+  }
+})
+</script>
+</body>
+</html>
