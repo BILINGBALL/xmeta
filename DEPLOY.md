@@ -162,6 +162,35 @@ sudo certbot --nginx -d api.你的域名.com
 - **不要**开放 `8787`
 - RDS 的 `5432` 只对服务器 IP 开放
 
+#### 443 已经被别的站点占用怎么办
+
+不用抢 443，也不必改 DNS。另开一个 TLS 端口即可（证书可以直接复用）：
+
+```nginx
+server {
+    listen 8443 ssl;
+    server_name 你的域名;
+
+    ssl_certificate     /path/to/fullchain.pem;   # 用 `nginx -T | grep ssl_certificate` 查实际路径
+    ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+这时对外地址是 `https://你的域名:8443`，`.env` 里的 `PUBLIC_BASE_URL`
+和玩具端 `API_BASE` 都要带上端口号。记得在安全组放行 `8443`。
+
+> 端口可以换，但**协议不能是 http**。玩具页面跑在 https 上，
+> 它调 http 接口会被浏览器按混合内容拦掉——只有 `127.0.0.1`
+> 是例外（Chrome 把它当作可信来源），所以本地能跑通不代表线上能跑通。
+
 ---
 
 ## 4. 上线后自查
