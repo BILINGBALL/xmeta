@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { config } from '../config.js';
+import { config, DEFAULT_TOKEN_TTL_HOURS } from '../config.js';
 import { Errors } from '../errors.js';
 import { bridgeAuthorizeSchema, parse } from '../http.js';
 import { randomToken } from '../lib/ids.js';
@@ -69,6 +69,8 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
 
     const code = randomToken(32);
     const challenge = body.cc ?? null;
+    // 用户选的授权时长。没选（比如老版本前端）就按默认值走。
+    const ttlHours = body.ttl ?? DEFAULT_TOKEN_TTL_HOURS;
 
     await insertAuthCode({
       code,
@@ -77,7 +79,8 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       codeChallenge: challenge,
       codeChallengeMethod: challenge ? 'S256' : null,
       state: body.st ?? null,
-      ttlSeconds: config.AUTH_CODE_TTL_SECONDS,
+      codeTtlSeconds: config.AUTH_CODE_TTL_SECONDS,
+      tokenTtlSeconds: ttlHours * 3600,
     });
 
     return {
@@ -87,6 +90,8 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       returnToyTitle: toy.title,
       state: body.st ?? null,
       expiresIn: config.AUTH_CODE_TTL_SECONDS,
+      /** 这枚 code 换出来的 token 能活多久 */
+      tokenTtlSeconds: ttlHours * 3600,
     };
   });
 }

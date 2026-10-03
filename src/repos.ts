@@ -49,6 +49,8 @@ export type AuthCodeRow = {
   code_challenge: string | null;
   code_challenge_method: string | null;
   state: string | null;
+  /** 用户在授权时选的有效期（小时）。老数据可能是 null，按默认值处理。 */
+  ttl_seconds: number | null;
   expires_at: Date;
   used_at: Date | null;
 };
@@ -321,12 +323,15 @@ export async function insertAuthCode(input: {
   codeChallenge: string | null;
   codeChallengeMethod: string | null;
   state: string | null;
-  ttlSeconds: number;
+  /** 授权码自己的寿命（秒），通常 60 */
+  codeTtlSeconds: number;
+  /** 用户在授权时选的 token 有效期（秒） */
+  tokenTtlSeconds: number;
 }): Promise<void> {
   await query(
     `insert into auth_code (code, uid, client_id, code_challenge,
-                            code_challenge_method, state, expires_at)
-     values ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7))`,
+                            code_challenge_method, state, expires_at, ttl_seconds)
+     values ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7), $8)`,
     [
       input.code,
       input.uid,
@@ -334,7 +339,8 @@ export async function insertAuthCode(input: {
       input.codeChallenge,
       input.codeChallengeMethod,
       input.state,
-      input.ttlSeconds,
+      input.codeTtlSeconds,
+      input.tokenTtlSeconds,
     ],
   );
 }
@@ -349,7 +355,7 @@ export async function consumeAuthCode(code: string): Promise<AuthCodeRow | null>
         set used_at = now()
       where code = $1 and used_at is null and expires_at > now()
       returning code, uid, client_id, code_challenge, code_challenge_method,
-                state, expires_at, used_at`,
+                state, ttl_seconds, expires_at, used_at`,
     [code],
   );
   return row;
@@ -359,7 +365,7 @@ export async function consumeAuthCode(code: string): Promise<AuthCodeRow | null>
 export async function peekAuthCode(code: string): Promise<AuthCodeRow | null> {
   return queryOne<AuthCodeRow>(
     `select code, uid, client_id, code_challenge, code_challenge_method,
-            state, expires_at, used_at
+            state, ttl_seconds, expires_at, used_at
        from auth_code where code = $1`,
     [code],
   );
@@ -381,87 +387,59 @@ export async function recordUsage(uid: string, toyId: string): Promise<void> {
   );
 }
 
-// ---------------------------------------------------------------- refresh token
+// ---------------------------------------------------------------- 失活
 
-export type RefreshTokenRow = {
-  token_hash: string;
+export type RevocationRow = {
   uid: string;
-  client_id: string;
-  family_id: string;
-  expires_at: Date;
-  used_at: Date | null;
-  revoked_at: Date | null;
+  toy_id: string;
+  revoked_at: Date;
 };
 
-/** 写入一枚新的刷新令牌。存的是哈希，明文只在这一刻存在。 */
-export async function insertRefreshToken(input: {
-  tokenHash: string;
-  uid: string;
-  clientId: string;
-  familyId: string;
-  ttlDays: number;
-}): Promise<void> {
-  await query(
-    `insert into refresh_token (token_hash, uid, client_id, family_id, expires_at)
-     values ($1, $2, $3, $4, now() + make_interval(days => $5))`,
-    [input.tokenHash, input.uid, input.clientId, input.familyId, input.ttlDays],
-  );
-}
-
-export async function getRefreshToken(tokenHash: string): Promise<RefreshTokenRow | null> {
-  return queryOne<RefreshTokenRow>(
-    `select token_hash, uid, client_id, family_id, expires_at, used_at, revoked_at
-       from refresh_token where token_hash = $1`,
-    [tokenHash],
-  );
-}
-
 /**
- * 原子地消费一枚刷新令牌。
- * 只有「没用过、没作废、没过期」才能被取走；返回 null 表示没抢到。
+ * 让某人在某个玩具上、此刻之前签发的所有 token 作废。
  *
- * 两个并发请求同时刷新时，只有一个能成功 —— 另一个会拿到 null，
- * 调用方据此判定为「已用过的令牌又出现」，按泄漏处理。
+ * 记的是「时间点」而不是逐个 jti：判断时拿 token 的 iat 和这里的
+ * revoked_at 比一下就行，不必为每一枚 token 存一行、也不必维护清单。
+ * 副作用是连失活之前签发但还没到期的也一起挡掉 —— 这正是
+ * 「退出这个游戏」该有的语义。
+ *
+ * ⚠️ revoked_at 必须由**应用**生成，不能用数据库的 now()。
+ * 判定的另一边是 token 的 iat，那个来自应用的 Date.now()；
+ * 如果这边用数据库时钟，两台机器哪怕只差几百毫秒，刚失活完立刻
+ * 重新授权拿到的 token 就会被误判成已失效。实测我们的 RDS 就比
+ * 应用快 400ms 左右，这不是理论问题。
  */
-export async function consumeRefreshToken(tokenHash: string): Promise<RefreshTokenRow | null> {
-  return queryOne<RefreshTokenRow>(
-    `update refresh_token
-        set used_at = now()
-      where token_hash = $1
-        and used_at is null
-        and revoked_at is null
-        and expires_at > now()
-      returning token_hash, uid, client_id, family_id, expires_at, used_at, revoked_at`,
-    [tokenHash],
+export async function revokeTokensForToy(uid: string, toyId: string): Promise<Date> {
+  const at = new Date();
+  const row = await queryOne<RevocationRow>(
+    `insert into token_revocation (uid, toy_id, revoked_at)
+     values ($1, $2, $3)
+     on conflict (uid, toy_id) do update set revoked_at = excluded.revoked_at
+     returning uid, toy_id, revoked_at`,
+    [uid, toyId, at],
   );
+  return row!.revoked_at;
 }
 
-/**
- * 作废整条轮换链。用于检测到令牌被复制的情况 ——
- * 合法的使用者和窃取者里有一个是假的，分不清是谁，所以两边都踢掉，
- * 让他们重新走一次过桥。
- */
-export async function revokeRefreshFamily(familyId: string): Promise<number> {
-  const res = await query(
-    `update refresh_token set revoked_at = now()
-      where family_id = $1 and revoked_at is null`,
-    [familyId],
+export async function getRevocations(uid: string): Promise<RevocationRow[]> {
+  const res = await query<RevocationRow>(
+    `select uid, toy_id, revoked_at from token_revocation where uid = $1`,
+    [uid],
   );
-  return res.rowCount ?? 0;
+  return res.rows;
 }
 
-/** 作废某个用户在某个玩具上的全部刷新令牌（用于将来做「退出登录」） */
-export async function revokeUserClientRefreshTokens(uid: string, clientId: string): Promise<number> {
-  const res = await query(
-    `update refresh_token set revoked_at = now()
-      where uid = $1 and client_id = $2 and revoked_at is null`,
-    [uid, clientId],
+export async function getRevocation(uid: string, toyId: string): Promise<RevocationRow | null> {
+  return queryOne<RevocationRow>(
+    `select uid, toy_id, revoked_at
+       from token_revocation
+      where uid = $1 and toy_id = $2`,
+    [uid, toyId],
   );
-  return res.rowCount ?? 0;
 }
 
 /** 清掉过期数据，交给定时任务调用即可 */
-export async function cleanupExpired(): Promise<{ codes: number; claims: number; tokens: number }> {
+export async function cleanupExpired(): Promise<{ codes: number; claims: number }> {
   // auth_code 只保留还活着的码。1 小时的宽限纯粹是为了排查问题时
   // 还能看到刚过期的记录，使用统计已经搬到 identity_usage 了。
   const codes = await query(`delete from auth_code where expires_at < now() - interval '1 hour'`);
@@ -469,16 +447,6 @@ export async function cleanupExpired(): Promise<{ codes: number; claims: number;
     `update toy_claim set state = 'expired'
       where state = 'pending' and expires_at < now()`,
   );
-  // 刷新令牌过期后再留 7 天：万一是「过期后又被拿来用」的情况，
-  // 还能查到它属于哪条链，有助于判断是真过期还是被复制过。
-  const tokens = await query(
-    `delete from refresh_token where expires_at < now() - interval '7 days'`,
-  );
-  return {
-    codes: codes.rowCount ?? 0,
-    claims: claims.rowCount ?? 0,
-    tokens: tokens.rowCount ?? 0,
-  };
+  return { codes: codes.rowCount ?? 0, claims: claims.rowCount ?? 0 };
 }
-
 export type { pg };

@@ -43,6 +43,19 @@
       不用重复授权。
     </p>
 
+    <div class="xm-mt-lg">
+      <p class="xm-label">这次授权有效多久</p>
+      <div class="xm-seg" id="ttlSeg">
+        <label class="xm-seg__opt"><input type="radio" name="ttl" value="3">3 小时</label>
+        <label class="xm-seg__opt"><input type="radio" name="ttl" value="6" checked>6 小时</label>
+        <label class="xm-seg__opt"><input type="radio" name="ttl" value="12">12 小时</label>
+        <label class="xm-seg__opt"><input type="radio" name="ttl" value="24">24 小时</label>
+      </div>
+      <p class="xm-small xm-mt">
+        到期后回这里再授权一次。想提前结束，去「我的身份」里操作。
+      </p>
+    </div>
+
     <div class="xm-actions">
       <button class="xm-btn xm-btn--primary" id="btnAllow">允许</button>
       <button class="xm-btn xm-btn--ghost" id="btnDeny">拒绝</button>
@@ -159,6 +172,26 @@ function paintRing(el, title, iconUrl) {
 let ctx = null
 let pendingReturn = null
 
+// ── 授权时长分段选择 ──
+// 不用 CSS :has()，老 WebView 支持不稳，改成手动同步 data-checked
+const TTL_OPTS = document.querySelectorAll('#ttlSeg .xm-seg__opt')
+
+function syncSeg() {
+  TTL_OPTS.forEach((label) => {
+    label.setAttribute('data-checked', String(label.querySelector('input').checked))
+  })
+}
+
+function selectedTtl() {
+  const el = document.querySelector('#ttlSeg input:checked')
+  return el ? Number(el.value) : 6
+}
+
+TTL_OPTS.forEach((label) => {
+  label.querySelector('input').addEventListener('change', syncSeg)
+})
+syncSeg()
+
 async function request(path, options) {
   let res
   try {
@@ -222,6 +255,7 @@ $('btnAllow').addEventListener('click', async () => {
       cid: CID,
       cc: CC,
       st: ST,
+      ttl: selectedTtl(),
       toyOpenId: profile.toyOpenId,
       nickname: profile.nickname,
       avatar: profile.avatar

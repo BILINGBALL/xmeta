@@ -12,11 +12,6 @@ const schema = z.object({
   MY_TOY_SLUG: z.string().min(1),
   ALLOWED_ORIGINS: z.string().default('https://www.bilibilitoy.com'),
   JWT_TTL_SECONDS: z.coerce.number().int().positive().default(900),
-  /**
-   * 刷新令牌的有效期（滑动）。每次刷新都往后推这么多天，
-   * 所以「活跃用户永远不掉线，X 天不活跃才需要重新过桥」。
-   */
-  REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(30),
   AUTH_CODE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
   CLAIM_NONCE_TTL_HOURS: z.coerce.number().int().positive().default(24),
   CLAIM_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
@@ -66,3 +61,16 @@ export const config = {
     .filter(Boolean),
   isProd: process.env.NODE_ENV === 'production',
 };
+
+/**
+ * 用户在授权时能选的有效期（小时）。
+ *
+ * 24 是上限，意味着用户每天都要回中心玩具续一次 —— 这是刻意的：
+ * 不用刷新令牌把用户一直留在登录态，而是把「这次授权管多久」
+ * 交给用户自己决定。
+ *
+ * 改这个数组就等于改可选档位，服务端会按它校验，前端也从这里取。
+ */
+export const ALLOWED_TOKEN_TTL_HOURS = [3, 6, 12, 24] as const;
+
+export const DEFAULT_TOKEN_TTL_HOURS = 6;

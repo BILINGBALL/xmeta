@@ -219,11 +219,15 @@ function render(data) {
   // 用户视角
   if (data.usage.length) {
     $('secUsage').classList.remove('xm-hidden')
-    $('usageList').innerHTML = data.usage.map((t) =>
-      itemHtml(t.iconUrl, t.title || t.slug,
-        '最近 ' + timeAgo(t.lastUsedAt),
-        '<span class="xm-tag xm-tag--muted">' + t.uses + ' 次</span>')
-    ).join('')
+    $('usageList').innerHTML = data.usage.map((t) => {
+      const meta = '最近 ' + timeAgo(t.lastUsedAt) + ' · 共 ' + t.uses + ' 次'
+      const tag = t.revokedAt
+        ? '<span class="xm-tag xm-tag--muted">已退出</span>'
+        : t.clientId
+          ? '<button class="xm-tag xm-tag--btn" data-cid="' + escapeHtml(t.clientId) + '">退出</button>'
+          : ''
+      return itemHtml(t.iconUrl, t.title || t.slug, meta, tag)
+    }).join('')
   } else {
     $('secUsage').classList.add('xm-hidden')
   }
@@ -235,6 +239,7 @@ function render(data) {
 
 // ─────────────────────────────────────────────────────────────
 let loading = false
+let currentProfile = null
 
 async function load() {
   if (loading) return
@@ -248,6 +253,7 @@ async function load() {
     // 到这里平台已经授权过，不会重复弹窗
     const profile = await toy.getUserProfile()
     if (!profile.toyOpenId) throw new Error('这款玩具没有开启 OpenID 模式，个人中心不可用。')
+    currentProfile = profile
 
     // 先拿缓存渲染，网络那趟慢慢来
     const cached = readCache(profile.toyOpenId)
@@ -283,6 +289,33 @@ if (seenOk) {
 
 $('btnRefresh').addEventListener('click', () => load())
 $('btnRetry').addEventListener('click', () => load())
+
+// ── 手动失活：退出某个玩具 ──
+// 事件委托，因为列表是每次渲染重建的
+$('usageList').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-cid]')
+  if (!btn || !currentProfile) return
+
+  const name = btn.closest('.xm-item')?.querySelector('.xm-item__title')?.textContent
+  if (!confirm('退出《' + (name || '这个玩具') + '》？\n\n之前签发的 token 会立即失效，' +
+               '下次要玩得重新授权一次。')) return
+
+  btn.disabled = true
+  try {
+    await request('/api/me/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        toyOpenId: currentProfile.toyOpenId,
+        cid: btn.getAttribute('data-cid')
+      })
+    })
+    await load()
+  } catch (err) {
+    fail('退出失败。', err.message || String(err))
+    btn.disabled = false
+  }
+})
 </script>
 </body>
 </html>

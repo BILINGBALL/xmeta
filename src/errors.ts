@@ -64,21 +64,6 @@ export const Errors = {
 
   pkceMismatch: () => new AppError('pkce_mismatch', 'code_verifier 校验失败', 400),
 
-  invalidGrant: () => new AppError('invalid_grant', '刷新令牌无效', 400),
-
-  refreshTokenExpired: () =>
-    new AppError('refresh_token_expired', '太久没用了，需要重新授权一次', 401),
-
-  refreshTokenReused: () =>
-    new AppError(
-      'refresh_token_reused',
-      '这个刷新令牌已经用过了。为了安全，本次会话已全部作废，请重新授权。',
-      401,
-    ),
-
-  refreshTokenRevoked: () =>
-    new AppError('refresh_token_revoked', '这个会话已失效，请重新授权。', 401),
-
   rateLimited: (retryAfter: number) =>
     new AppError('rate_limited', `请求过于频繁，请 ${retryAfter} 秒后再试`, 429, {
       retryAfter,

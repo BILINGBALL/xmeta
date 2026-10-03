@@ -283,6 +283,23 @@ body.xm {
 .xm-tag--ok { background: var(--xm-ok-wash); color: var(--xm-ok); }
 .xm-tag--muted { background: var(--xm-sunken); color: var(--xm-ink-3); }
 
+/* 可点的标签，用作列表行上的小操作 */
+.xm-tag--btn {
+  border: 1px solid var(--xm-line-strong);
+  background: transparent;
+  color: var(--xm-ink-2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  padding: 2px 9px;
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.xm-tag--btn:hover:not(:disabled) { border-color: var(--xm-danger); color: var(--xm-danger); }
+.xm-tag--btn:disabled { opacity: .45; cursor: not-allowed; }
+
 /* ================================================================ 输入框 */
 
 .xm-input {
@@ -302,6 +319,38 @@ body.xm {
 .xm-input:focus {
   border-color: var(--xm-accent);
   box-shadow: 0 0 0 3px var(--xm-accent-wash);
+}
+
+/* ================================================================ 分段选择 */
+
+.xm-seg {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+}
+.xm-seg__opt {
+  position: relative;
+  display: block;
+  padding: 12px 4px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--xm-ink-2);
+  background: var(--xm-surface);
+  border: 1px solid var(--xm-line-strong);
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.xm-seg__opt input { position: absolute; opacity: 0; pointer-events: none; }
+.xm-seg__opt:hover { border-color: var(--xm-ink-3); }
+.xm-seg__opt[data-checked="true"] {
+  border-color: var(--xm-accent);
+  background: var(--xm-accent-wash);
+  color: var(--xm-accent);
 }
 
 /* ================================================================ 按钮 */

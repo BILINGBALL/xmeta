@@ -49,6 +49,10 @@
       <span class="xm-kv__k">uid</span>
       <span class="xm-kv__v xm-mono" id="vUid">—</span>
     </div>
+    <div class="xm-kv xm-hidden" id="rowLeft">
+      <span class="xm-kv__k">有效期</span>
+      <span class="xm-kv__v" id="vLeft">—</span>
+    </div>
   </div>
 
   <div class="xm-actions xm-mt-lg">
@@ -120,6 +124,14 @@ if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
 if (configured) {
   // 回跳之后 xmeta-client.js 会自动用 code 换 JWT，换好了通知这里
   XMETA.onSession((s) => {
+    if (!s) { // 被 logout() 或彻底失效
+      $('vState').textContent = '未获取'
+      $('vState').className = 'xm-kv__v xm-kv__v--muted'
+      $('rowUid').classList.add('xm-hidden')
+      $('rowLeft').classList.add('xm-hidden')
+      $('btnLogin').textContent = '开启联机'
+      return
+    }
     $('vState').textContent = '已就绪'
     $('vState').className = 'xm-kv__v xm-kv__v--ok'
     if (s.uid) { $('vUid').textContent = s.uid; $('rowUid').classList.remove('xm-hidden') }
@@ -128,7 +140,41 @@ if (configured) {
     $('claims').textContent = JSON.stringify(decodePayload(s.jwt), null, 2)
     $('btnLogin').textContent = '重新获取'
     $('tip').textContent = ''
+    startCountdown()
   })
+}
+
+// ── 剩余时间 ──
+// 用户自己选的时长，过期后要回中心玩具再授权一次。把它显示出来，
+// 别让人玩到一半突然掉线还不知道为什么。
+let countdown = null
+
+function fmtLeft(ms) {
+  const s = Math.floor(ms / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h > 0) return h + ' 小时 ' + m + ' 分'
+  if (m > 0) return m + ' 分 ' + (s % 60) + ' 秒'
+  return (s % 60) + ' 秒'
+}
+
+function startCountdown() {
+  if (countdown) clearInterval(countdown)
+  $('rowLeft').classList.remove('xm-hidden')
+  const tick = () => {
+    const ms = XMETA.getRemainingMs()
+    if (ms <= 0) {
+      $('vLeft').textContent = '已过期'
+      $('vLeft').className = 'xm-kv__v xm-kv__v--muted'
+      $('btnLogin').textContent = '重新获取'
+      clearInterval(countdown)
+      countdown = null
+      return
+    }
+    $('vLeft').textContent = '还剩 ' + fmtLeft(ms)
+  }
+  tick()
+  countdown = setInterval(tick, 1000)
 }
 
 // ── 开启联机（必须在用户手势里调用，toy.navigate 需要手势）──

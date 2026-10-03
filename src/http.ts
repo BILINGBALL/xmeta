@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ALLOWED_TOKEN_TTL_HOURS } from './config.js';
 import { Errors } from './errors.js';
 
 export function parse<T>(schema: z.ZodType<T>, data: unknown): T {
@@ -40,18 +41,27 @@ export const bridgeAuthorizeSchema = identitySchema.extend({
   cc: z.string().min(16).max(256).nullish(),
   /** 接入方自己的 state，原样回传 */
   st: z.string().max(256).nullish(),
+  /** 用户选的授权时长（小时），必须落在允许的档位里 */
+  ttl: z
+    .coerce.number()
+    .int()
+    .refine((v) => (ALLOWED_TOKEN_TTL_HOURS as readonly number[]).includes(v), {
+      message: `授权时长只支持 ${ALLOWED_TOKEN_TTL_HOURS.join(' / ')} 小时`,
+    })
+    .nullish(),
 });
 
-export const tokenSchema = z.discriminatedUnion('grant_type', [
-  z.object({
-    grant_type: z.literal('authorization_code'),
-    code: z.string().min(1).max(256),
-    client_id: z.string().min(1).max(128),
-    code_verifier: z.string().min(16).max(256).nullish(),
-  }),
-  z.object({
-    grant_type: z.literal('refresh_token'),
-    refresh_token: z.string().min(1).max(512),
-    client_id: z.string().min(1).max(128),
-  }),
-]);
+export const revokeSchema = identitySchema.pick({ toyOpenId: true }).extend({
+  cid: z.string().min(1).max(128),
+});
+
+export const introspectSchema = z.object({
+  token: z.string().min(1).max(4096),
+});
+
+export const tokenSchema = z.object({
+  grant_type: z.literal('authorization_code'),
+  code: z.string().min(1).max(256),
+  client_id: z.string().min(1).max(128),
+  code_verifier: z.string().min(16).max(256).nullish(),
+});

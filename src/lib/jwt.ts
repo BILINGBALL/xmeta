@@ -1,10 +1,13 @@
 import {
   calculateJwkThumbprint,
+  createLocalJWKSet,
   exportJWK,
   generateKeyPair,
   importJWK,
+  jwtVerify,
   SignJWT,
   type JWK,
+  type JWTPayload,
   type KeyLike,
 } from 'jose';
 import { config } from '../config.js';
@@ -96,6 +99,8 @@ export type IssueTokenInput = {
   uid: string;
   /** 目标 toy_id：这个 token 只对这一个 toy 有效 */
   audience: string;
+  /** 有效期（秒）。不传就用全局默认（JWT_TTL_SECONDS）。 */
+  ttlSeconds?: number;
 };
 
 export type IssuedToken = {
@@ -104,10 +109,21 @@ export type IssuedToken = {
   jti: string;
 };
 
-export async function issueToken({ uid, audience }: IssueTokenInput): Promise<IssuedToken> {
+export async function issueToken({
+  uid,
+  audience,
+  ttlSeconds,
+}: IssueTokenInput): Promise<IssuedToken> {
   const { kid, privateKey } = await getActiveKey();
   const jti = newUuid();
-  const now = Math.floor(Date.now() / 1000);
+  // iat 保留小数（毫秒精度），不截断到整秒。
+  //
+  // 因为「手动失活」是靠比较 token 的 iat 和失活时间点来判断的：
+  // 截断到整秒的话，同一秒内签发的 token 就分不清是在失活前还是后，
+  // 结果是刚失活完重新授权拿到的 token 会被误杀。
+  // RFC 7519 的 NumericDate 本来就允许非整数。
+  const now = Date.now() / 1000;
+  const ttl = ttlSeconds ?? config.JWT_TTL_SECONDS;
 
   const accessToken = await new SignJWT({})
     .setProtectedHeader({ alg: 'ES256', kid, typ: 'JWT' })
@@ -116,10 +132,10 @@ export async function issueToken({ uid, audience }: IssueTokenInput): Promise<Is
     .setAudience(audience)
     .setJti(jti)
     .setIssuedAt(now)
-    .setExpirationTime(now + config.JWT_TTL_SECONDS)
+    .setExpirationTime(now + ttl)
     .sign(privateKey);
 
-  return { accessToken, expiresIn: config.JWT_TTL_SECONDS, jti };
+  return { accessToken, expiresIn: ttl, jti };
 }
 
 /** 全部未退休的公钥，供 JWKS 端点发布 */
@@ -128,4 +144,21 @@ export async function listPublicJwks(): Promise<JWK[]> {
     `select public_jwk from jwt_signing_key where retired_at is null order by created_at desc`,
   );
   return res.rows.map((r) => r.public_jwk);
+}
+
+/**
+ * 校验一枚自家签发的 token。用于 introspect 端点。
+ *
+ * 只校验签名和 iss —— aud 由调用方自己比对（introspect 的场景是
+ * 「这枚 token 还有效吗」，不是「它是不是给这个玩具的」）。
+ *
+ * 注意这里**不查失活名单**：那是调用方的事，因为判断依据是
+ * token 的 iat 和 token_revocation 的时间点，属于业务逻辑。
+ */
+export async function verifyToken(token: string): Promise<JWTPayload> {
+  const jwks = createLocalJWKSet({ keys: await listPublicJwks() });
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer: config.PUBLIC_BASE_URL,
+  });
+  return payload;
 }

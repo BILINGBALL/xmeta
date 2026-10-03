@@ -73,9 +73,11 @@ npm run dev               # http://127.0.0.1:8787
 | POST | `/api/claim/verify` | 抓源码校验 nonce，通过则下发 client_id |
 | POST | `/api/toy/mine` | 查询自己认领了哪些玩具 |
 | POST | `/api/me` | 个人中心：身份 + 认领的玩具 + 使用记录 |
+| POST | `/api/me/revoke` | 手动失活：让某人在某个玩具上的 token 立即作废 |
 | GET | `/api/bridge/context?cid=` | 过桥页加载时确认 client_id 有效 |
 | POST | `/api/bridge/authorize` | 用 toyOpenId 换一次性 code |
 | POST | `/api/oauth/token` | 用 code 换 JWT |
+| POST | `/api/oauth/introspect` | 查一枚 token 还有效吗（含失活状态） |
 | GET | `/.well-known/jwks.json` | 公钥，接入方拿来验签 |
 | GET | `/.well-known/xmeta-configuration` | 接入方元信息 |
 | GET | `/xmeta-client.js` | 接入脚本，第三方玩具直接 `<script src>` 引入 |
@@ -101,29 +103,38 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 
 **`aud` 一定要校验。** 不校验的话，A 玩具拿到的 token 能被 B 玩具拿去冒充用户。
 
-### 续期
+### 有效期与失活
 
-`access_token` 只有 15 分钟，但**用户只需要授权一次**。过期后 SDK 拿
-`refresh_token` 自动静默换一对新的，不再跳中心玩具。
+**token 能活多久由用户在授权时自己选**：3 / 6 / 12 / 24 小时，默认 6 小时。
+没有自动续期，到期后用户回中心玩具再授权一次。
 
-```
-过桥 → access_token(15min) + refresh_token(30天)
-                        ↓ 快过期时 SDK 自动换
-              access_token + refresh_token（新的）
-```
+> 24 小时是上限，这是刻意的 —— 意味着用户每天都要回中心玩具续一次，
+> 而不是靠刷新令牌把人一直留在登录态里。档位在 `src/config.ts` 的
+> `ALLOWED_TOKEN_TTL_HOURS`，改那里就改可选范围。
 
-`refresh_token` 是**滑动**的：每刷新一次就往后推满 30 天。所以活跃用户
-永远不掉线，30 天不活跃才需要重新过桥一次。
+接入方拿 `XMETA.getRemainingMs()` 能看到还剩多久，**应该显示给用户**，
+别让人玩到一半突然掉线。
 
-三条安全约束：
+用户也可以在「我的身份」里对某个玩具点「退出」，让**此刻之前签发的
+所有 token 立即失效**。实现上记的是时间点（`token_revocation`）而不是
+逐枚 jti —— 判断时拿 token 的 `iat` 和那个时间点比一下就行，不需要
+维护令牌清单。
 
-- **只存 sha256**，服务端不存明文
-- **每次使用都轮换**：发新的、废旧的
-- **重用即作废**：已经用过的令牌再次出现，说明被复制走了 ——
-  分不清谁是窃取者，整条链一起作废，两边都得重新授权
+> ⚠️ 失活时间点必须由**应用**生成，不能用数据库的 `now()`。
+> 判定的另一边是 token 的 `iat`（应用时钟），两边来自不同机器的话，
+> 哪怕只差几百毫秒，刚失活完立刻重新授权拿到的 token 就会被误杀。
+> 实测我们的 RDS 就比应用快 400ms 左右。
 
-接入方用 `XMETA.getToken()` 取 token，它保证返回的是当前可用的
-（快过期会先刷新）。不要自己去读 `session.jwt`。
+**接入方要不要感知失活？**
+
+JWT 是自包含的，本地验签只能验出「签名对、没过期」，**验不出用户后来
+手动失活了**。两种选择：
+
+- **只本地验签**：省一次网络调用，代价是失活最多滞后到 token 过期
+- **调 `POST /api/oauth/introspect`**：失活立即生效
+
+因为 token 最长 24 小时，前者最坏也就滞后那么久。强一致场景（比如
+联机的写操作）用后者。
 
 ---
 
