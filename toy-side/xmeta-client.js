@@ -7,7 +7,7 @@
  *   <script>
  *     XMETA.configure({
  *       apiBase: 'https://your-api.example.com',
- *       myToySlug: '<中心玩具的 slug>',
+ *       centerToySlug: '<中心玩具的 slug>',
  *       clientId: '<认领后拿到的 client_id>'
  *     })
  *
@@ -18,6 +18,11 @@
  *     XMETA.onSession(s => console.log(s.jwt, s.uid))
  *   </script>
  *
+ * 关于 centerToySlug —— 这是**中心玩具**的 slug，不是你自己玩具的。
+ * 你不需要告诉 SDK 自己是谁：client_id 已经唯一标识了你的玩具，
+ * 服务端由它反查出你的 slug 和 toy_id，回跳目标也由服务端给出。
+ * 客户端指定不了回跳地址，这样就堵掉了开放重定向。
+ *
  * 注意：localStorage 在 www.bilibilitoy.com 下是所有玩具共享的，
  * 所以 key 都带上 clientId 前缀，避免互相踩。它只用来暂存一次性的
  * PKCE verifier，真正的凭证只放内存。
@@ -25,7 +30,7 @@
 (function (global) {
   'use strict'
 
-  var CFG = { apiBase: '', myToySlug: '', clientId: '' }
+  var CFG = { apiBase: '', centerToySlug: '', clientId: '' }
   var SESSION = null            // { jwt, uid, expiresAt }
   var listeners = []
   var VERIFIER_KEY = ''
@@ -80,8 +85,8 @@
 
   function configure(opts) {
     CFG = Object.assign(CFG, opts || {})
-    if (!CFG.apiBase || !CFG.myToySlug || !CFG.clientId) {
-      throw new Error('[xmeta] 请先配置 apiBase / myToySlug / clientId')
+    if (!CFG.apiBase || !CFG.centerToySlug || !CFG.clientId) {
+      throw new Error('[xmeta] 请先配置 apiBase / centerToySlug / clientId')
     }
     // 提前把配置错误喊出来。否则要等到用户点了登录，才收到一句
     // 没头没脑的 "Load failed"。
@@ -112,7 +117,7 @@
 
     await toy.navigate({
       type: 'toy',
-      id: CFG.myToySlug,
+      id: CFG.centerToySlug,
       extra: { cid: CFG.clientId, cc: challenge, st: state }
     })
   }

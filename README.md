@@ -129,7 +129,7 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 <script>
   XMETA.configure({
     apiBase: 'https://your-api.example.com',
-    myToySlug: '<中心玩具 slug>',
+    centerToySlug: '<中心玩具 slug>',
     clientId: '<认领拿到的 client_id>'
   })
 
