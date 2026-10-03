@@ -60,6 +60,7 @@
       <button class="xm-btn xm-btn--primary" id="btnAllow">允许</button>
       <button class="xm-btn xm-btn--ghost" id="btnDeny">拒绝</button>
     </div>
+    <p class="xm-small xm-mt xm-hidden" id="denyHint" style="color:var(--xm-danger)"></p>
   </section>
 
   <!-- ③ 等授权 / 签发 -->
@@ -77,6 +78,7 @@
     <div class="xm-actions">
       <button class="xm-btn xm-btn--primary" id="btnBack">返回游戏</button>
     </div>
+    <p class="xm-small xm-mt xm-hidden" id="backHint" style="color:var(--xm-danger)"></p>
   </section>
 
   <!-- ⑤ 出错 -->
@@ -137,7 +139,18 @@ function writeShared(key, value) {
 
 if (!CID) {
   const req = readShared(REQ_KEY)
-  if (req && req.cid) { CID = req.cid; CC = req.cc; ST = req.st }
+  if (req && req.cid) {
+    CID = req.cid
+    CC  = req.cc
+    ST  = req.st
+    // 标记「已接手」。index.html 看到 claimed 就不再转发 ——
+    // 否则用户在这之后直接打开中心玩具，会被这个旧请求弹回过桥页。
+    // 数据留着，这样刷新本页仍然可用。
+    try {
+      req.claimed = true
+      localStorage.setItem(REQ_KEY, JSON.stringify(req))
+    } catch (e) { /* 忽略 */ }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -268,41 +281,51 @@ $('btnAllow').addEventListener('click', async () => {
   }
 })
 
+/** 就地提示，不切页面 —— 切走会把人困在「重试 → 再点 → 又失败」的循环里 */
+function showInline(id, msg) {
+  const el = $(id)
+  el.textContent = msg
+  el.classList.remove('xm-hidden')
+}
+
 // ── 「拒绝」：直接送回游戏，什么都不带 ──
-$('btnDeny').addEventListener('click', async () => {
+//
+// navigate 必须紧贴用户手势：SDK 会检查 navigator.userActivation.isActive，
+// 那是**瞬时**状态 —— 中间插一次 await 就可能已经失效，然后报
+// 「navigate requires user activation」。所以这里不用 async，直接调。
+$('btnDeny').addEventListener('click', () => {
   if (!ctx) return
-  $('btnDeny').disabled = true
-  try {
-    await toy.navigate({ type: 'toy', id: ctx.slug })
-  } catch (e) {
-    fail('返回游戏失败。', e.message || String(e))
-    $('btnDeny').disabled = false
-  }
+  toy.navigate({ type: 'toy', id: ctx.slug })
+    .then(() => clearShared(REQ_KEY))
+    .catch((e) => {
+      showInline('denyHint', '跳转没有成功（' + (e.message || e) + '）。请再点一次。')
+      console.warn('[xmeta] 返回游戏失败：', e)
+    })
 })
 
-// ── 返回游戏。navigate 必须在用户手势里调用，所以是独立一次点击 ──
-$('btnBack').addEventListener('click', async () => {
+// ── 返回游戏 ──
+$('btnBack').addEventListener('click', () => {
   if (!pendingReturn) return
-  $('btnBack').disabled = true
-  try {
-    // App 内回跳同样带不了 extra，所以结果也写一份到共享存储。
-    // 必须真跳转前才写 —— 写早了，发起方页面若还活着会提前把 code
-    // 消费掉，等它跳回重载时就什么都拿不到了。
-    writeShared(RES_KEY, {
-      code: pendingReturn.code,
-      st: ST || '',
-      returnSlug: pendingReturn.returnSlug,
-      ts: Date.now()
-    })
-    await toy.navigate({
-      type: 'toy',
-      id: pendingReturn.returnSlug,
-      extra: { code: pendingReturn.code, st: ST || '' }
-    })
-  } catch (e) {
-    fail('返回游戏失败。', e.message || String(e))
-    $('btnBack').disabled = false
-  }
+
+  // App 内回跳同样带不了 extra，所以结果也写一份到共享存储。
+  // 必须真跳转前才写 —— 写早了，发起方页面若还活着会提前把 code
+  // 消费掉，等它跳回重载时就什么都拿不到了。
+  writeShared(RES_KEY, {
+    code: pendingReturn.code,
+    st: ST || '',
+    returnSlug: pendingReturn.returnSlug,
+    ts: Date.now()
+  })
+
+  // 同上：紧贴手势调用，不插 await
+  toy.navigate({
+    type: 'toy',
+    id: pendingReturn.returnSlug,
+    extra: { code: pendingReturn.code, st: ST || '' }
+  }).catch((e) => {
+    showInline('backHint', '跳转没有成功（' + (e.message || e) + '）。请再点一次。')
+    console.warn('[xmeta] 返回游戏失败：', e)
+  })
 })
 
 $('btnRetry').addEventListener('click', () => boot())

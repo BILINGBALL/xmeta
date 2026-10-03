@@ -222,6 +222,24 @@ B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / PKCE / �
    免得不同玩具互相踩；PKCE verifier 只暂存在那里，真正的凭证只放内存。
 
 3. **`getUserProfile()` 在外部手机浏览器里不支持**，只在 B站 App 内和桌面 Web 可用。
+4. **`toy.navigate` 必须在用户手势里「同步」调用，不能跨 `await`。**
+
+   SDK 内部会检查 `navigator.userActivation.isActive` —— 那是**瞬时**状态，
+   只在用户交互后的很短时间内为真。写成 `async` 处理函数、中间插一次
+   `await`，就可能在检查时已经失效，然后抛
+   `navigate requires user activation`。
+
+   ```js
+   // ❌ 跨了 await
+   btn.onclick = async () => { await something(); toy.navigate(...) }
+
+   // ✅ 紧贴手势
+   btn.onclick = () => { toy.navigate(...).catch(handle) }
+   ```
+
+   顺带一提：这个失败**不要**跳到一个只有「重试」的错误页，那会把人困在
+   「重试 → 再点 → 又失败」的循环里。就地提示、保留按钮，用户再点一次
+   就是一次全新的手势。
 4. **绝不能用云存储做实时联机同步**：`getCloudStorage` / `submitScore` 是按「玩具」限流的，
    同一个玩具的所有玩家共享一份额度，几个人同时在玩就会互相把额度打光（错 307044）。
 5. **`toyOpenId` 跨设备的稳定性没验证过**，上线前务必在手机 App 和桌面 Web 上各测一次。

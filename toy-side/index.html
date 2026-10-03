@@ -19,7 +19,9 @@ window.__XMETA_HAD_CID__ = false
   }
   try {
     var req = JSON.parse(localStorage.getItem('xmeta:req') || 'null')
-    if (req && req.cid && req.ts && Date.now() - req.ts < 3 * 60 * 1000) {
+    // claimed 的不能再转发：那是中心玩具已经接手过的旧请求。
+    // 少了这个判断，用户在这之后直接打开本玩具，会被弹到过桥页而不是首页。
+    if (req && req.cid && !req.claimed && req.ts && Date.now() - req.ts < 3 * 60 * 1000) {
       window.__XMETA_HAD_CID__ = true
       location.replace('bridge.html')
     }

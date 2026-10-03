@@ -176,11 +176,15 @@
 
     // App 内 navigate 不透传 extra，所以参数另写一份到共享的 localStorage。
     // URL 那份照样带着 —— Web 端能生效，且这样两端的排查方式一致。
+    //
+    // claimed 表示「中心玩具已经接手过这个请求」。不标记的话，用户在这之后
+    // 直接打开中心玩具，会被一个还"新鲜"的旧请求弹到过桥页，而不是首页。
     writeShared(REQ_KEY, {
       cid: CFG.clientId,
       cc: challenge,
       st: state,
-      ts: Date.now()
+      ts: Date.now(),
+      claimed: false
     })
 
     await toy.navigate({
