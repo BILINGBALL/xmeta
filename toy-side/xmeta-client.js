@@ -47,6 +47,7 @@
   var CFG = { apiBase: '', centerToySlug: '', clientId: '' }
   var SESSION = null            // { jwt, uid, expiresAt, raw }
   var listeners = []
+  var errorListeners = []
   var VERIFIER_KEY = ''
   var pollTimer = null
 
@@ -161,9 +162,51 @@
     VERIFIER_KEY = 'xmeta:pkce:' + CFG.clientId
   }
 
+  /** 当前这一轮尝试的 state（login 时写入） */
+  function currentState() {
+    try { return localStorage.getItem(VERIFIER_KEY + ':st') } catch (e) { return null }
+  }
+
+  /** 丢掉本轮尝试的 PKCE 记录 */
+  function clearAttempt() {
+    try {
+      localStorage.removeItem(VERIFIER_KEY)
+      localStorage.removeItem(VERIFIER_KEY + ':st')
+    } catch (e) { /* 忽略 */ }
+  }
+
+  /**
+   * 从共享存储里取「属于本轮尝试」的结果，取到就立刻删掉。
+   *
+   * 两点必须做，否则会把用户永久卡住：
+   *
+   *   1. 立刻删。code 是一次性的，留着它只会在每次进页面时重放一次
+   *      注定失败的请求 —— 报错、不清、再报错，永远出不来。
+   *
+   *   2. 按 state 过滤。上一轮如果中途放弃（比如点了拒绝），它的结果
+   *      可能还躺在那里；拿旧结果去换只会得到一个对不上号的错。
+   */
+  function takeSharedResult() {
+    var shared = readShared(RES_KEY)
+    if (!shared || !shared.code) return null
+    clearShared(RES_KEY)
+
+    var mine = mySlug()
+    if (shared.returnSlug && mine && shared.returnSlug !== mine) return null
+
+    var expect = currentState()
+    if (expect && shared.st !== expect) return null // 上一轮的残留，丢掉
+
+    return shared
+  }
+
   /** 发起过桥。必须在用户手势（click）里调用。 */
   async function login() {
     if (!CFG.clientId) throw new Error('[xmeta] 还没 configure')
+
+    // 新一轮开始：把上一轮可能残留的结果清掉。
+    // 不清的话它会被当成这一轮的结果拿去换，报一个莫名其妙的错。
+    clearShared(RES_KEY)
 
     var verifier = randomString(32)
     var challenge = await s256(verifier)
@@ -194,7 +237,7 @@
     })
 
     // 回来时页面要是没有重新加载，handleRedirect 就不会再跑，
-    // 所以这里起个轮询盯着共享存储，等中心玩具把 code 写进来。
+    // 所以这里起个轮询盯着共享存储，等中心玩具把结果写进来。
     startPolling()
   }
 
@@ -204,7 +247,9 @@
    * 「App 里跳回来但页面没重载」的情况。
    */
   function startPolling() {
-    if (pollTimer) return
+    // 先清掉可能还在跑的旧轮询：它的截止时间是按上一轮算的
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+
     var deadline = Date.now() + SHARED_TTL_MS
     pollTimer = setInterval(function () {
       if (Date.now() > deadline) {
@@ -212,12 +257,13 @@
         pollTimer = null
         return
       }
-      var res = readShared(RES_KEY)
-      if (!res || !res.code) return
+      var shared = takeSharedResult()
+      if (!shared) return
       clearInterval(pollTimer)
       pollTimer = null
-      doExchange(res.code, res.st).catch(function (e) {
+      doExchange(shared.code, shared.st).catch(function (e) {
         console.error('[xmeta] 换取 JWT 失败：', e.message)
+        emitError(e)
       })
     }, 1000)
   }
@@ -238,21 +284,13 @@
       } catch (e) { /* 忽略 */ }
     } else {
       // App 端：navigate 不透传 extra，改从共享的 localStorage 取
-      var shared = readShared(RES_KEY)
-      if (shared && shared.code) {
-        var mine = mySlug()
-        // returnSlug 对不上就说明不是发给我的，别乱认
-        if (!shared.returnSlug || !mine || shared.returnSlug === mine) {
-          code = shared.code
-          state = shared.st
-        }
-      }
+      var shared = takeSharedResult()
+      if (shared) { code = shared.code; state = shared.st }
     }
 
     if (code) return doExchange(code, state)
 
-    // 没有 code 也没有可用的凭据 —— 什么都不做，
-    // 等用户点「开启联机」重新授权一次
+    // 没有可用的结果 —— 什么都不做，等用户点「开启联机」重新授权一次
     return null
   }
 
@@ -263,15 +301,19 @@
     try {
       verifier = localStorage.getItem(VERIFIER_KEY)
       expectState = localStorage.getItem(VERIFIER_KEY + ':st')
-      localStorage.removeItem(VERIFIER_KEY)
-      localStorage.removeItem(VERIFIER_KEY + ':st')
     } catch (e) { /* 忽略 */ }
 
+    // 无论成败都先清掉。code 是一次性的，重试注定失败；
+    // 留着它只会让每次进页面都重放一次失败的请求。
+    clearAttempt()
+    clearShared(RES_KEY)
+    clearShared(REQ_KEY)
+
     if (!verifier) {
-      throw new Error('[xmeta] 找不到本次登录的 PKCE 记录，是不是换了设备或清了缓存？')
+      throw new Error('[xmeta] 找不到本次登录的 PKCE 记录，请重新点一次「开启联机」')
     }
     if (expectState && state !== expectState) {
-      throw new Error('[xmeta] state 不匹配，可能被伪造，已中止')
+      throw new Error('[xmeta] 本次授权已作废，请重新点一次「开启联机」')
     }
 
     var res = await post('/api/oauth/token', {
@@ -281,39 +323,9 @@
       code_verifier: verifier
     })
 
-    // 换成功就把共享记录清掉，免得下次进页面重复消费同一个 code
-    clearShared(RES_KEY)
-    clearShared(REQ_KEY)
-
     return applyTokens(res)
   }
 
-  /** 处理一次成功的 token 响应 */
-  function applyTokens(res) {
-    SESSION = {
-      jwt: res.access_token,
-      uid: decodeSub(res.access_token),
-      expiresAt: Date.now() + res.expires_in * 1000,
-      raw: res
-    }
-    emit()
-    return SESSION
-  }
-
-  /** 这枚 token 还剩多少毫秒。没登录或已过期返回 0。 */
-  function getRemainingMs() {
-    if (!SESSION) return 0
-    return Math.max(0, SESSION.expiresAt - Date.now())
-  }
-
-  /** 清掉本地会话。下次要用得重新过桥。 */
-  function logout() {
-    clearShared(REQ_KEY)
-    clearShared(RES_KEY)
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-    SESSION = null
-    emit()
-  }
   /** 只解析 payload，不验签。验签必须在服务端做。 */
   function decodeSub(jwt) {
     try {
@@ -335,6 +347,24 @@
     }
   }
 
+  /**
+   * 订阅错误。自动续期/回跳路径上的失败原来只进 console ——
+   * 手机上根本看不到，用户只会觉得「点了没反应」。
+   * 接入方应该把它接到自己的界面上。
+   */
+  function onError(fn) {
+    errorListeners.push(fn)
+    return function () {
+      errorListeners = errorListeners.filter(function (f) { return f !== fn })
+    }
+  }
+
+  function emitError(e) {
+    errorListeners.forEach(function (fn) {
+      try { fn(e) } catch (err) { console.error('[xmeta] onError 回调出错', err) }
+    })
+  }
+
   function getSession() {
     if (SESSION && SESSION.expiresAt > Date.now() + 5000) return SESSION
     return null
@@ -345,6 +375,8 @@
     login: login,
     handleRedirect: handleRedirect,
     onSession: onSession,
+    /** 订阅错误，接到自己的界面上 */
+    onError: onError,
     getSession: getSession,
     /** 这枚 token 还剩多少毫秒，没登录返回 0 */
     getRemainingMs: getRemainingMs,
@@ -358,6 +390,7 @@
     if (!CFG.clientId) return
     handleRedirect().catch(function (e) {
       console.error('[xmeta] 换取 JWT 失败：', e.message)
+      emitError(e)
     })
   }
 

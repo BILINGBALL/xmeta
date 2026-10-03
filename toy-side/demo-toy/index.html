@@ -142,6 +142,12 @@ if (configured) {
     $('tip').textContent = ''
     startCountdown()
   })
+
+  // 自动路径（回跳换取）上的失败原来只进 console —— 手机上根本看不到，
+  // 用户只会觉得「点了没反应」。接到界面上。
+  XMETA.onError((e) => {
+    showErr('身份换取失败：' + (e.message || e))
+  })
 }
 
 // ── 剩余时间 ──
