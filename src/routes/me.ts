@@ -103,7 +103,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
          from identity_usage u
          join toy t on t.toy_id = u.toy_id
          left join toy_client c on c.toy_id = t.toy_id
-         left join token_revocation r on r.uid = u.uid and r.client_id = c.client_id
+         left join token_revocation r on r.uid = u.uid and r.toy_id = t.toy_id
         where u.uid = $1
         order by u.last_used_at desc`,
       [user.id],

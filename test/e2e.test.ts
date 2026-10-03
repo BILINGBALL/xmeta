@@ -333,6 +333,50 @@ test('拿别的字符串也能安全地问，不会报错', async () => {
 });
 
 
+test('个人中心：一次请求拿全身份、使用记录', async () => {
+  const { status, json } = await post('/api/me', { toyOpenId: PLAYER_OPENID });
+
+  assert.equal(status, 200);
+  assert.ok(json.user, '玩家已经有身份了');
+  assert.ok(json.user.uid, '要有 uid');
+  assert.ok(json.usage.length >= 1, '应该有用过这个玩具的记录');
+
+  const row = json.usage.find((u: any) => u.slug === SLUG);
+  assert.ok(row, '使用记录里应该有这个玩具');
+  assert.ok(row.clientId, '要带上 clientId —— 前端靠它做失活');
+  assert.ok(row.lastUsedAt, '要有最近使用时间');
+  assert.ok(row.uses >= 1);
+});
+
+test('个人中心：作者视角能看到自己认领的玩具', async () => {
+  const { json } = await post('/api/me', { toyOpenId: AUTHOR_OPENID });
+
+  assert.equal(json.ownedToys.length, 1);
+  assert.equal(json.ownedToys[0].slug, SLUG);
+  assert.equal(json.ownedToys[0].clientId, clientId);
+  assert.equal(json.ownedToys[0].state, 'verified');
+});
+
+test('个人中心：没见过的身份返回空壳而不是报错', async () => {
+  const { status, json } = await post('/api/me', { toyOpenId: 'toid_never_seen_zzz9' });
+
+  assert.equal(status, 200);
+  assert.equal(json.user, null);
+  assert.deepEqual(json.ownedToys, []);
+  assert.deepEqual(json.usage, []);
+});
+
+test('个人中心：失活过的玩具标成已退出，但仍然带 clientId', async () => {
+  await post('/api/me/revoke', { toyOpenId: PLAYER_OPENID, cid: clientId });
+
+  const { json } = await post('/api/me', { toyOpenId: PLAYER_OPENID });
+  const row = json.usage.find((u: any) => u.slug === SLUG);
+
+  assert.ok(row, '失活不该把使用记录抹掉');
+  assert.ok(row.revokedAt, '应该标出失活时间');
+  assert.equal(row.clientId, clientId);
+});
+
 test('未认领的玩具不能过桥', async () => {
   const { status, json } = await post('/api/bridge/authorize', {
     cid: 'xmeta_does_not_exist',
