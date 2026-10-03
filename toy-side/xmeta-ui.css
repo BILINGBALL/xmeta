@@ -1,0 +1,347 @@
+/* ==========================================================================
+   xmeta UI —— 玩具端页面共用的设计系统
+   由服务端 /xmeta-ui.css 分发，页面用 <link> 引入。
+   改这里就等于改所有页面，不用重新上传每个文件。
+   ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  --xm-bg: #f6f7f9;
+  --xm-surface: #ffffff;
+  --xm-surface-2: #f9fafb;
+  --xm-border: #e6e8eb;
+  --xm-border-strong: #d5d9de;
+
+  --xm-text: #16181c;
+  --xm-text-2: #565c66;
+  --xm-text-3: #8f959e;
+
+  --xm-accent: #3d6bf5;
+  --xm-accent-hover: #2f59dd;
+  --xm-accent-soft: #eef2ff;
+  --xm-accent-text: #2a4bc4;
+
+  --xm-ok: #0d9668;
+  --xm-ok-soft: #ecfdf5;
+  --xm-warn-bg: #fffbeb;
+  --xm-warn-border: #fde68a;
+  --xm-warn-text: #8a5a08;
+  --xm-danger: #d92d20;
+  --xm-danger-soft: #fef3f2;
+
+  --xm-radius: 12px;
+  --xm-radius-lg: 16px;
+  --xm-radius-sm: 8px;
+
+  --xm-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --xm-shadow-lg: 0 4px 12px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --xm-bg: #101114;
+    --xm-surface: #191b1f;
+    --xm-surface-2: #1f2227;
+    --xm-border: #2a2e34;
+    --xm-border-strong: #3a3f47;
+
+    --xm-text: #eef0f2;
+    --xm-text-2: #a8aeb8;
+    --xm-text-3: #757b85;
+
+    --xm-accent: #6b8dff;
+    --xm-accent-hover: #82a0ff;
+    --xm-accent-soft: #1c2440;
+    --xm-accent-text: #a9bfff;
+
+    --xm-ok: #3ecf9a;
+    --xm-ok-soft: #10291f;
+    --xm-warn-bg: #2a2110;
+    --xm-warn-border: #4d3c14;
+    --xm-warn-text: #f0c673;
+    --xm-danger: #f97066;
+    --xm-danger-soft: #2c1614;
+
+    --xm-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --xm-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.35);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body.xm {
+  margin: 0;
+  background: var(--xm-bg);
+  color: var(--xm-text);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ---------------------------------------------------------------- 布局 */
+
+.xm-page {
+  max-width: 520px;
+  margin: 0 auto;
+  padding:
+    calc(24px + env(safe-area-inset-top, 0px))
+    calc(16px + env(safe-area-inset-right, 0px))
+    calc(32px + env(safe-area-inset-bottom, 0px))
+    calc(16px + env(safe-area-inset-left, 0px));
+}
+
+.xm-page--center {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* ---------------------------------------------------------------- 卡片 */
+
+.xm-card {
+  background: var(--xm-surface);
+  border: 1px solid var(--xm-border);
+  border-radius: var(--xm-radius-lg);
+  box-shadow: var(--xm-shadow);
+  padding: 20px;
+  margin-bottom: 12px;
+}
+
+.xm-card--flush { padding: 0; overflow: hidden; }
+
+/* ---------------------------------------------------------------- 文字 */
+
+.xm-h1 { font-size: 20px; font-weight: 650; line-height: 1.4; margin: 0 0 6px; letter-spacing: -0.01em; }
+.xm-h2 { font-size: 14px; font-weight: 600; line-height: 1.5; margin: 0 0 10px; color: var(--xm-text-2); }
+.xm-p  { font-size: 14px; color: var(--xm-text-2); margin: 0; }
+.xm-small { font-size: 13px; color: var(--xm-text-3); }
+.xm-mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.xm-center { text-align: center; }
+.xm-mt { margin-top: 12px; }
+.xm-mt-lg { margin-top: 20px; }
+
+/* ---------------------------------------------------------------- 品牌头 */
+
+.xm-hero { text-align: center; padding: 8px 0 20px; }
+
+.xm-hero__icon {
+  width: 64px; height: 64px;
+  border-radius: var(--xm-radius);
+  object-fit: cover;
+  background: var(--xm-surface-2);
+  border: 1px solid var(--xm-border);
+}
+
+.xm-hero__title { font-size: 19px; font-weight: 650; margin: 14px 0 6px; line-height: 1.45; }
+.xm-hero__sub { font-size: 13.5px; color: var(--xm-text-2); margin: 0; }
+
+/* ---------------------------------------------------------------- 清单 */
+
+.xm-list { list-style: none; margin: 0; padding: 0; }
+.xm-list li {
+  position: relative;
+  padding-left: 24px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--xm-text-2);
+}
+.xm-list li:last-child { margin-bottom: 0; }
+
+/* 会拿到的项：勾 */
+.xm-list--yes li::before {
+  content: "";
+  position: absolute; left: 2px; top: 7px;
+  width: 12px; height: 7px;
+  border-left: 2px solid var(--xm-ok);
+  border-bottom: 2px solid var(--xm-ok);
+  transform: rotate(-45deg);
+}
+
+/* 不会拿的项：叉 */
+.xm-list--no li::before {
+  content: "";
+  position: absolute; left: 3px; top: 10px;
+  width: 11px; height: 2px;
+  background: var(--xm-text-3);
+  border-radius: 1px;
+}
+.xm-list--no li::after {
+  content: "";
+  position: absolute; left: 3px; top: 10px;
+  width: 11px; height: 2px;
+  background: var(--xm-text-3);
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+.xm-list--no li { color: var(--xm-text-3); }
+
+/* ---------------------------------------------------------------- 键值行 */
+
+.xm-kv {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; padding: 7px 0; font-size: 14px;
+  border-bottom: 1px solid var(--xm-border);
+}
+.xm-kv:last-child { border-bottom: 0; padding-bottom: 0; }
+.xm-kv__k { color: var(--xm-text-3); flex: none; font-size: 13px; }
+.xm-kv__v { color: var(--xm-text); text-align: right; word-break: break-all; font-size: 13px; }
+.xm-kv__v--ok { color: var(--xm-ok); }
+.xm-kv__v--muted { color: var(--xm-text-3); }
+
+/* ---------------------------------------------------------------- 按钮 */
+
+.xm-btn {
+  display: block;
+  width: 100%;
+  padding: 13px 16px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  border-radius: var(--xm-radius);
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s, opacity .15s;
+  -webkit-tap-highlight-color: transparent;
+  text-align: center;
+  text-decoration: none;
+}
+.xm-btn + .xm-btn { margin-top: 10px; }
+
+.xm-btn--primary { background: var(--xm-accent); color: #fff; }
+.xm-btn--primary:hover:not(:disabled) { background: var(--xm-accent-hover); }
+
+.xm-btn--ghost {
+  background: transparent;
+  color: var(--xm-text-2);
+  border-color: var(--xm-border-strong);
+}
+.xm-btn--ghost:hover:not(:disabled) { background: var(--xm-surface-2); }
+
+.xm-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ---------------------------------------------------------------- 输入框 */
+
+.xm-input {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--xm-text);
+  background: var(--xm-surface-2);
+  border: 1px solid var(--xm-border-strong);
+  border-radius: 10px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.xm-input::placeholder { color: var(--xm-text-3); }
+.xm-input:focus {
+  border-color: var(--xm-accent);
+  box-shadow: 0 0 0 3px var(--xm-accent-soft);
+}
+
+/* ---------------------------------------------------------------- 说明块 */
+
+.xm-note {
+  background: var(--xm-surface);
+  border: 1px solid var(--xm-border);
+  border-radius: var(--xm-radius);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--xm-text-2);
+  margin-bottom: 12px;
+}
+
+/* ---------------------------------------------------------------- 提示条 */
+
+.xm-alert {
+  border-radius: var(--xm-radius);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.65;
+  margin-bottom: 12px;
+}
+.xm-alert--warn {
+  background: var(--xm-warn-bg);
+  border: 1px solid var(--xm-warn-border);
+  color: var(--xm-warn-text);
+}
+.xm-alert--error {
+  background: var(--xm-danger-soft);
+  border: 1px solid var(--xm-danger);
+  color: var(--xm-danger);
+}
+.xm-alert--ok {
+  background: var(--xm-ok-soft);
+  border: 1px solid var(--xm-ok);
+  color: var(--xm-ok);
+}
+.xm-alert code, .xm-alert .xm-mono { word-break: break-all; }
+
+/* ---------------------------------------------------------------- 代码块 */
+
+.xm-pre {
+  background: var(--xm-surface-2);
+  border: 1px solid var(--xm-border);
+  border-radius: var(--xm-radius-sm);
+  padding: 12px;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--xm-text);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 260px;
+}
+
+/* ---------------------------------------------------------------- 加载 */
+
+.xm-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 28px 0; color: var(--xm-text-3); font-size: 13px; }
+.xm-spinner {
+  width: 16px; height: 16px; flex: none;
+  border: 2px solid var(--xm-border-strong);
+  border-top-color: var(--xm-accent);
+  border-radius: 50%;
+  animation: xm-spin .7s linear infinite;
+}
+@keyframes xm-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .xm-spinner { animation-duration: 2s; } }
+
+/* ---------------------------------------------------------------- 页脚 */
+
+.xm-foot {
+  text-align: center;
+  font-size: 12px;
+  color: var(--xm-text-3);
+  line-height: 1.8;
+  margin-top: 20px;
+}
+.xm-foot a { color: var(--xm-text-3); }
+
+.xm-brand {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-weight: 600; color: var(--xm-text-3);
+}
+.xm-brand__dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--xm-accent);
+  flex: none;
+}
+
+/* ---------------------------------------------------------------- 工具 */
+
+.xm-hidden { display: none !important; }
+.xm-divider { height: 1px; background: var(--xm-border); margin: 16px 0; border: 0; }

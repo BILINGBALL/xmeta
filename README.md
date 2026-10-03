@@ -113,6 +113,7 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 | `bridge.html` | 上传到**中心玩具**，用户过桥时落到这里 |
 | `demo-toy/index.html` | 一个最小的**第三方玩具**示例，用来跑通整条链路 |
 | `xmeta-client.js` | 接入脚本。**不用自己存**，服务端已挂在 `/xmeta-client.js` |
+| `xmeta-ui.css` | 页面共用的设计系统。**不用自己存**，服务端已挂在 `/xmeta-ui.css` |
 
 > 第三方玩具用 `toy.navigate({ type:'toy', id:'<中心玩具 slug>' })` 跳过来时，
 > 落点固定是 `index.html`，所以 `index.html` 必须保留那行转发逻辑。

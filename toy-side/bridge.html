@@ -3,36 +3,83 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>过桥授权</title>
-<!-- 官方 SDK -->
+<title>身份授权</title>
+<link rel="stylesheet" href="https://www.oxth.com:8443/xmeta-ui.css">
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
-<style>
-  :root { color-scheme: light dark; }
-  body { margin:0; font:16px/1.6 system-ui,-apple-system,"PingFang SC",sans-serif;
-         display:flex; align-items:center; justify-content:center; min-height:100vh;
-         background:#f5f6fa; color:#18191c; padding:24px; box-sizing:border-box; }
-  .card { background:#fff; border-radius:16px; padding:28px 24px; max-width:420px; width:100%;
-          box-shadow:0 4px 24px rgba(0,0,0,.06); text-align:center; }
-  .icon { width:72px; height:72px; border-radius:16px; object-fit:cover; background:#eef0f4; }
-  h1 { font-size:18px; margin:16px 0 6px; }
-  p  { font-size:14px; color:#61666d; margin:0 0 20px; }
-  button { width:100%; padding:14px; font-size:16px; font-weight:600; border:0;
-           border-radius:10px; background:#00aeec; color:#fff; cursor:pointer; }
-  button:disabled { background:#c9ccd0; cursor:not-allowed; }
-  button.ghost { background:#f1f2f3; color:#18191c; margin-top:10px; }
-  .hint { font-size:12px; color:#9499a0; margin-top:14px; word-break:break-all; }
-  .err  { color:#f25d8e; font-size:14px; margin-top:12px; }
-</style>
 </head>
-<body>
-<div class="card">
-  <img class="icon" id="icon" alt="" hidden>
-  <h1 id="title">正在加载…</h1>
-  <p id="desc"></p>
-  <button id="go" disabled>开始联机</button>
-  <button id="back" class="ghost" hidden>返回游戏</button>
-  <div class="hint" id="hint"></div>
-  <div class="err" id="err"></div>
+<body class="xm">
+<div class="xm-page xm-page--center" id="page">
+
+  <!-- ① 加载 -->
+  <section id="s-loading">
+    <div class="xm-loading"><span class="xm-spinner"></span>正在加载…</div>
+  </section>
+
+  <!-- ② 说明 —— 授权之前先讲清楚要什么、做什么用 -->
+  <section id="s-consent" class="xm-hidden">
+    <div class="xm-hero">
+      <img class="xm-hero__icon" id="toyIcon" alt="" hidden>
+      <div class="xm-hero__title" id="consentTitle"></div>
+      <p class="xm-hero__sub">想要获取你的游戏身份</p>
+    </div>
+
+    <div class="xm-card">
+      <div class="xm-h2">会提供这些</div>
+      <ul class="xm-list xm-list--yes">
+        <li>你的 B站 昵称和头像</li>
+        <li>一个由平台生成的<b>匿名标识</b>，用于在这款游戏里识别你</li>
+      </ul>
+    </div>
+
+    <div class="xm-card">
+      <div class="xm-h2">不会获取</div>
+      <ul class="xm-list xm-list--no">
+        <li>你的 B站 UID、账号或密码</li>
+        <li>手机号、身份信息</li>
+        <li>你在其它玩具里的任何数据</li>
+      </ul>
+    </div>
+
+    <div class="xm-card">
+      <div class="xm-h2">用来做什么</div>
+      <p class="xm-p">
+        在这款游戏里认出你，保存你的进度和对局记录。
+        这个身份由 xmeta 统一管理，之后玩其它接入 xmeta 的游戏时，可以沿用同一个身份。
+      </p>
+    </div>
+
+    <button class="xm-btn xm-btn--primary" id="btnAllow">同意并继续</button>
+    <button class="xm-btn xm-btn--ghost" id="btnDeny">暂不授权</button>
+
+    <div class="xm-foot">
+      <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span><br>
+      按 B站 平台规则，确认后由平台展示授权弹窗
+    </div>
+  </section>
+
+  <!-- ③ 处理中（点了同意之后，等 getUserProfile / 接口返回） -->
+  <section id="s-working" class="xm-hidden">
+    <div class="xm-loading"><span class="xm-spinner"></span><span id="workingText">正在获取授权…</span></div>
+  </section>
+
+  <!-- ④ 成功，等用户点返回 -->
+  <section id="s-done" class="xm-hidden">
+    <div class="xm-hero">
+      <div class="xm-hero__title" style="color:var(--xm-ok)">授权成功</div>
+      <p class="xm-hero__sub" id="doneText"></p>
+    </div>
+    <button class="xm-btn xm-btn--primary" id="btnBack">返回游戏</button>
+    <div class="xm-foot" id="doneHint"></div>
+  </section>
+
+  <!-- ⑤ 出错 / 取消 -->
+  <section id="s-error" class="xm-hidden">
+    <div class="xm-alert xm-alert--error" id="errBox"></div>
+    <button class="xm-btn xm-btn--ghost" id="btnRetry">重试</button>
+  </section>
+
+  <!-- 开发诊断：只在配置错误时出现，普通用户看不到 -->
+  <div id="devWarn" class="xm-alert xm-alert--warn xm-hidden"></div>
 </div>
 
 <script>
@@ -49,27 +96,26 @@ const API_BASE = 'https://www.oxth.com:8443'
     problems.push('API_BASE 是 http，而玩具页面是 https —— 会被浏览器按混合内容拦截')
   }
   if (!problems.length) return
-  const el = document.createElement('div')
-  el.style.cssText =
-    'background:#fff3cd;border:1px solid #ffe69c;color:#664d03;padding:12px;' +
-    'border-radius:8px;margin-bottom:14px;font-size:13px;line-height:1.8;text-align:left'
+  const el = document.getElementById('devWarn')
+  el.classList.remove('xm-hidden')
   el.innerHTML = '<b>⚠️ API 地址没配好（仅开发者可见）</b><br>' + problems.join('<br>')
-  document.body.insertBefore(el, document.body.firstChild)
 })()
 
-const qs = new URLSearchParams(location.search)
-
-const REQ_KEY = 'xmeta:req'        // 发起方写的：{ cid, cc, st, ts }
-const RES_KEY = 'xmeta:res'        // 我写回给它的：{ code, st, returnSlug, ts }
+// ─────────────────────────────────────────────────────────────
+// 参数：URL 优先，拿不到时回落 localStorage
+//
+// B站 App 里 toy.navigate 走原生通道，实测不会透传 extra，
+// 所以发起方会把参数另写一份到共享存储（所有玩具的内层 iframe
+// 同在 www.bilibilitoy.com 一个源下）。详见 README。
+// ─────────────────────────────────────────────────────────────
+const REQ_KEY = 'xmeta:req'
+const RES_KEY = 'xmeta:res'
 const SHARED_TTL_MS = 3 * 60 * 1000
 
-// 参数优先取 URL。但 B站 App 里 toy.navigate 走原生通道，实测**不会
-// 透传 extra**（目标页只收到原生加的 from_spmid），所以拿不到时回落到
-// localStorage：所有玩具的内层 iframe 都在 www.bilibilitoy.com 这一个
-// 源下，发起方会把 { cid, cc, st } 写在那里。
-let CID = qs.get('cid')            // 第三方 toy 的 client_id
-let CC  = qs.get('cc')             // PKCE challenge
-let ST  = qs.get('st')             // 第三方 toy 的 state，原样带回
+const qs = new URLSearchParams(location.search)
+let CID = qs.get('cid')
+let CC  = qs.get('cc')
+let ST  = qs.get('st')
 
 function readShared(key) {
   try {
@@ -77,99 +123,98 @@ function readShared(key) {
     if (!v || typeof v !== 'object' || !v.ts) return null
     if (Date.now() - v.ts > SHARED_TTL_MS) return null
     return v
-  } catch (e) {
-    return null
-  }
+  } catch (e) { return null }
 }
-
 function writeShared(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch (e) { /* 忽略 */ }
 }
 
 if (!CID) {
   const req = readShared(REQ_KEY)
-  if (req && req.cid) {
-    CID = req.cid
-    CC  = req.cc
-    ST  = req.st
-  }
+  if (req && req.cid) { CID = req.cid; CC = req.cc; ST = req.st }
 }
 
+// ─────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id)
+const SECTIONS = ['s-loading', 's-consent', 's-working', 's-done', 's-error']
+
+function show(name) {
+  SECTIONS.forEach((s) => $(s).classList.toggle('xm-hidden', s !== name))
+}
+
+/** 统一的联调诊断：出错时把可判断的信息一次给全 */
+function fail(message, detail) {
+  $('errBox').innerHTML =
+    message + (detail ? '<br><br><span class="xm-mono">' + escapeHtml(detail) + '</span>' : '')
+  show('s-error')
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))
+}
+
+let ctx = null
 let pendingReturn = null
 
-function fail(msg) { $('err').textContent = msg }
-
-async function post(path, body) {
+async function request(path, options) {
   let res
   try {
-    res = await fetch(API_BASE + path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    })
+    res = await fetch(API_BASE + path, options)
   } catch (e) {
-    throw new Error(
-      `连不上 ${API_BASE}（${e.message || e}）。` +
-        '检查这个地址是否外网可达、是否为 HTTPS。'
-    )
+    throw new Error('连不上 ' + API_BASE + '（' + (e.message || e) + '）。请检查网络后重试。')
   }
   const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(json?.error?.message || ('HTTP ' + res.status))
+  if (!res.ok) throw new Error((json && json.error && json.error.message) || ('HTTP ' + res.status))
   return json
 }
 
-async function getJson(path) {
-  let res
-  try {
-    res = await fetch(API_BASE + path)
-  } catch (e) {
-    throw new Error(
-      `连不上 ${API_BASE}（${e.message || e}）。` +
-        '检查这个地址是否外网可达、是否为 HTTPS。'
-    )
-  }
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(json?.error?.message || ('HTTP ' + res.status))
-  return json
-}
+const post = (path, body) =>
+  request(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
 
-// 1. 确认 client_id 有效，展示是哪个玩具在要身份
-;(async function loadContext() {
+// ── 启动：先确认 client_id 有效，再展示说明页 ──
+async function boot() {
   if (!CID) {
-    // 这个页面只能从玩具里跳过来。直接打开必然缺参数，
-    // 所以要明确说清楚，别让人以为是坏了。
-    $('title').textContent = '缺少参数'
-    $('desc').textContent =
-      '这一页不能直接打开。请回到游戏里点「开启联机」，' +
-      '由游戏跳转过来才会带上必要参数。'
-    $('hint').textContent = '当前地址缺少 cid 参数'
+    fail(
+      '这一页不能直接打开。',
+      '请回到游戏里点「开启联机」，由游戏跳转过来才会带上必要参数。'
+    )
     return
   }
   try {
-    const json = await getJson('/api/bridge/context?cid=' + encodeURIComponent(CID))
-    $('title').textContent = `《${json.title || json.slug}》想获取你的身份`
-    $('desc').textContent = '仅用于在这款游戏中识别你，不会拿到你的 B站 账号信息。'
-    if (json.iconUrl) { $('icon').src = json.iconUrl; $('icon').hidden = false }
-    $('go').disabled = false
+    ctx = await request('/api/bridge/context?cid=' + encodeURIComponent(CID))
   } catch (e) {
-    fail(e.message)
+    fail('无法确认是哪个游戏在请求授权。', e.message)
+    return
   }
-})()
 
-// 2. 用户手势里调 getUserProfile（平台会弹确认框）
-$('go').addEventListener('click', async () => {
-  $('go').disabled = true
-  $('err').textContent = ''
+  if (ctx.iconUrl) { $('toyIcon').src = ctx.iconUrl; $('toyIcon').hidden = false }
+  $('consentTitle').textContent = '《' + (ctx.title || ctx.slug) + '》'
+  $('doneText').textContent = '《' + (ctx.title || ctx.slug) + '》已经可以认出你了。'
+  show('s-consent')
+}
+
+// ── 用户点了「同意并继续」—— 到这里才真正去要授权 ──
+$('btnAllow').addEventListener('click', async () => {
+  $('btnAllow').disabled = true
   try {
-    const supported = await toy.isSupport('getUserProfile')
-    if (!supported) throw new Error('当前环境不支持获取用户信息，请在 B站 App 内打开')
-
-    const profile = await toy.getUserProfile()
-    if (!profile.toyOpenId) {
-      throw new Error('这个玩具没有开启 OpenID 模式，拿不到用户标识')
+    if (!(await toy.isSupport('getUserProfile'))) {
+      throw new Error('当前环境不支持获取用户信息，请在 B站 App 内或电脑浏览器打开。')
     }
 
+    // 用户此时已经读过上面的说明并主动点了按钮，
+    // 平台的数据确认弹窗会紧接着出现。
+    $('workingText').textContent = '正在获取授权…'
+    const profile = await toy.getUserProfile()
+
+    if (!profile.toyOpenId) {
+      throw new Error('这款游戏没有开启 OpenID 模式，暂时无法使用联机身份。')
+    }
+
+    $('workingText').textContent = '正在签发身份…'
     const res = await post('/api/bridge/authorize', {
       cid: CID,
       cc: CC,
@@ -180,21 +225,30 @@ $('go').addEventListener('click', async () => {
     })
 
     pendingReturn = res
-    $('desc').textContent = '授权成功。点击下面按钮回到《' +
-      (res.returnToyTitle || res.returnSlug) + '》继续。'
-    $('go').hidden = true
-    $('back').hidden = false
-    $('hint').textContent = '授权码 ' + res.expiresIn + ' 秒内有效'
+    $('doneHint').textContent = '授权码 ' + res.expiresIn + ' 秒内有效，请尽快返回游戏'
+    show('s-done')
   } catch (e) {
-    fail(e.message || String(e))
-    $('go').disabled = false
+    fail('授权没有完成。', e.message || String(e))
+    $('btnAllow').disabled = false
   }
 })
 
-// 3. navigate 必须在用户手势中调用，所以这里必须是独立的一次点击
-$('back').addEventListener('click', async () => {
+// ── 用户点了「暂不授权」：直接送回游戏，什么都不带 ──
+$('btnDeny').addEventListener('click', async () => {
+  if (!ctx) return
+  $('btnDeny').disabled = true
+  try {
+    await toy.navigate({ type: 'toy', id: ctx.slug })
+  } catch (e) {
+    fail('返回游戏失败。', e.message || String(e))
+    $('btnDeny').disabled = false
+  }
+})
+
+// ── 返回游戏。navigate 必须在用户手势里调用，所以这里必须是独立一次点击 ──
+$('btnBack').addEventListener('click', async () => {
   if (!pendingReturn) return
-  $('back').disabled = true
+  $('btnBack').disabled = true
   try {
     // App 内回跳同样带不了 extra，所以把结果写进共享存储。
     // 必须在真正跳转前才写 —— 写早了的话，发起方页面若还活着会
@@ -212,10 +266,14 @@ $('back').addEventListener('click', async () => {
       extra: { code: pendingReturn.code, st: ST || '' }
     })
   } catch (e) {
-    fail('跳转失败：' + (e.message || e))
-    $('back').disabled = false
+    fail('返回游戏失败。', e.message || String(e))
+    $('btnBack').disabled = false
   }
 })
+
+$('btnRetry').addEventListener('click', () => boot())
+
+boot()
 </script>
 </body>
 </html>

@@ -4,21 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Toy 联机工具</title>
+<link rel="stylesheet" href="https://www.oxth.com:8443/xmeta-ui.css">
 <script>
-// 第三方玩具用 toy.navigate({type:'toy', id:'xmeta', extra:{cid,...}}) 跳过来时，
-// 落点固定是 index.html，query 会被 B站 shell 原样转发到这一层。
-// 所以这里必须先把带 cid 的请求转交给真正的过桥页。
+// 第三方玩具用 toy.navigate({type:'toy', id:'xmeta', extra:{...}}) 跳过来时，
+// 落点固定是 index.html。参数优先取 URL（Web 端 SDK 会把 extra 拼进去），
+// 拿不到时回落到 localStorage（App 内 navigate 不透传 extra，发起方
+// 会把参数另写一份到共享存储）。详见 README。
 window.__XMETA_HAD_CID__ = false
 ;(function () {
   var qs = new URLSearchParams(location.search)
   if (qs.get('cid')) {
-    // Web 端：extra 会被 SDK 拼进 URL，shell 再转发到这一层
     window.__XMETA_HAD_CID__ = true
     location.replace('bridge.html?' + location.search.slice(1))
     return
   }
-  // App 端：navigate 走原生通道，实测不透传 extra，
-  // 所以发起方会把参数另写一份到共享的 localStorage
   try {
     var req = JSON.parse(localStorage.getItem('xmeta:req') || 'null')
     if (req && req.cid && req.ts && Date.now() - req.ts < 3 * 60 * 1000) {
@@ -28,57 +27,43 @@ window.__XMETA_HAD_CID__ = false
   } catch (e) { /* 忽略 */ }
 })()
 </script>
-<style>
-  :root { color-scheme: light dark; }
-  body { margin:0; font:15px/1.7 system-ui,-apple-system,"PingFang SC",sans-serif;
-         background:#f5f6fa; color:#18191c; padding:24px; box-sizing:border-box; }
-  .wrap { max-width:520px; margin:0 auto; }
-  h1 { font-size:22px; margin:0 0 6px; }
-  p.sub { font-size:14px; color:#61666d; margin:0 0 24px; }
-  a.card { display:block; background:#fff; border-radius:14px; padding:18px 20px;
-           margin-bottom:12px; text-decoration:none; color:inherit;
-           box-shadow:0 2px 12px rgba(0,0,0,.05); }
-  a.card h2 { font-size:16px; margin:0 0 4px; color:#18191c; }
-  a.card span { font-size:13px; color:#61666d; }
-  .arrow { float:right; color:#c9ccd0; font-size:20px; line-height:1.4; }
-  .foot { font-size:12px; color:#9499a0; margin-top:24px; line-height:1.8; }
-  code { background:#eef0f4; padding:1px 5px; border-radius:4px; font-size:12px; }
-</style>
 </head>
-<body>
-<div class="wrap">
-  <h1>Toy 联机工具</h1>
-  <p class="sub">给 B站 玩具提供跨玩具的统一用户身份。</p>
+<body class="xm">
+<div class="xm-page xm-page--center">
 
-  <div id="dbg" hidden
-       style="background:#fff3cd;border:1px solid #ffe69c;color:#664d03;
-              border-radius:10px;padding:12px 14px;font-size:12px;
-              line-height:1.8;margin-bottom:14px;word-break:break-all"></div>
+  <div class="xm-hero">
+    <div class="xm-hero__title">Toy 联机工具</div>
+    <p class="xm-hero__sub">给 B站 玩具提供跨玩具的统一用户身份</p>
+  </div>
 
-  <a class="card" href="claim.html">
-    <span class="arrow">›</span>
-    <h2>认领我的玩具</h2>
-    <span>玩具作者在这里登记，拿到 client_id 后即可接入</span>
+  <a class="xm-card" href="claim.html"
+     style="display:block;text-decoration:none;color:inherit">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:3px">认领你的玩具</div>
+        <div class="xm-small">作者在这里登记，拿到 client_id 后即可接入</div>
+      </div>
+      <div style="color:var(--xm-text-3);font-size:20px;flex:none">›</div>
+    </div>
   </a>
 
-  <div class="card" style="background:#f6f7f8;box-shadow:none;cursor:default">
-    <h2 style="margin-bottom:4px">过桥授权</h2>
-    <span style="font-size:13px;color:#61666d">
-      这一页不能直接打开 —— 必须由游戏里的「开启联机」按钮带参数跳过来。
-      直接点开只会提示缺少参数。
-    </span>
+  <div class="xm-note">
+    <b>过桥授权</b>这一页不能直接打开 —— 它必须由游戏里的「开启联机」按钮带参数跳过来。
+    如果你是从游戏跳过来的但看到了这一页，说明参数在途中丢了，页面下方会给出诊断信息。
   </div>
 
-  <div class="foot">
-    接入方式：在玩具里引入 <code>xmeta-client.js</code>，配置 <code>clientId</code>，
-    在按钮点击里调用 <code>XMETA.login()</code>。<br>
-    详细说明见仓库 README。
+  <div class="xm-foot">
+    接入方式：在玩具里引入 <span class="xm-mono">xmeta-client.js</span>，
+    配置 <span class="xm-mono">clientId</span>，在按钮点击里调用
+    <span class="xm-mono">XMETA.login()</span><br>
+    <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span>
   </div>
+
+  <!-- 开发诊断：只在参数丢失时出现，正常用户看不到 -->
+  <div id="dbg" class="xm-alert xm-alert--warn xm-hidden" style="margin-top:16px"></div>
 </div>
 
 <script>
-// 诊断用：没收到 cid 说明参数在跳转过程中丢了，页面只能停在首页。
-// 把实际收到的地址显示出来，好判断是丢在哪一环。
 if (!window.__XMETA_HAD_CID__) {
   var el = document.getElementById('dbg')
   if (el) {
@@ -90,15 +75,14 @@ if (!window.__XMETA_HAD_CID__) {
     var req = null
     try { req = localStorage.getItem('xmeta:req') } catch (e) {}
 
-    el.hidden = false
+    el.classList.remove('xm-hidden')
     el.innerHTML =
       '<b>诊断：没能进入过桥流程</b><br>' +
       'URL 参数和 localStorage 两条通道都没有拿到参数。<br><br>' +
       '<b>① 收到的地址</b><br><code>' + esc(location.href) + '</code><br><br>' +
       '<b>② 发起方写的请求</b><br><code>' +
       (req ? esc(req) : '（读不到 —— 要么上一页没点按钮，要么跨 toy 共享失败）') +
-      '</code><br><br>' +
-      '把这两段一起发给开发者。'
+      '</code><br><br>把这两段一起发给开发者。'
   }
 }
 </script>
