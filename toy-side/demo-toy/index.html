@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>联机 Demo</title>
+
+<!--
+  ① 认领用。把 content 换成 claim 页给你的 nonce，保存发布，然后回去点「开始验证」。
+     认领完成后这行可以留着不管，也可以删掉。它只在认领那一刻被读一次。
+-->
+<meta name="xmeta-verify" content="PUT_NONCE_HERE">
+
+<script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
+<!-- 接入脚本由服务端提供，不用自己存一份 -->
+<script src="https://www.oxth.com:8443/xmeta-client.js"></script>
+
+<style>
+  :root { color-scheme: light dark; }
+  body { margin:0; font:15px/1.7 system-ui,-apple-system,"PingFang SC",sans-serif;
+         background:#f5f6fa; color:#18191c; padding:20px; box-sizing:border-box; }
+  .wrap { max-width:560px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.sub { font-size:13px; color:#61666d; margin:0 0 18px; }
+  .card { background:#fff; border-radius:14px; padding:16px 18px; margin-bottom:12px;
+          box-shadow:0 2px 12px rgba(0,0,0,.05); }
+  h2 { font-size:14px; margin:0 0 10px; color:#61666d; font-weight:600; }
+  .kv { display:flex; justify-content:space-between; align-items:baseline;
+        gap:10px; padding:5px 0; font-size:14px; }
+  .kv span { color:#9499a0; flex:none; }
+  .kv code, .kv b { font-size:13px; word-break:break-all; text-align:right; }
+  .kv b.ok { color:#2ac864; }
+  .kv b.no { color:#9499a0; }
+  button { width:100%; padding:13px; font-size:15px; font-weight:600; border:0;
+           border-radius:9px; background:#00aeec; color:#fff; cursor:pointer; margin-top:8px; }
+  button:disabled { background:#c9ccd0; cursor:not-allowed; }
+  button.ghost { background:#f1f2f3; color:#18191c; }
+  pre { background:#f6f7f8; border:1px solid #e3e5e7; border-radius:8px; padding:10px;
+        font-size:11px; overflow-x:auto; white-space:pre-wrap; word-break:break-all;
+        margin:0; max-height:240px; }
+  .warn { background:#fff3cd; border:1px solid #ffe69c; color:#664d03;
+          border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.8;
+          margin-bottom:12px; }
+  .warn ol { margin:6px 0 0; padding-left:20px; }
+  .muted { font-size:12px; color:#9499a0; margin-top:10px; line-height:1.7; }
+  .err { color:#f25d8e; font-size:13px; margin-top:10px; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>联机 Demo</h1>
+  <p class="sub">一个最小的第三方玩具，用来验证 xmeta 身份桥。</p>
+
+  <div class="warn" id="cfgWarn" hidden>
+    <b>还没配置 client_id</b> —— 需要先认领这个玩具：
+    <ol>
+      <li>打开中心玩具 <code>xmeta</code> 的「认领我的玩具」页</li>
+      <li>填入本玩具的 slug，拿到一段 <code>&lt;meta name="xmeta-verify"&gt;</code></li>
+      <li>把 nonce 填到本文件顶部那行 meta 里，保存发布</li>
+      <li>回去点「开始验证」，拿到 client_id</li>
+      <li>把 client_id 填到本文件下方的 <code>CONFIG.clientId</code>，再次发布</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>状态</h2>
+    <div class="kv"><span>client_id</span><code id="cid">—</code></div>
+    <div class="kv"><span>登录状态</span><b id="state" class="no">未登录</b></div>
+    <div class="kv" id="uidRow" hidden><span>uid</span><code id="uid">—</code></div>
+  </div>
+
+  <div class="card">
+    <button id="login">用 B站 账号登录</button>
+    <button id="who" class="ghost">查看我的 toyOpenId（调试）</button>
+    <div class="muted" id="tip"></div>
+  </div>
+
+  <div class="card" id="result" hidden>
+    <h2>access_token</h2>
+    <pre id="jwt"></pre>
+    <h2 style="margin-top:14px">payload</h2>
+    <pre id="claims"></pre>
+    <div class="muted">
+      这里只是解码 payload 给人看，<b>没有验签</b>。
+      真实接入必须把 JWT 交给你的服务端，用 JWKS 公钥验签、并校验
+      <code>aud</code> 等于自己的 toy_id。
+    </div>
+  </div>
+
+  <div class="err" id="err"></div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// 配置：认领拿到 client_id 后填到这里
+// ─────────────────────────────────────────────
+const CONFIG = {
+  apiBase:    'https://www.oxth.com:8443',
+  myToySlug:  'xmeta',
+  clientId:   'PUT_CLIENT_ID_HERE'
+}
+
+const $ = (id) => document.getElementById(id)
+let configured = false
+
+function fail(msg) { $('err').textContent = msg }
+function clearErr() { $('err').textContent = '' }
+
+function decodePayload(jwt) {
+  const b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return JSON.parse(new TextDecoder().decode(bytes))
+}
+
+// ── 初始化 ──
+if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
+  $('cfgWarn').hidden = false
+  $('cid').textContent = '未配置'
+  $('login').disabled = true
+} else {
+  $('cid').textContent = CONFIG.clientId
+  try {
+    XMETA.configure(CONFIG)
+    configured = true
+    $('tip').textContent = '点登录会先跳到中心玩具完成一次授权，然后带着授权码跳回来。'
+  } catch (e) {
+    fail('configure 失败：' + e.message)
+    $('login').disabled = true
+  }
+}
+
+if (configured) {
+  // 回跳之后 xmeta-client.js 会自动用 code 换 JWT，换好了通知这里
+  XMETA.onSession((s) => {
+    $('state').textContent = '已登录'
+    $('state').className = 'ok'
+    if (s.uid) { $('uid').textContent = s.uid; $('uidRow').hidden = false }
+    $('result').hidden = false
+    $('jwt').textContent = s.jwt
+    $('claims').textContent = JSON.stringify(decodePayload(s.jwt), null, 2)
+    $('login').textContent = '重新登录'
+  })
+}
+
+// ── 登录（必须在用户手势里调用，toy.navigate 需要手势）──
+$('login').addEventListener('click', async () => {
+  clearErr()
+  $('login').disabled = true
+  try {
+    await XMETA.login()
+    // 成功的话页面就被跳走了，这行不会执行到
+  } catch (e) {
+    fail('登录失败：' + (e.message || e))
+    $('login').disabled = false
+  }
+})
+
+// ── 调试：看看我自己在这个玩具里的 toyOpenId ──
+$('who').addEventListener('click', async () => {
+  clearErr()
+  try {
+    if (!(await toy.isSupport('getUserProfile'))) {
+      throw new Error('当前环境不支持 getUserProfile，请在 B站 App 内或桌面 Web 打开')
+    }
+    const p = await toy.getUserProfile()
+    if (!p.toyOpenId) {
+      throw new Error('这个玩具没开启 OpenID 模式，拿不到 toyOpenId')
+    }
+    $('tip').textContent =
+      '本玩具内的 toyOpenId：' + p.toyOpenId +
+      '（昵称：' + (p.nickname || '—') + '）'
+  } catch (e) {
+    fail(e.message || String(e))
+  }
+})
+</script>
+</body>
+</html>

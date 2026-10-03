@@ -77,6 +77,7 @@ npm run dev               # http://127.0.0.1:8787
 | POST | `/api/oauth/token` | 用 code 换 JWT |
 | GET | `/.well-known/jwks.json` | 公钥，接入方拿来验签 |
 | GET | `/.well-known/xmeta-configuration` | 接入方元信息 |
+| GET | `/xmeta-client.js` | 接入脚本，第三方玩具直接 `<script src>` 引入 |
 | GET | `/health` | 健康检查 |
 
 > 所有带 `toyOpenId` 的调用都必须是 POST。它是密钥级数据，
@@ -110,18 +111,21 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 | `index.html` | 中心玩具的入口。带 `?cid=` 时自动转发给 `bridge.html`，否则是导航页 |
 | `claim.html` | 上传到**中心玩具**，作者用来认领 |
 | `bridge.html` | 上传到**中心玩具**，用户过桥时落到这里 |
-| `xmeta-client.js` | 给**第三方玩具**引入 |
+| `demo-toy/index.html` | 一个最小的**第三方玩具**示例，用来跑通整条链路 |
+| `xmeta-client.js` | 接入脚本。**不用自己存**，服务端已挂在 `/xmeta-client.js` |
 
 > 第三方玩具用 `toy.navigate({ type:'toy', id:'<中心玩具 slug>' })` 跳过来时，
 > 落点固定是 `index.html`，所以 `index.html` 必须保留那行转发逻辑。
 
-两个 HTML 里都有 `const API_BASE = '...'`，部署前改成你的域名。
+`claim.html` / `bridge.html` / `demo-toy/index.html` 里都有
+`API_BASE`（或 `CONFIG.apiBase`），部署前改成你的域名。**必须是 https**——
+玩具页面本身跑在 https 上，调 http 接口会被浏览器按混合内容拦掉。
 
 第三方玩具这么接：
 
 ```html
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
-<script src="xmeta-client.js"></script>
+<script src="https://your-api.example.com/xmeta-client.js"></script>
 <script>
   XMETA.configure({
     apiBase: 'https://your-api.example.com',
