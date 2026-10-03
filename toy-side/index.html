@@ -43,11 +43,13 @@
     <span>玩具作者在这里登记，拿到 client_id 后即可接入</span>
   </a>
 
-  <a class="card" href="bridge.html">
-    <span class="arrow">›</span>
-    <h2>过桥授权</h2>
-    <span>从游戏跳过来的用户在这里完成一次授权</span>
-  </a>
+  <div class="card" style="background:#f6f7f8;box-shadow:none;cursor:default">
+    <h2 style="margin-bottom:4px">过桥授权</h2>
+    <span style="font-size:13px;color:#61666d">
+      这一页不能直接打开 —— 必须由游戏里的「开启联机」按钮带参数跳过来。
+      直接点开只会提示缺少参数。
+    </span>
+  </div>
 
   <div class="foot">
     接入方式：在玩具里引入 <code>xmeta-client.js</code>，配置 <code>clientId</code>，

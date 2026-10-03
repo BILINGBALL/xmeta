@@ -103,7 +103,16 @@ async function getJson(path) {
 
 // 1. 确认 client_id 有效，展示是哪个玩具在要身份
 ;(async function loadContext() {
-  if (!CID) { fail('缺少 cid 参数，请从玩具内重新进入'); return }
+  if (!CID) {
+    // 这个页面只能从玩具里跳过来。直接打开必然缺参数，
+    // 所以要明确说清楚，别让人以为是坏了。
+    $('title').textContent = '缺少参数'
+    $('desc').textContent =
+      '这一页不能直接打开。请回到游戏里点「开启联机」，' +
+      '由游戏跳转过来才会带上必要参数。'
+    $('hint').textContent = '当前地址缺少 cid 参数'
+    return
+  }
   try {
     const json = await getJson('/api/bridge/context?cid=' + encodeURIComponent(CID))
     $('title').textContent = `《${json.title || json.slug}》想获取你的身份`
