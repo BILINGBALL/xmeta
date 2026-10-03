@@ -161,15 +161,35 @@ B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / PKCE / �
 ## 几个必须知道的坑
 
 1. **中心玩具必须开启 OpenID 模式**，否则 `getUserProfile()` 不返回 `toyOpenId`，整条链断掉。
-2. **`getUserProfile()` 在外部手机浏览器里不支持**，只在 B站 App 内和桌面 Web 可用。
-3. **绝不能用云存储做实时联机同步**：`getCloudStorage` / `submitScore` 是按「玩具」限流的，
+2. **B站 App 里 `toy.navigate` 不会透传 `extra`**（Web 端正常）。
+
+   实测：从玩具 A 调 `toy.navigate({ type:'toy', id:'玩具B', extra:{foo:'bar'} })`，
+   玩具 B 的 `location.search` 里只有原生自己加的 `from_spmid=toy.toy-detail.<A的toy_id>.0`，
+   `foo` 丢了。SDK 里 `navigate` 分两条路：非 App 走 `window.open(at(e))`，
+   `extra` 会被拼进 URL；App 走原生 JSB（`ipc.request({kind:'navigate'})`），
+   原生侧拼 URL 时没带上 `extra`。文档里 `extra` 写的是「透传给目标页面」，
+   且 `type` 明确包含 `toy`——**App 端的行为与文档不符**。
+
+   所以本项目的过桥参数（leg 1 的 `cid/cc/st`、leg 2 的 `code`）都走**双通道**：
+
+   - URL 参数优先（Web 端能生效）
+   - 拿不到时回落到 **localStorage** —— B站 所有玩具的内层 iframe 同在
+     `www.bilibilitoy.com` 一个源下（sandbox 带 `allow-same-origin`），存储是共享的。
+     这条路是实测验证过的。
+
+   > 依赖「跨 toy 同源」属于平台未公开的实现细节，B站 改沙箱配置就会断。
+   > 所以 URL 那条路一直保留着，而不是直接删掉。
+
+   正因为它全玩具共享，`xmeta-client.js` 的 key 一律带 `clientId` 前缀，
+   免得不同玩具互相踩；PKCE verifier 只暂存在那里，真正的凭证只放内存。
+
+3. **`getUserProfile()` 在外部手机浏览器里不支持**，只在 B站 App 内和桌面 Web 可用。
+4. **绝不能用云存储做实时联机同步**：`getCloudStorage` / `submitScore` 是按「玩具」限流的，
    同一个玩具的所有玩家共享一份额度，几个人同时在玩就会互相把额度打光（错 307044）。
-4. **`toyOpenId` 跨设备的稳定性没验证过**，上线前务必在手机 App 和桌面 Web 上各测一次。
+5. **`toyOpenId` 跨设备的稳定性没验证过**，上线前务必在手机 App 和桌面 Web 上各测一次。
    如果不稳定，作者会只能在某一台设备上管理自己的玩具。
-5. **`/x/sunflower/artifex/toy/detail` 是未公开接口**，随时可能变更或限流。
+6. **`/x/sunflower/artifex/toy/detail` 是未公开接口**，随时可能变更或限流。
    抓 shell 页面解 `__TOY_META__` 是可用的兜底路径。生产环境建议给 toy 元数据加缓存。
-6. **`localStorage` 在 `www.bilibilitoy.com` 下是所有玩具共享的**（同源），
-   所以 `xmeta-client.js` 的 key 都带 clientId 前缀，且只存一次性的 PKCE verifier。
 7. **nonce 的钓鱼风险无技术解**：不能阻止作者被别人骗着把验证码贴进代码。
    这是所有域名验证方案的共同弱点，只能靠文案提示降低概率。
 

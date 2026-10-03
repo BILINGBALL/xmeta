@@ -58,9 +58,42 @@ const API_BASE = 'https://www.oxth.com:8443'
 })()
 
 const qs = new URLSearchParams(location.search)
-const CID = qs.get('cid')          // 第三方 toy 的 client_id
-const CC  = qs.get('cc')           // PKCE challenge
-const ST  = qs.get('st')           // 第三方 toy 的 state，原样带回
+
+const REQ_KEY = 'xmeta:req'        // 发起方写的：{ cid, cc, st, ts }
+const RES_KEY = 'xmeta:res'        // 我写回给它的：{ code, st, returnSlug, ts }
+const SHARED_TTL_MS = 3 * 60 * 1000
+
+// 参数优先取 URL。但 B站 App 里 toy.navigate 走原生通道，实测**不会
+// 透传 extra**（目标页只收到原生加的 from_spmid），所以拿不到时回落到
+// localStorage：所有玩具的内层 iframe 都在 www.bilibilitoy.com 这一个
+// 源下，发起方会把 { cid, cc, st } 写在那里。
+let CID = qs.get('cid')            // 第三方 toy 的 client_id
+let CC  = qs.get('cc')             // PKCE challenge
+let ST  = qs.get('st')             // 第三方 toy 的 state，原样带回
+
+function readShared(key) {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || 'null')
+    if (!v || typeof v !== 'object' || !v.ts) return null
+    if (Date.now() - v.ts > SHARED_TTL_MS) return null
+    return v
+  } catch (e) {
+    return null
+  }
+}
+
+function writeShared(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)) } catch (e) { /* 忽略 */ }
+}
+
+if (!CID) {
+  const req = readShared(REQ_KEY)
+  if (req && req.cid) {
+    CID = req.cid
+    CC  = req.cc
+    ST  = req.st
+  }
+}
 
 const $ = (id) => document.getElementById(id)
 let pendingReturn = null
@@ -163,6 +196,16 @@ $('back').addEventListener('click', async () => {
   if (!pendingReturn) return
   $('back').disabled = true
   try {
+    // App 内回跳同样带不了 extra，所以把结果写进共享存储。
+    // 必须在真正跳转前才写 —— 写早了的话，发起方页面若还活着会
+    // 提前把 code 消费掉，等它跳回重载时就什么都拿不到了。
+    writeShared(RES_KEY, {
+      code: pendingReturn.code,
+      st: ST || '',
+      returnSlug: pendingReturn.returnSlug,
+      ts: Date.now()
+    })
+
     await toy.navigate({
       type: 'toy',
       id: pendingReturn.returnSlug,

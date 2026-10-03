@@ -12,9 +12,20 @@ window.__XMETA_HAD_CID__ = false
 ;(function () {
   var qs = new URLSearchParams(location.search)
   if (qs.get('cid')) {
+    // Web 端：extra 会被 SDK 拼进 URL，shell 再转发到这一层
     window.__XMETA_HAD_CID__ = true
     location.replace('bridge.html?' + location.search.slice(1))
+    return
   }
+  // App 端：navigate 走原生通道，实测不透传 extra，
+  // 所以发起方会把参数另写一份到共享的 localStorage
+  try {
+    var req = JSON.parse(localStorage.getItem('xmeta:req') || 'null')
+    if (req && req.cid && req.ts && Date.now() - req.ts < 3 * 60 * 1000) {
+      window.__XMETA_HAD_CID__ = true
+      location.replace('bridge.html')
+    }
+  } catch (e) { /* 忽略 */ }
 })()
 </script>
 <style>
@@ -76,16 +87,16 @@ if (!window.__XMETA_HAD_CID__) {
         return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]
       })
     }
-    var diag = null
-    try { diag = localStorage.getItem('xmeta:diag') } catch (e) {}
+    var req = null
+    try { req = localStorage.getItem('xmeta:req') } catch (e) {}
 
     el.hidden = false
     el.innerHTML =
-      '<b>诊断：这个页面没有收到 cid 参数</b><br>' +
-      '所以没能进入过桥流程，只能停在首页。<br><br>' +
-      '<b>① 实际收到的地址</b><br><code>' + esc(location.href) + '</code><br><br>' +
-      '<b>② 上一个玩具说要带的参数</b><br><code>' +
-      (diag ? esc(diag) : '（读不到 —— 要么上一页根本没点按钮，要么它没写进来）') +
+      '<b>诊断：没能进入过桥流程</b><br>' +
+      'URL 参数和 localStorage 两条通道都没有拿到参数。<br><br>' +
+      '<b>① 收到的地址</b><br><code>' + esc(location.href) + '</code><br><br>' +
+      '<b>② 发起方写的请求</b><br><code>' +
+      (req ? esc(req) : '（读不到 —— 要么上一页没点按钮，要么跨 toy 共享失败）') +
       '</code><br><br>' +
       '把这两段一起发给开发者。'
   }

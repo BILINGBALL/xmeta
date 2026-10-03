@@ -34,6 +34,51 @@
   var SESSION = null            // { jwt, uid, expiresAt }
   var listeners = []
   var VERIFIER_KEY = ''
+  var pollTimer = null
+
+  /**
+   * 玩具之间跳转用的传参通道。
+   *
+   * B站 App 里 toy.navigate 走的是原生 JSB，实测 **不会透传 extra**：
+   * 传 {cid,cc,st} 过去，目标页的 location.search 里只有原生自己加的
+   * from_spmid=toy.toy-detail.<来源id>.0。Web 端则正常（SDK 自己拼 URL）。
+   *
+   * 好在所有玩具的内层 iframe 都在 www.bilibilitoy.com 这一个源下
+   * （sandbox 带 allow-same-origin），localStorage 是共享的 —— 实测
+   * 玩具 A 写进去的键，玩具 B 读得到。所以拿它当兜底通道。
+   *
+   * 两边都走：URL 参数优先（Web 端能用），拿不到再读 localStorage。
+   * 只在同一台设备上有效，但过桥本来就是同设备跳过去再跳回来。
+   */
+  var REQ_KEY = 'xmeta:req'      // 发起方写：{ cid, cc, st, ts }
+  var RES_KEY = 'xmeta:res'      // 中心玩具写：{ code, st, returnSlug, ts }
+  var SHARED_TTL_MS = 3 * 60 * 1000
+
+  function writeShared(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)) } catch (e) { /* 隐私模式 */ }
+  }
+
+  /** 只认新鲜的，避免上一次残留的请求串到这一次 */
+  function readShared(key) {
+    try {
+      var v = JSON.parse(localStorage.getItem(key) || 'null')
+      if (!v || typeof v !== 'object' || !v.ts) return null
+      if (Date.now() - v.ts > SHARED_TTL_MS) return null
+      return v
+    } catch (e) {
+      return null
+    }
+  }
+
+  function clearShared(key) {
+    try { localStorage.removeItem(key) } catch (e) { /* 忽略 */ }
+  }
+
+  /** 从内层 iframe 的路径 /toy/<slug>/... 里解出自己的 slug */
+  function mySlug() {
+    var m = /^\/toy\/([^/]+)\//.exec(global.location.pathname)
+    return m ? m[1] : null
+  }
 
   function b64url(bytes) {
     var s = ''
@@ -115,26 +160,48 @@
       localStorage.setItem(VERIFIER_KEY + ':st', state)
     } catch (e) { /* 隐私模式下写不进去，下面换 code 会失败并提示 */ }
 
-    // 诊断：记下「我打算带哪些参数跳过去」。
-    // B站 所有玩具的内层 iframe 同在 www.bilibilitoy.com 这个源下，
-    // 所以中心玩具那边读得到，可以用来判断参数是发出去就没带、
-    // 还是中途被丢了。定位完可以删掉这几行。
-    try {
-      localStorage.setItem('xmeta:diag', JSON.stringify({
-        stage: 'login',
-        cid: CFG.clientId,
-        centerToySlug: CFG.centerToySlug,
-        cc: challenge,
-        st: state,
-        at: new Date().toISOString()
-      }))
-    } catch (e) { /* 忽略 */ }
+    // App 内 navigate 不透传 extra，所以参数另写一份到共享的 localStorage。
+    // URL 那份照样带着 —— Web 端能生效，且这样两端的排查方式一致。
+    writeShared(REQ_KEY, {
+      cid: CFG.clientId,
+      cc: challenge,
+      st: state,
+      ts: Date.now()
+    })
 
     await toy.navigate({
       type: 'toy',
       id: CFG.centerToySlug,
       extra: { cid: CFG.clientId, cc: challenge, st: state }
     })
+
+    // 回来时页面要是没有重新加载，handleRedirect 就不会再跑，
+    // 所以这里起个轮询盯着共享存储，等中心玩具把 code 写进来。
+    startPolling()
+  }
+
+  /**
+   * 盯着 RES_KEY，等中心玩具写回 { code, st, returnSlug }。
+   * 页面重新加载时走 handleRedirect 就够了；这个是为了覆盖
+   * 「App 里跳回来但页面没重载」的情况。
+   */
+  function startPolling() {
+    if (pollTimer) return
+    var deadline = Date.now() + SHARED_TTL_MS
+    pollTimer = setInterval(function () {
+      if (Date.now() > deadline) {
+        clearInterval(pollTimer)
+        pollTimer = null
+        return
+      }
+      var res = readShared(RES_KEY)
+      if (!res || !res.code) return
+      clearInterval(pollTimer)
+      pollTimer = null
+      doExchange(res.code, res.st).catch(function (e) {
+        console.error('[xmeta] 换取 JWT 失败：', e.message)
+      })
+    }, 1000)
   }
 
   /**
@@ -145,14 +212,27 @@
     var qs = new URLSearchParams(global.location.search)
     var code = qs.get('code')
     var state = qs.get('st')
-    if (!code) return null
 
-    // 把 code 从地址栏抹掉，避免被复制/进历史
-    try {
-      var clean = global.location.pathname + global.location.hash
-      global.history.replaceState(null, '', clean)
-    } catch (e) { /* 忽略 */ }
+    if (code) {
+      // Web 端：SDK 自己拼 URL，extra 会带过来
+      try {
+        global.history.replaceState(null, '', global.location.pathname + global.location.hash)
+      } catch (e) { /* 忽略 */ }
+    } else {
+      // App 端：navigate 不透传 extra，改从共享的 localStorage 取
+      var shared = readShared(RES_KEY)
+      if (!shared || !shared.code) return null
+      var mine = mySlug()
+      if (shared.returnSlug && mine && shared.returnSlug !== mine) return null // 不是发给我的
+      code = shared.code
+      state = shared.st
+    }
 
+    return doExchange(code, state)
+  }
+
+  /** 用 code + code_verifier 换 JWT */
+  async function doExchange(code, state) {
     var verifier = null
     var expectState = null
     try {
@@ -175,6 +255,10 @@
       client_id: CFG.clientId,
       code_verifier: verifier
     })
+
+    // 换成功就把共享记录清掉，免得下次进页面重复消费同一个 code
+    clearShared(RES_KEY)
+    clearShared(REQ_KEY)
 
     SESSION = {
       jwt: res.access_token,
