@@ -44,6 +44,9 @@
 
   <div class="card" id="step2" hidden>
     <h2>第 2 步：把验证码写进你的玩具</h2>
+    <div id="whichToy"
+         style="background:#f6f7f8;border-radius:8px;padding:10px 12px;
+                font-size:13px;margin-bottom:12px;line-height:1.7"></div>
     <div id="reuseNote" hidden
          style="background:#eef6ff;border:1px solid #cce4ff;color:#1a5c99;
                 border-radius:8px;padding:10px 12px;font-size:13px;
@@ -168,6 +171,15 @@ $('start').addEventListener('click', async () => {
     }
 
     try { localStorage.setItem(SLUG_KEY, slug) } catch (e) { /* 忽略 */ }
+
+    // 把「正在认领哪个玩具」写清楚。
+    // 少了这一行，填错 slug 的时候完全没有提示：验证码写进了 A 玩具，
+    // 认领却挂在 B 玩具上，最后只会得到一个莫名其妙的「源码里没找到验证码」。
+    $('whichToy').innerHTML =
+      '正在认领：<b>' + (res.title || '(无标题)') + '</b>' +
+      '<br><span style="color:#9499a0">slug: ' + res.slug +
+      ' · toy_id: ' + res.toyId + '</span>' +
+      '<br><span style="color:#9499a0">验证码要写进<b>上面这个</b>玩具的 index.html</span>'
 
     // 同一个用户 + 同一个玩具，有效期内 nonce 不会变。
     // 说清楚这一点，免得他以为要重新发布一次。
