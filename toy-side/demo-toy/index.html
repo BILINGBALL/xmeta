@@ -87,7 +87,7 @@
 const CONFIG = {
   apiBase:       'https://www.oxth.com:8443',
   centerToySlug: 'xmeta',
-  clientId:      'PUT_CLIENT_ID_HERE'
+  clientId:      'xmeta_v8lTN7_zee7Kv11TxkN7BQ'
 }
 
 const $ = (id) => document.getElementById(id)
@@ -148,6 +148,10 @@ if (configured) {
   XMETA.onError((e) => {
     showErr('身份换取失败：' + (e.message || e))
   })
+
+  // 成功时把错误清掉。否则前面某条路失败留下的报错会一直挂在那里，
+  // 用户明明已经拿到身份了，界面上却还有个红字 —— 看起来像坏了。
+  XMETA.onSession(() => clearErr())
 }
 
 // ── 剩余时间 ──

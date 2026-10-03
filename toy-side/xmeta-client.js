@@ -263,7 +263,7 @@
       pollTimer = null
       doExchange(shared.code, shared.st).catch(function (e) {
         console.error('[xmeta] 换取 JWT 失败：', e.message)
-        emitError(e)
+        emitError(tagged('等待结果', e))
       })
     }, 1000)
   }
@@ -393,6 +393,22 @@
     })
   }
 
+  /**
+   * 给错误打上「从哪条路来的」。
+   *
+   * 换取触发有两个入口：页面加载时的回跳处理，和等结果的轮询。
+   * 正常情况下只有一个会跑；两个都跑就意味着有东西重入了 ——
+   * 而两边换的是同一个一次性 code，必然一个成功一个失败。
+   * 报错时带上入口名，一眼就能看出是不是这种情况。
+   */
+  function tagged(stage, e) {
+    var msg = (e && e.message) ? e.message : String(e)
+    var err = new Error('[' + stage + '] ' + msg)
+    err.stage = stage
+    err.cause = e
+    return err
+  }
+
   function getSession() {
     if (SESSION && SESSION.expiresAt > Date.now() + 5000) return SESSION
     return null
@@ -418,7 +434,7 @@
     if (!CFG.clientId) return
     handleRedirect().catch(function (e) {
       console.error('[xmeta] 换取 JWT 失败：', e.message)
-      emitError(e)
+      emitError(tagged('页面加载', e))
     })
   }
 
