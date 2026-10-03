@@ -365,9 +365,27 @@ export async function peekAuthCode(code: string): Promise<AuthCodeRow | null> {
   );
 }
 
+/**
+ * 记一次成功的身份使用。换 token 成功后调用。
+ *
+ * 单独一张表而不是从 auth_code 聚合：auth_code 是短命凭证，过期就清，
+ * 拿它当历史数据源会让统计随清理缩水。
+ */
+export async function recordUsage(uid: string, toyId: string): Promise<void> {
+  await query(
+    `insert into identity_usage (uid, toy_id) values ($1, $2)
+     on conflict (uid, toy_id) do update
+        set uses = identity_usage.uses + 1,
+            last_used_at = now()`,
+    [uid, toyId],
+  );
+}
+
 /** 清掉过期数据，交给定时任务调用即可 */
 export async function cleanupExpired(): Promise<{ codes: number; claims: number }> {
-  const codes = await query(`delete from auth_code where expires_at < now() - interval '1 day'`);
+  // auth_code 只保留还活着的码。1 小时的宽限纯粹是为了排查问题时
+  // 还能看到刚过期的记录，使用统计已经搬到 identity_usage 了。
+  const codes = await query(`delete from auth_code where expires_at < now() - interval '1 hour'`);
   const claims = await query(
     `update toy_claim set state = 'expired'
       where state = 'pending' and expires_at < now()`,

@@ -4,7 +4,7 @@ import { parse, tokenSchema } from '../http.js';
 import { issueToken } from '../lib/jwt.js';
 import { verifyChallenge } from '../lib/pkce.js';
 import { rateLimit } from '../lib/ratelimit.js';
-import { consumeAuthCode, getClient, getToyById, peekAuthCode } from '../repos.js';
+import { consumeAuthCode, getClient, getToyById, peekAuthCode, recordUsage } from '../repos.js';
 
 /**
  * Phase 2 —— 用 code 换 JWT。
@@ -50,6 +50,14 @@ export async function tokenRoutes(app: FastifyInstance): Promise<void> {
     if (toy.state !== 'verified') throw Errors.toyNotVerified();
 
     const token = await issueToken({ uid: row.uid, audience: toy.toy_id });
+
+    // 记一次使用记录。这是统计，不该因为它写失败就把已经签好的
+    // token 吞掉 —— 用户那边是无感的，这里退化成少记一次。
+    try {
+      await recordUsage(row.uid, toy.toy_id);
+    } catch (err) {
+      req.log.error({ err }, 'recordUsage 失败');
+    }
 
     return {
       access_token: token.accessToken,

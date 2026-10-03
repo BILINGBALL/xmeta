@@ -88,16 +88,17 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
 
     // 用户视角：我的身份在哪些玩具上被用过。
     // 这是用户自己的数据，展示给他看是透明，不是泄露。
+    //
+    // 读 identity_usage 而不是聚合 auth_code —— 后者是短命凭证，
+    // 过期就被清掉，拿它当历史源会让这份记录缩水到只剩最近一天。
     const usage = await query<UsageRow>(
       `select t.toy_id, t.slug, t.title, t.icon_url,
-              max(a.created_at) as last_used_at,
-              count(*)::int     as uses
-         from auth_code a
-         join toy_client c on c.client_id = a.client_id
-         join toy t        on t.toy_id    = c.toy_id
-        where a.uid = $1
-        group by t.toy_id, t.slug, t.title, t.icon_url
-        order by last_used_at desc`,
+              u.last_used_at,
+              u.uses
+         from identity_usage u
+         join toy t on t.toy_id = u.toy_id
+        where u.uid = $1
+        order by u.last_used_at desc`,
       [user.id],
     );
 
