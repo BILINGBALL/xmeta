@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>联机 Demo</title>
+
+<!--
+  认领用。把 content 换成认领页给你的 nonce，保存发布，然后回去点「开始验证」。
+  认领完成后这行可以删掉 —— 它只在认领那一刻被读一次。
+-->
+<meta name="xmeta-verify" content="PUT_NONCE_HERE">
+
+<link rel="stylesheet" href="https://www.oxth.com:8443/xmeta-ui.css">
+<script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
+<!-- 接入脚本由服务端提供，不用自己存一份 -->
+<script src="https://www.oxth.com:8443/xmeta-client.js"></script>
+</head>
+<body class="xm">
+<div class="xm-page">
+
+  <div class="xm-hero">
+    <div class="xm-hero__title">联机 Demo</div>
+    <p class="xm-hero__sub">一个最小的第三方玩具，用来验证 xmeta 身份桥。</p>
+  </div>
+
+  <!-- 没配 client_id 时的接入指引 -->
+  <div class="xm-alert xm-alert--warn" id="cfgWarn" style="display:none">
+    <b>还没配置 client_id</b> —— 需要先认领这款玩具：
+    <ol class="xm-list xm-list--yes xm-mt" style="margin-top:8px">
+      <li>打开中心玩具 xmeta 的「认领玩具」页</li>
+      <li>填入本玩具的 slug，拿到一段验证码</li>
+      <li>把验证码填到本文件顶部的 meta 里，保存发布</li>
+      <li>回到认领页点「开始验证」，拿到 client_id</li>
+      <li>把 client_id 填到下面的 <span class="xm-mono">CONFIG.clientId</span>，再次发布</li>
+    </ol>
+  </div>
+
+  <div class="xm-card">
+    <div class="xm-h2">联机状态</div>
+    <div class="xm-kv">
+      <span class="xm-kv__k">client_id</span>
+      <span class="xm-kv__v xm-mono" id="vCid">—</span>
+    </div>
+    <div class="xm-kv">
+      <span class="xm-kv__k">身份</span>
+      <span class="xm-kv__v xm-kv__v--muted" id="vState">未获取</span>
+    </div>
+    <div class="xm-kv" id="rowUid" style="display:none">
+      <span class="xm-kv__k">uid</span>
+      <span class="xm-kv__v xm-mono" id="vUid">—</span>
+    </div>
+  </div>
+
+  <button class="xm-btn xm-btn--primary" id="btnLogin">开启联机</button>
+  <button class="xm-btn xm-btn--ghost" id="btnWho">看看我的 toyOpenId</button>
+
+  <p class="xm-small xm-mt" id="tip"></p>
+
+  <div class="xm-card xm-hidden" id="result" style="margin-top:12px">
+    <div class="xm-h2">access_token</div>
+    <pre class="xm-pre" id="jwt"></pre>
+    <div class="xm-h2 xm-mt">payload</div>
+    <pre class="xm-pre" id="claims"></pre>
+    <p class="xm-small xm-mt">
+      这里只是解码 payload 给人看，<b>没有验签</b>。
+      真实接入必须把 JWT 交给你的服务端，用 JWKS 公钥验签、并校验
+      <span class="xm-mono">aud</span> 等于自己的 toy_id。
+    </p>
+  </div>
+
+  <div class="xm-alert xm-alert--error xm-hidden" id="errBox" style="margin-top:12px"></div>
+
+  <div class="xm-foot">
+    <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// 配置：认领拿到 client_id 后填到这里
+// ─────────────────────────────────────────────
+const CONFIG = {
+  apiBase:       'https://www.oxth.com:8443',
+  centerToySlug: 'xmeta',
+  clientId:      'PUT_CLIENT_ID_HERE'
+}
+
+const $ = (id) => document.getElementById(id)
+
+function showErr(msg) { $('errBox').textContent = msg; $('errBox').classList.remove('xm-hidden') }
+function clearErr() { $('errBox').classList.add('xm-hidden') }
+
+function decodePayload(jwt) {
+  const b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return JSON.parse(new TextDecoder().decode(bytes))
+}
+
+// ── 初始化 ──
+let configured = false
+
+if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
+  $('cfgWarn').style.display = ''
+  $('vCid').textContent = '未配置'
+  $('btnLogin').disabled = true
+} else {
+  $('vCid').textContent = CONFIG.clientId
+  try {
+    XMETA.configure(CONFIG)
+    configured = true
+    $('tip').textContent = '点「开启联机」会先跳到中心玩具完成一次授权，然后带着授权码跳回来。'
+  } catch (e) {
+    showErr('初始化失败：' + e.message)
+    $('btnLogin').disabled = true
+  }
+}
+
+if (configured) {
+  // 回跳之后 xmeta-client.js 会自动用 code 换 JWT，换好了通知这里
+  XMETA.onSession((s) => {
+    $('vState').textContent = '已就绪'
+    $('vState').className = 'xm-kv__v xm-kv__v--ok'
+    if (s.uid) { $('vUid').textContent = s.uid; $('rowUid').style.display = '' }
+    $('result').classList.remove('xm-hidden')
+    $('jwt').textContent = s.jwt
+    $('claims').textContent = JSON.stringify(decodePayload(s.jwt), null, 2)
+    $('btnLogin').textContent = '重新获取'
+    $('tip').textContent = ''
+  })
+}
+
+// ── 开启联机（必须在用户手势里调用，toy.navigate 需要手势）──
+$('btnLogin').addEventListener('click', async () => {
+  clearErr()
+  $('btnLogin').disabled = true
+  try {
+    await XMETA.login()
+    // 成功的话页面就被跳走了，这行不会执行到
+  } catch (e) {
+    showErr('开启失败：' + (e.message || e))
+    $('btnLogin').disabled = false
+  }
+})
+
+// ── 调试：看看我自己在这款玩具里的 toyOpenId ──
+$('btnWho').addEventListener('click', async () => {
+  clearErr()
+  try {
+    if (!(await toy.isSupport('getUserProfile'))) {
+      throw new Error('当前环境不支持获取用户信息，请在 B站 App 内或电脑浏览器打开。')
+    }
+    const p = await toy.getUserProfile()
+    if (!p.toyOpenId) {
+      throw new Error('这款玩具没开启 OpenID 模式，拿不到 toyOpenId。')
+    }
+    $('tip').textContent = '本玩具内的 toyOpenId：' + p.toyOpenId +
+      '（昵称：' + (p.nickname || '—') + '）'
+  } catch (e) {
+    showErr(e.message || String(e))
+  }
+})
+</script>
+</body>
+</html>
