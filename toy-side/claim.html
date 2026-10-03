@@ -67,18 +67,46 @@
 </div>
 
 <script>
-// ⚠️ 部署前改成你的 API 地址
+// ⚠️ 部署前改成你的 API 地址（必须是 https，且是外网可达的域名）
 const API_BASE = 'http://127.0.0.1:8787'
+
+// 这两个是最常见的配置错误，而且症状是浏览器报一句没头没脑的 "Load failed"。
+// 与其让人去猜，不如直接把原因写在页面上。
+;(function guardApiBase() {
+  const problems = []
+  if (/\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(API_BASE)) {
+    problems.push('API_BASE 指向 127.0.0.1 —— 那指的是<b>访问者自己的设备</b>，不是你的服务器')
+  }
+  if (location.protocol === 'https:' && /^http:\/\//.test(API_BASE)) {
+    problems.push('API_BASE 是 http，而玩具页面是 https —— 会被浏览器按混合内容拦截')
+  }
+  if (!problems.length) return
+  const el = document.createElement('div')
+  el.style.cssText =
+    'background:#fff3cd;border:1px solid #ffe69c;color:#664d03;padding:12px;' +
+    'border-radius:8px;margin-bottom:14px;font-size:13px;line-height:1.8'
+  el.innerHTML = '<b>⚠️ API 地址没配好（仅开发者可见）</b><br>' + problems.join('<br>')
+  document.body.insertBefore(el, document.body.firstChild)
+})()
 
 const $ = (id) => document.getElementById(id)
 let profile = null
 
 async function post(path, body) {
-  const res = await fetch(API_BASE + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  })
+  let res
+  try {
+    res = await fetch(API_BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+  } catch (e) {
+    // 浏览器原生的报错是 "Load failed" / "Failed to fetch"，没有任何上下文
+    throw new Error(
+      `连不上 ${API_BASE}（${e.message || e}）。` +
+        '检查这个地址是否外网可达、是否为 HTTPS。'
+    )
+  }
   const json = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(json?.error?.message || ('HTTP ' + res.status))
   return json

@@ -49,11 +49,20 @@
   }
 
   async function post(path, body) {
-    var res = await fetch(CFG.apiBase + path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    })
+    let res
+    try {
+      res = await fetch(CFG.apiBase + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+    } catch (e) {
+      // 浏览器原生报错是 "Load failed" / "Failed to fetch"，没有上下文
+      throw new Error(
+        '连不上 ' + CFG.apiBase + '（' + (e.message || e) + '）。' +
+          '检查这个地址是否外网可达、是否为 HTTPS。'
+      )
+    }
     var json = await res.json().catch(function () { return {} })
     if (!res.ok) {
       var err = new Error((json && json.error && json.error.message) || ('HTTP ' + res.status))
@@ -73,6 +82,17 @@
     CFG = Object.assign(CFG, opts || {})
     if (!CFG.apiBase || !CFG.myToySlug || !CFG.clientId) {
       throw new Error('[xmeta] 请先配置 apiBase / myToySlug / clientId')
+    }
+    // 提前把配置错误喊出来。否则要等到用户点了登录，才收到一句
+    // 没头没脑的 "Load failed"。
+    if (/(\/\/)(127\.0\.0\.1|localhost)(:|\/|$)/.test(CFG.apiBase)) {
+      console.warn(
+        '[xmeta] apiBase 指向 ' + CFG.apiBase + '，那指的是**访问者自己的设备**，' +
+          '不是你部署的服务器。手机上的 127.0.0.1 就是手机本身。'
+      )
+    }
+    if (global.location.protocol === 'https:' && /^http:\/\//.test(CFG.apiBase)) {
+      console.warn('[xmeta] apiBase 是 http 而页面是 https，请求会被浏览器按混合内容拦截。')
     }
     VERIFIER_KEY = 'xmeta:pkce:' + CFG.clientId
   }

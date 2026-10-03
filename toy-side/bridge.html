@@ -36,8 +36,26 @@
 </div>
 
 <script>
-// ⚠️ 部署前改成你的 API 地址
+// ⚠️ 部署前改成你的 API 地址（必须是 https，且是外网可达的域名）
 const API_BASE = 'http://127.0.0.1:8787'
+
+// 这两个是最常见的配置错误，症状是浏览器报一句没头没脑的 "Load failed"。
+;(function guardApiBase() {
+  const problems = []
+  if (/\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(API_BASE)) {
+    problems.push('API_BASE 指向 127.0.0.1 —— 那指的是<b>访问者自己的设备</b>，不是你的服务器')
+  }
+  if (location.protocol === 'https:' && /^http:\/\//.test(API_BASE)) {
+    problems.push('API_BASE 是 http，而玩具页面是 https —— 会被浏览器按混合内容拦截')
+  }
+  if (!problems.length) return
+  const el = document.createElement('div')
+  el.style.cssText =
+    'background:#fff3cd;border:1px solid #ffe69c;color:#664d03;padding:12px;' +
+    'border-radius:8px;margin-bottom:14px;font-size:13px;line-height:1.8;text-align:left'
+  el.innerHTML = '<b>⚠️ API 地址没配好（仅开发者可见）</b><br>' + problems.join('<br>')
+  document.body.insertBefore(el, document.body.firstChild)
+})()
 
 const qs = new URLSearchParams(location.search)
 const CID = qs.get('cid')          // 第三方 toy 的 client_id
@@ -50,11 +68,34 @@ let pendingReturn = null
 function fail(msg) { $('err').textContent = msg }
 
 async function post(path, body) {
-  const res = await fetch(API_BASE + path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  })
+  let res
+  try {
+    res = await fetch(API_BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+  } catch (e) {
+    throw new Error(
+      `连不上 ${API_BASE}（${e.message || e}）。` +
+        '检查这个地址是否外网可达、是否为 HTTPS。'
+    )
+  }
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json?.error?.message || ('HTTP ' + res.status))
+  return json
+}
+
+async function getJson(path) {
+  let res
+  try {
+    res = await fetch(API_BASE + path)
+  } catch (e) {
+    throw new Error(
+      `连不上 ${API_BASE}（${e.message || e}）。` +
+        '检查这个地址是否外网可达、是否为 HTTPS。'
+    )
+  }
   const json = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(json?.error?.message || ('HTTP ' + res.status))
   return json
@@ -64,9 +105,7 @@ async function post(path, body) {
 ;(async function loadContext() {
   if (!CID) { fail('缺少 cid 参数，请从玩具内重新进入'); return }
   try {
-    const res = await fetch(API_BASE + '/api/bridge/context?cid=' + encodeURIComponent(CID))
-    const json = await res.json()
-    if (!res.ok) throw new Error(json?.error?.message || ('HTTP ' + res.status))
+    const json = await getJson('/api/bridge/context?cid=' + encodeURIComponent(CID))
     $('title').textContent = `《${json.title || json.slug}》想获取你的身份`
     $('desc').textContent = '仅用于在这款游戏中识别你，不会拿到你的 B站 账号信息。'
     if (json.iconUrl) { $('icon').src = json.iconUrl; $('icon').hidden = false }
