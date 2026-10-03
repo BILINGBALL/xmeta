@@ -326,6 +326,34 @@
     return applyTokens(res)
   }
 
+  /** 处理一次成功的 token 响应 */
+  function applyTokens(res) {
+    SESSION = {
+      jwt: res.access_token,
+      uid: decodeSub(res.access_token),
+      expiresAt: Date.now() + res.expires_in * 1000,
+      raw: res
+    }
+    emit()
+    return SESSION
+  }
+
+  /** 这枚 token 还剩多少毫秒。没登录或已过期返回 0。 */
+  function getRemainingMs() {
+    if (!SESSION) return 0
+    return Math.max(0, SESSION.expiresAt - Date.now())
+  }
+
+  /** 清掉本地会话。下次要用得重新过桥。 */
+  function logout() {
+    clearAttempt()
+    clearShared(REQ_KEY)
+    clearShared(RES_KEY)
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+    SESSION = null
+    emit()
+  }
+
   /** 只解析 payload，不验签。验签必须在服务端做。 */
   function decodeSub(jwt) {
     try {
