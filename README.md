@@ -72,6 +72,7 @@ npm run dev               # http://127.0.0.1:8787
 | POST | `/api/claim/start` | 发起认领，返回 nonce |
 | POST | `/api/claim/verify` | 抓源码校验 nonce，通过则下发 client_id |
 | POST | `/api/toy/mine` | 查询自己认领了哪些玩具 |
+| POST | `/api/me` | 个人中心：身份 + 认领的玩具 + 使用记录 |
 | GET | `/api/bridge/context?cid=` | 过桥页加载时确认 client_id 有效 |
 | POST | `/api/bridge/authorize` | 用 toyOpenId 换一次性 code |
 | POST | `/api/oauth/token` | 用 code 换 JWT |
@@ -111,6 +112,7 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 | `index.html` | 中心玩具的入口。带 `?cid=` 时自动转发给 `bridge.html`，否则是导航页 |
 | `claim.html` | 上传到**中心玩具**，作者用来认领 |
 | `bridge.html` | 上传到**中心玩具**，用户过桥时落到这里 |
+| `me.html` | 上传到**中心玩具**，个人中心：看自己的身份和被哪些玩具用过 |
 | `demo-toy/index.html` | 一个最小的**第三方玩具**示例，用来跑通整条链路 |
 | `xmeta-client.js` | 接入脚本。**不用自己存**，服务端已挂在 `/xmeta-client.js` |
 | `xmeta-ui.css` | 页面共用的设计系统。**不用自己存**，服务端已挂在 `/xmeta-ui.css` |

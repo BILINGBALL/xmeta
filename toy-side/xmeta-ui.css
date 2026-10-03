@@ -341,6 +341,57 @@ body.xm {
   flex: none;
 }
 
+/* ---------------------------------------------------------------- 列表项 */
+
+.xm-avatar {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  background: var(--xm-surface-2);
+  border: 1px solid var(--xm-border);
+}
+
+.xm-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--xm-border);
+}
+.xm-item:first-child { padding-top: 0; }
+.xm-item:last-child { border-bottom: 0; padding-bottom: 0; }
+
+.xm-item__icon {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex: none;
+  background: var(--xm-surface-2);
+  border: 1px solid var(--xm-border);
+}
+.xm-item__body { flex: 1; min-width: 0; }
+.xm-item__title {
+  font-size: 14px; font-weight: 600; margin-bottom: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.xm-item__meta {
+  font-size: 12px; color: var(--xm-text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.xm-tag {
+  display: inline-block;
+  font-size: 11px; font-weight: 600; line-height: 1.6;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--xm-accent-soft);
+  color: var(--xm-accent-text);
+  flex: none;
+}
+.xm-tag--ok { background: var(--xm-ok-soft); color: var(--xm-ok); }
+.xm-tag--muted { background: var(--xm-surface-2); color: var(--xm-text-3); }
+
 /* ---------------------------------------------------------------- 工具 */
 
 .xm-hidden { display: none !important; }

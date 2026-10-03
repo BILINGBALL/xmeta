@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>我的身份</title>
+<link rel="stylesheet" href="https://www.oxth.com:8443/xmeta-ui.css">
+<script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
+</head>
+<body class="xm">
+<div class="xm-page">
+
+  <!-- ① 说明 —— 授权之前先讲清楚 -->
+  <section id="s-intro">
+    <div class="xm-hero">
+      <div class="xm-hero__title">我的联机身份</div>
+      <p class="xm-hero__sub">查看你的身份，以及它在哪些玩具上被用过。</p>
+    </div>
+
+    <div class="xm-note">
+      点下面的按钮会请求一次你的公开资料（昵称、头像），用来确认你是这个身份的持有人。
+      平台会弹出确认框，你也可以拒绝。
+    </div>
+
+    <button class="xm-btn xm-btn--primary" id="btnStart">查看我的身份</button>
+  </section>
+
+  <!-- ② 加载 -->
+  <section id="s-loading" class="xm-hidden">
+    <div class="xm-loading"><span class="xm-spinner"></span>正在读取…</div>
+  </section>
+
+  <!-- ③ 内容 -->
+  <section id="s-main" class="xm-hidden">
+    <div class="xm-card">
+      <div style="display:flex;align-items:center;gap:12px">
+        <img class="xm-avatar" id="avatar" alt="" hidden>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:16px;font-weight:650" id="nickname">—</div>
+          <div class="xm-small xm-mono" id="uidLine"></div>
+        </div>
+      </div>
+      <div class="xm-divider"></div>
+      <p class="xm-small">
+        这是 xmeta 给你分配的编号，不是 B站 账号。
+        你在每款玩具里都有一个平台生成的匿名标识，它们都指向这个编号。
+      </p>
+    </div>
+
+    <!-- 作者视角 -->
+    <section id="secOwned" class="xm-hidden">
+      <div class="xm-h2">我认领的玩具</div>
+      <div class="xm-card" id="ownedList"></div>
+    </section>
+
+    <!-- 用户视角 -->
+    <section id="secUsage" class="xm-hidden">
+      <div class="xm-h2">我的身份使用记录</div>
+      <div class="xm-card" id="usageList"></div>
+    </section>
+
+    <div class="xm-card xm-hidden" id="emptyCard">
+      <p class="xm-p xm-center">
+        还没有任何记录。<br>
+        <span class="xm-small">去一款接入 xmeta 的游戏里点「开启联机」试试。</span>
+      </p>
+    </div>
+
+    <button class="xm-btn xm-btn--ghost" id="btnRefresh">刷新</button>
+    <div class="xm-foot" id="foot"></div>
+  </section>
+
+  <!-- 出错 -->
+  <section id="s-error" class="xm-hidden">
+    <div class="xm-alert xm-alert--error" id="errBox"></div>
+    <button class="xm-btn xm-btn--ghost" id="btnRetry">重试</button>
+  </section>
+
+  <div id="devWarn" class="xm-alert xm-alert--warn xm-hidden"></div>
+</div>
+
+<script>
+// ⚠️ 部署前改成你的 API 地址
+const API_BASE = 'https://www.oxth.com:8443'
+
+;(function guardApiBase() {
+  const problems = []
+  if (/\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(API_BASE)) {
+    problems.push('API_BASE 指向 127.0.0.1 —— 那指的是访问者自己的设备，不是你的服务器')
+  }
+  if (location.protocol === 'https:' && /^http:\/\//.test(API_BASE)) {
+    problems.push('API_BASE 是 http，而玩具页面是 https —— 会被浏览器按混合内容拦截')
+  }
+  if (!problems.length) return
+  const el = document.getElementById('devWarn')
+  el.classList.remove('xm-hidden')
+  el.innerHTML = '<b>⚠️ API 地址没配好（仅开发者可见）</b><br>' + problems.join('<br>')
+})()
+
+const $ = (id) => document.getElementById(id)
+const SECTIONS = ['s-intro', 's-loading', 's-main', 's-error']
+
+// 缓存按 toyOpenId 的哈希分桶 —— 同一台设备可能有多个 B站 账号。
+// 用哈希而不是明文，是因为 localStorage 的 key 在 DevTools 里一眼可见，
+// 而 toyOpenId 是密钥级数据。
+const CACHE_PREFIX = 'xmeta:me:'
+const OK_KEY = 'xmeta:me:ok'
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000
+
+function show(name) {
+  SECTIONS.forEach((s) => $(s).classList.toggle('xm-hidden', s !== name))
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[<>&"]/g, (c) =>
+    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]))
+}
+
+function hashKey(s) {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 0).toString(36)
+}
+
+function readCache(toyOpenId) {
+  try {
+    const v = JSON.parse(localStorage.getItem(CACHE_PREFIX + hashKey(toyOpenId)) || 'null')
+    if (!v || !v.ts || Date.now() - v.ts > CACHE_TTL_MS) return null
+    return v.data
+  } catch (e) { return null }
+}
+
+function writeCache(toyOpenId, data) {
+  try {
+    localStorage.setItem(CACHE_PREFIX + hashKey(toyOpenId),
+      JSON.stringify({ ts: Date.now(), data }))
+  } catch (e) { /* 忽略 */ }
+}
+
+function fail(message, detail) {
+  $('errBox').innerHTML =
+    escapeHtml(message) +
+    (detail ? '<br><br><span class="xm-mono">' + escapeHtml(detail) + '</span>' : '')
+  show('s-error')
+}
+
+async function request(path, options) {
+  let res
+  try {
+    res = await fetch(API_BASE + path, options)
+  } catch (e) {
+    throw new Error('连不上 ' + API_BASE + '（' + (e.message || e) + '）。请检查网络后重试。')
+  }
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((json && json.error && json.error.message) || ('HTTP ' + res.status))
+  return json
+}
+
+function timeAgo(iso) {
+  const d = new Date(iso)
+  if (isNaN(d)) return ''
+  const min = Math.floor((Date.now() - d.getTime()) / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return min + ' 分钟前'
+  const h = Math.floor(min / 60)
+  if (h < 24) return h + ' 小时前'
+  const day = Math.floor(h / 24)
+  if (day < 30) return day + ' 天前'
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+    '-' + String(d.getDate()).padStart(2, '0')
+}
+
+// ─────────────────────────────────────────────────────────────
+// 渲染
+// ─────────────────────────────────────────────────────────────
+function itemHtml(iconUrl, title, meta, tag) {
+  return '<div class="xm-item">' +
+    (iconUrl
+      ? '<img class="xm-item__icon" src="' + escapeHtml(iconUrl) + '" alt="">'
+      : '<div class="xm-item__icon"></div>') +
+    '<div class="xm-item__body">' +
+      '<div class="xm-item__title">' + escapeHtml(title) + '</div>' +
+      '<div class="xm-item__meta">' + escapeHtml(meta) + '</div>' +
+    '</div>' +
+    (tag || '') +
+  '</div>'
+}
+
+function render(data) {
+  const u = data.user
+  if (!u) {
+    // 还没有任何记录 —— 说明这个身份是全新的
+    $('secOwned').classList.add('xm-hidden')
+    $('secUsage').classList.add('xm-hidden')
+    $('emptyCard').classList.remove('xm-hidden')
+    $('nickname').textContent = '新身份'
+    $('uidLine').textContent = '还没有可展示的记录'
+    $('avatar').hidden = true
+    $('foot').innerHTML = ''
+    show('s-main')
+    return
+  }
+
+  if (u.avatar) { $('avatar').src = u.avatar; $('avatar').hidden = false }
+  $('nickname').textContent = u.nickname || '(无昵称)'
+  $('uidLine').textContent = 'uid ' + u.uid + ' · ' + timeAgo(u.joinedAt) + '加入'
+
+  // 作者视角
+  if (data.ownedToys.length) {
+    $('secOwned').classList.remove('xm-hidden')
+    $('ownedList').innerHTML = data.ownedToys.map((t) => {
+      let tag
+      if (t.pendingClaim) tag = '<span class="xm-tag">认领中</span>'
+      else if (t.clientRevoked) tag = '<span class="xm-tag xm-tag--muted">已停用</span>'
+      else tag = '<span class="xm-tag xm-tag--ok">已认领</span>'
+
+      let meta = t.slug
+      if (t.clientId) meta += ' · ' + t.clientId
+      if (t.pendingClaim) {
+        meta += ' · 验证码还剩 ' + Math.max(0,
+          Math.round((new Date(t.pendingClaim.expiresAt) - Date.now()) / 3600000)) + ' 小时'
+          + ' · 可试 ' + t.pendingClaim.attemptsLeft + ' 次'
+      }
+      return itemHtml(t.iconUrl, t.title || t.slug, meta, tag)
+    }).join('')
+  } else {
+    $('secOwned').classList.add('xm-hidden')
+  }
+
+  // 用户视角
+  if (data.usage.length) {
+    $('secUsage').classList.remove('xm-hidden')
+    $('usageList').innerHTML = data.usage.map((t) =>
+      itemHtml(t.iconUrl, t.title || t.slug,
+        '最近 ' + timeAgo(t.lastUsedAt) + ' · 共 ' + t.uses + ' 次',
+        '<span class="xm-tag xm-tag--muted">' + t.uses + ' 次</span>')
+    ).join('')
+  } else {
+    $('secUsage').classList.add('xm-hidden')
+  }
+
+  $('emptyCard').classList.toggle('xm-hidden',
+    data.ownedToys.length > 0 || data.usage.length > 0)
+  $('foot').innerHTML = '身份由 <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta</span> 统一管理'
+  show('s-main')
+}
+
+// ─────────────────────────────────────────────────────────────
+// 加载
+// ─────────────────────────────────────────────────────────────
+let loading = false
+
+async function load() {
+  if (loading) return
+  loading = true
+  show('s-loading')
+  try {
+    if (!(await toy.isSupport('getUserProfile'))) {
+      throw new Error('当前环境不支持获取用户信息，请在 B站 App 内或电脑浏览器打开。')
+    }
+
+    // 到这里平台已经授权过，不会重复弹窗
+    const profile = await toy.getUserProfile()
+    if (!profile.toyOpenId) {
+      throw new Error('这款玩具没有开启 OpenID 模式，个人中心不可用。')
+    }
+
+    // 先拿缓存渲染，网络那趟慢慢来
+    const cached = readCache(profile.toyOpenId)
+    if (cached) render(cached)
+
+    const fresh = await request('/api/me', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toyOpenId: profile.toyOpenId })
+    })
+
+    writeCache(profile.toyOpenId, fresh)
+    render(fresh)
+
+    try { localStorage.setItem(OK_KEY, '1') } catch (e) { /* 忽略 */ }
+  } catch (e) {
+    fail('没能读取身份信息。', e.message || String(e))
+  } finally {
+    loading = false
+  }
+}
+
+// 这台设备之前授权过就直接加载；没有就先看说明再点按钮，
+// 免得一进页面就被平台弹授权框。
+let seenOk = false
+try { seenOk = localStorage.getItem(OK_KEY) === '1' } catch (e) { /* 忽略 */ }
+
+if (seenOk) {
+  load()
+} else {
+  show('s-intro')
+  $('btnStart').addEventListener('click', () => { $('btnStart').disabled = true; load() })
+}
+
+$('btnRefresh').addEventListener('click', () => load())
+$('btnRetry').addEventListener('click', () => load())
+</script>
+</body>
+</html>

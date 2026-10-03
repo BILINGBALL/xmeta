@@ -5,6 +5,7 @@ import { realDeps, type AppDeps } from './deps.js';
 import { AppError } from './errors.js';
 import { bridgeRoutes } from './routes/bridge.js';
 import { claimRoutes } from './routes/claim.js';
+import { meRoutes } from './routes/me.js';
 import { staticRoutes } from './routes/static.js';
 import { tokenRoutes } from './routes/token.js';
 import { wellKnownRoutes } from './routes/wellknown.js';
@@ -65,6 +66,7 @@ export async function buildApp(deps: AppDeps = realDeps): Promise<FastifyInstanc
   await app.register(wellKnownRoutes);
   await app.register(staticRoutes);
   await app.register(claimRoutes, { bili: deps.bili });
+  await app.register(meRoutes);
   await app.register(bridgeRoutes);
   await app.register(tokenRoutes);
 
