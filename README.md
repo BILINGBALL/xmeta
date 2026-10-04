@@ -96,12 +96,17 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
   "sub": "42",                    // 我们的 uid
   "aud": "27289601636352",        // ★ 目标 toy_id，接入方必须校验
   "jti": "...",
-  "iat": 1791041000,
+  "iat": 1791041000,              // 整秒（标准 NumericDate）
+  "iat_ms": 1791041000123,        // 签发时的毫秒时间戳，失活判断用，接入方可忽略
   "exp": 1791041900
 }
 ```
 
 **`aud` 一定要校验。** 不校验的话，A 玩具拿到的 token 能被 B 玩具拿去冒充用户。
+
+**PKCE 是必填的。** `/api/bridge/authorize` 不带 `cc`（challenge）会直接 400，
+`/api/oauth/token` 不带 `code_verifier` 也会失败。`code` 会出现在 URL 里
+（Web 端拼在 query 上），没有 PKCE 的话，谁看到这条 URL 都能在过期前把它换掉。
 
 ### 有效期与失活
 

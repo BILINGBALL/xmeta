@@ -44,11 +44,11 @@ export async function tokenRoutes(app: FastifyInstance): Promise<void> {
 
     if (row.client_id !== body.client_id) throw Errors.invalidCode();
 
-    if (row.code_challenge) {
-      if (!body.code_verifier) throw Errors.pkceMismatch();
-      if (!verifyChallenge(body.code_verifier, row.code_challenge, row.code_challenge_method)) {
-        throw Errors.pkceMismatch();
-      }
+    // PKCE 必填。code 会进 URL（Web 端拼在 query 里），
+    // 没有 code_verifier 的 code 形同裸奔，谁看到 URL 都能换。
+    if (!row.code_challenge) throw Errors.invalidCode();
+    if (!verifyChallenge(body.code_verifier, row.code_challenge, row.code_challenge_method)) {
+      throw Errors.pkceMismatch();
     }
 
     const client = await getClient(row.client_id);

@@ -53,7 +53,7 @@ type RawDetail = {
   };
 };
 
-async function fetchText(url: string): Promise<string> {
+async function fetchText(url: string, allowedHostSuffix?: string): Promise<string> {
   let res: Response;
   try {
     res = await fetch(url, {
@@ -67,6 +67,17 @@ async function fetchText(url: string): Promise<string> {
 
   if (!res.ok) {
     throw Errors.upstreamFetchFailed(`${url} 返回 HTTP ${res.status}`);
+  }
+
+  // fetch 会跟随 30x 重定向，但重定向后的落点没被上面的白名单拦到：
+  // 这里复检一次最终地址，防止内容源被控制后跳内网地址（SSRF）。
+  if (allowedHostSuffix) {
+    const finalUrl = new URL(res.url);
+    if (finalUrl.protocol !== 'https:' || !finalUrl.hostname.endsWith(allowedHostSuffix)) {
+      throw Errors.upstreamBlocked(
+        `重定向到了不允许的地址 ${finalUrl.protocol}//${finalUrl.hostname}`,
+      );
+    }
   }
 
   const buf = Buffer.from(await res.arrayBuffer());
@@ -154,7 +165,7 @@ export async function fetchToySource(slug: string): Promise<ToySource> {
   }
 
   const contentUrl = assertAllowedContentUrl(rawContentUrl);
-  const html = await fetchText(contentUrl);
+  const html = await fetchText(contentUrl, CONTENT_HOST_SUFFIX);
 
   return { shellUrl, contentUrl, html };
 }

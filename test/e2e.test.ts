@@ -151,10 +151,12 @@ test('原作者可以查询自己认领了哪些 toy', async () => {
 });
 
 test('过桥：玩家的 toyOpenId 换到一次性 code', async () => {
+  const { challenge } = pkce();
   const { status, json } = await post('/api/bridge/authorize', {
     cid: clientId,
     toyOpenId: PLAYER_OPENID,
     nickname: '玩家',
+    cc: challenge,
   });
 
   assert.equal(status, 200);
@@ -238,16 +240,29 @@ test('换 JWT：签名与 claims 都正确', async () => {
   );
 });
 
+test('不带 PKCE challenge 的授权被拒绝', async () => {
+  const { status, json } = await post('/api/bridge/authorize', {
+    cid: clientId,
+    toyOpenId: PLAYER_OPENID,
+  });
+
+  assert.equal(status, 400);
+  assert.equal(json.error.code, 'invalid_param');
+});
+
 test('授权码是一次性的', async () => {
+  const { verifier, challenge } = pkce();
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
     toyOpenId: PLAYER_OPENID,
+    cc: challenge,
   });
 
   const first = await post('/api/oauth/token', {
     grant_type: 'authorization_code',
     code: auth.code,
     client_id: clientId,
+    code_verifier: verifier,
   });
   assert.equal(first.status, 200);
 
@@ -255,21 +270,25 @@ test('授权码是一次性的', async () => {
     grant_type: 'authorization_code',
     code: auth.code,
     client_id: clientId,
+    code_verifier: verifier,
   });
   assert.equal(second.status, 409);
   assert.equal(second.json.error.code, 'code_used');
 });
 /** 走一遍过桥，拿一枚 access token */
 async function bridgeOnce(ttlHours?: number): Promise<{ accessToken: string; expiresIn: number }> {
+  const { verifier, challenge } = pkce();
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
     toyOpenId: PLAYER_OPENID,
+    cc: challenge,
     ...(ttlHours ? { ttl: ttlHours } : {}),
   });
   const { json } = await post('/api/oauth/token', {
     grant_type: 'authorization_code',
     code: auth.code,
     client_id: clientId,
+    code_verifier: verifier,
   });
   return { accessToken: json.access_token, expiresIn: json.expires_in };
 }
@@ -285,9 +304,11 @@ test('用户没选时用默认的 6 小时', async () => {
 });
 
 test('不在档位里的时长会被服务端拒绝', async () => {
+  const { challenge } = pkce();
   const { status, json } = await post('/api/bridge/authorize', {
     cid: clientId,
     toyOpenId: PLAYER_OPENID,
+    cc: challenge,
     ttl: 5,
   });
   assert.equal(status, 400);
@@ -378,9 +399,11 @@ test('个人中心：失活过的玩具标成已退出，但仍然带 clientId',
 });
 
 test('未认领的玩具不能过桥', async () => {
+  const { challenge } = pkce();
   const { status, json } = await post('/api/bridge/authorize', {
     cid: 'xmeta_does_not_exist',
     toyOpenId: PLAYER_OPENID,
+    cc: challenge,
   });
 
   assert.equal(status, 404);

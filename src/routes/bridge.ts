@@ -68,7 +68,7 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
     });
 
     const code = randomToken(32);
-    const challenge = body.cc ?? null;
+    const challenge = body.cc;
     // 用户选的授权时长。没选（比如老版本前端）就按默认值走。
     const ttlHours = body.ttl ?? DEFAULT_TOKEN_TTL_HOURS;
 
@@ -77,7 +77,7 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       uid: user.id,
       clientId: client.client_id,
       codeChallenge: challenge,
-      codeChallengeMethod: challenge ? 'S256' : null,
+      codeChallengeMethod: 'S256',
       state: body.st ?? null,
       codeTtlSeconds: config.AUTH_CODE_TTL_SECONDS,
       tokenTtlSeconds: ttlHours * 3600,

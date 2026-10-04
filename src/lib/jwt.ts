@@ -116,23 +116,24 @@ export async function issueToken({
 }: IssueTokenInput): Promise<IssuedToken> {
   const { kid, privateKey } = await getActiveKey();
   const jti = newUuid();
-  // iat 保留小数（毫秒精度），不截断到整秒。
+  // iat 取整到秒（标准 NumericDate，第三方验签库不吃小数），
+  // 亚秒精度单独放一个私有 claim `iat_ms`。
   //
-  // 因为「手动失活」是靠比较 token 的 iat 和失活时间点来判断的：
-  // 截断到整秒的话，同一秒内签发的 token 就分不清是在失活前还是后，
+  // 失活判断靠「签发时刻 vs 失活时间点」做亚秒级比较（见 introspect）。
+  // 如果只留整秒 iat，同一秒内签发的 token 就分不清是在失活前还是后，
   // 结果是刚失活完重新授权拿到的 token 会被误杀。
-  // RFC 7519 的 NumericDate 本来就允许非整数。
-  const now = Date.now() / 1000;
+  const nowMs = Date.now();
+  const nowSec = Math.floor(nowMs / 1000);
   const ttl = ttlSeconds ?? config.JWT_TTL_SECONDS;
 
-  const accessToken = await new SignJWT({})
+  const accessToken = await new SignJWT({ iat_ms: nowMs })
     .setProtectedHeader({ alg: 'ES256', kid, typ: 'JWT' })
     .setIssuer(config.PUBLIC_BASE_URL)
     .setSubject(uid)
     .setAudience(audience)
     .setJti(jti)
-    .setIssuedAt(now)
-    .setExpirationTime(now + ttl)
+    .setIssuedAt(nowSec)
+    .setExpirationTime(nowSec + ttl)
     .sign(privateKey);
 
   return { accessToken, expiresIn: ttl, jti };

@@ -40,8 +40,15 @@ export async function introspectRoutes(app: FastifyInstance): Promise<void> {
 
     // 失活判断：token 的签发时刻早于失活时间点，就作废。
     // 这就是「记时间点而不是记令牌清单」的用法。
+    //
+    // 签发时刻优先用 iat_ms（应用时钟的毫秒），退回到 iat*1000 兼容
+    // 改成整数 iat 之前签发的旧 token。
+    const issuedMs =
+      typeof payload.iat_ms === 'number'
+        ? payload.iat_ms
+        : (typeof payload.iat === 'number' ? payload.iat : 0) * 1000;
     const revocation = await getRevocation(uid, String(audience));
-    if (revocation && payload.iat * 1000 < revocation.revoked_at.getTime()) {
+    if (revocation && issuedMs < revocation.revoked_at.getTime()) {
       return { active: false, reason: 'revoked' };
     }
 

@@ -54,6 +54,7 @@
   var VERIFIER_KEY = ''
   var SESSION_KEY = ''
   var pollTimer = null
+  var prepared = null            // 预生成的 PKCE 对，login() 时同步取用
 
   /**
    * 玩具之间跳转用的传参通道。
@@ -115,6 +116,22 @@
     var data = new TextEncoder().encode(input)
     var digest = await crypto.subtle.digest('SHA-256', data)
     return b64url(new Uint8Array(digest))
+  }
+
+  /**
+   * 预生成一对 PKCE（verifier + challenge）。
+   *
+   * challenge 要过 crypto.subtle.digest，那是 async 的；而 toy.navigate 前
+   * 不能跨 await（需要瞬时用户手势）。所以在页面加载时就先算好，login()
+   * 里同步取走。用完即弃，马上再预生成一对给下一次。
+   */
+  function preparePkce() {
+    var verifier = randomString(32)
+    s256(verifier).then(function (challenge) {
+      prepared = { verifier: verifier, challenge: challenge }
+    }).catch(function () {
+      prepared = null
+    })
   }
 
   async function post(path, body) {
@@ -223,12 +240,19 @@
     // 不清的话它会被当成这一轮的结果拿去换，报一个莫名其妙的错。
     clearShared(RES_KEY)
 
-    var verifier = randomString(32)
-    var challenge = await s256(verifier)
+    // 取预生成好的 PKCE。极小概率还没就绪（脚本刚加载就点），兜底现场算一次。
+    var pair = prepared
+    if (!pair) {
+      var v = randomString(32)
+      pair = { verifier: v, challenge: await s256(v) }
+    }
+    prepared = null
+    preparePkce()
+
     var state = randomString(16)
 
     try {
-      localStorage.setItem(VERIFIER_KEY, verifier)
+      localStorage.setItem(VERIFIER_KEY, pair.verifier)
       localStorage.setItem(VERIFIER_KEY + ':st', state)
     } catch (e) { /* 隐私模式下写不进去，下面换 code 会失败并提示 */ }
 
@@ -239,7 +263,7 @@
     // 直接打开中心玩具，会被一个还"新鲜"的旧请求弹到过桥页，而不是首页。
     writeShared(REQ_KEY, {
       cid: CFG.clientId,
-      cc: challenge,
+      cc: pair.challenge,
       st: state,
       ts: Date.now(),
       claimed: false
@@ -248,7 +272,7 @@
     await toy.navigate({
       type: 'toy',
       id: CFG.centerToySlug,
-      extra: { cid: CFG.clientId, cc: challenge, st: state }
+      extra: { cid: CFG.clientId, cc: pair.challenge, st: state }
     })
 
     // 回来时页面要是没有重新加载，handleRedirect 就不会再跑，
@@ -504,6 +528,9 @@
     /** 主动清掉本地会话 */
     logout: logout
   }
+
+  // 页面加载时就预生成好 PKCE 对，login() 里同步取用（toy.navigate 前不能 await）
+  preparePkce()
 
   // 自动处理回跳。必须等 load —— 调用方的 XMETA.configure() 在
   // 本文件之后的 inline script 里执行，那时配置才就绪。
