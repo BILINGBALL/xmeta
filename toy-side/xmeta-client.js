@@ -194,8 +194,14 @@
     var mine = mySlug()
     if (shared.returnSlug && mine && shared.returnSlug !== mine) return null
 
+    // 必须对得上「当前正在进行的这一轮」。
+    //
+    // 注意这里是 `!expect ||` 而不是 `expect &&` —— 没有正在进行的尝试时
+    // 一定要拒绝。那说明这是一条残留：上一轮的结果没被消费掉（页面没重载
+    // 且轮询超时，或者轮询压根没跑起来），而它的 verifier 早就没了。
+    // 放行的话就会拿着一条无主的 code 去换，报「找不到本次登录的 PKCE 记录」。
     var expect = currentState()
-    if (expect && shared.st !== expect) return null // 上一轮的残留，丢掉
+    if (!expect || shared.st !== expect) return null
 
     return shared
   }
@@ -309,11 +315,19 @@
     clearShared(RES_KEY)
     clearShared(REQ_KEY)
 
+    // 没有 verifier / state 对不上，是「这轮没得换」，不是错误。
+    //
+    // 典型来路：上一轮残留的结果，或者用户清了缓存之后又点进来。
+    // 这时候用户什么都没做错，弹一个红字只会让他以为坏了 ——
+    // 其实界面上显示「未获取」，再点一次「开启联机」就好了。
+    // 这里不抛，只是安静地当没登录。
     if (!verifier) {
-      throw new Error('[xmeta] 找不到本次登录的 PKCE 记录，请重新点一次「开启联机」')
+      console.warn('[xmeta] 收到一个授权结果，但本地没有对应的 PKCE 记录，已忽略')
+      return null
     }
     if (expectState && state !== expectState) {
-      throw new Error('[xmeta] 本次授权已作废，请重新点一次「开启联机」')
+      console.warn('[xmeta] state 不匹配，已忽略这次结果')
+      return null
     }
 
     var res = await post('/api/oauth/token', {

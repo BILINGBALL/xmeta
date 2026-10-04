@@ -28,6 +28,7 @@ const CLIENT_PATH = '/toy/abc123/index.html';
 /** 造一个够用的浏览器环境，把脚本真正跑起来 */
 function loadClient(): Record<string, any> {
   const store = new Map<string, string>();
+  const fetched: string[] = [];
 
   const sandbox: Record<string, any> = {
     console,
@@ -36,6 +37,26 @@ function loadClient(): Record<string, any> {
     setInterval,
     clearInterval,
     TextEncoder,
+    TextDecoder,
+    atob,
+    btoa,
+    // 这几个是宿主提供的全局，不是 JS 内置，vm 上下文里没有
+    URLSearchParams,
+    URL,
+    // 换取 token 走这个。记录调用，便于断言「该不该发请求」
+    fetch: async (url: string) => {
+      fetched.push(url);
+      const payload = Buffer.from(JSON.stringify({ sub: '42' })).toString('base64url');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: `h.${payload}.s`,
+          token_type: 'Bearer',
+          expires_in: 3600,
+        }),
+      };
+    },
     localStorage: {
       getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
       setItem: (k: string, v: string) => void store.set(k, String(v)),
@@ -68,7 +89,19 @@ function loadClient(): Record<string, any> {
 
   vm.createContext(sandbox);
   vm.runInContext(SRC, sandbox);
+
+  // 暴露给测试用
+  sandbox.__store = store;
+  sandbox.__fetched = fetched;
   return sandbox;
+}
+
+const CFG = { apiBase: 'https://api.example.com', centerToySlug: 'xmeta', clientId: 'xmeta_t' };
+/** mySlug() 从 CLIENT_PATH 解出来就是它 */
+const MY_SLUG = 'abc123';
+
+function seedRes(sandbox: Record<string, any>, res: Record<string, unknown>) {
+  sandbox.__store.set('xmeta:res', JSON.stringify({ ts: Date.now(), ...res }));
 }
 
 test('接入脚本能加载，并把 XMETA 挂到 window 上', () => {
@@ -121,4 +154,74 @@ test('configure 缺参数时给出可读的报错', () => {
     () => XMETA.configure({ apiBase: 'https://api.example.com' }),
     /请先配置/,
   );
+});
+
+// ─────────────────────────────────────────────────────────────
+// 残留结果的处置
+//
+// 这一组是针对一个实机 bug 的回归：换身份成功之后退出 B站、再进来，
+// 页面加载时报「找不到本次登录的 PKCE 记录」。
+//
+// 来路是上一轮写回的结果没被消费掉（页面没重载 + 轮询超时），
+// 而它的 verifier 早被清掉了。原来的判断写成 `if (expect && ...)`，
+// 把「没有正在进行的尝试」当成了放行条件 —— 恰恰那是最该拒绝的。
+// ─────────────────────────────────────────────────────────────
+
+test('上一轮残留的结果会被忽略，不拿去换、也不报错', async () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+
+  // 结果还在，但 PKCE 记录早没了（上一轮换完之后清的）
+  seedRes(sb, { code: 'stale-code', st: 'stale-state', returnSlug: MY_SLUG });
+
+  const session = await sb.XMETA.handleRedirect();
+
+  assert.equal(session, null, '残留结果不该换来 session');
+  assert.equal(sb.__store.has('xmeta:res'), false, '应该被清掉，免得反复触发');
+  assert.deepEqual(sb.__fetched, [], '不该真的发请求去换');
+});
+
+test('state 对不上当前这一轮的，同样忽略', async () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+
+  sb.__store.set('xmeta:pkce:xmeta_t', 'some-verifier')
+  sb.__store.set('xmeta:pkce:xmeta_t:st', 'current-state')
+  seedRes(sb, { code: 'old-code', st: 'a-different-state', returnSlug: MY_SLUG });
+
+  const session = await sb.XMETA.handleRedirect();
+
+  assert.equal(session, null);
+  assert.deepEqual(sb.__fetched, []);
+});
+
+test('发给别的玩具的结果不认识', async () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+
+  sb.__store.set('xmeta:pkce:xmeta_t', 'v');
+  sb.__store.set('xmeta:pkce:xmeta_t:st', 'S');
+  seedRes(sb, { code: 'C', st: 'S', returnSlug: 'some-other-toy' });
+
+  const session = await sb.XMETA.handleRedirect();
+  assert.equal(session, null);
+  assert.deepEqual(sb.__fetched, []);
+});
+
+test('state 对得上时才真的去换，并拿到 session', async () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+
+  sb.__store.set('xmeta:pkce:xmeta_t', 'v');
+  sb.__store.set('xmeta:pkce:xmeta_t:st', 'S');
+  seedRes(sb, { code: 'C', st: 'S', returnSlug: MY_SLUG });
+
+  const session = await sb.XMETA.handleRedirect();
+
+  assert.ok(session, '应该拿到 session');
+  assert.equal(session.uid, '42');
+  assert.equal(sb.__fetched.length, 1, '应该只发一次请求');
+  assert.equal(sb.__store.has('xmeta:res'), false, '用完要清掉');
+  assert.equal(sb.__store.has('xmeta:pkce:xmeta_t'), false, 'PKCE 记录也要清掉');
+  assert.equal(sb.XMETA.getRemainingMs() > 0, true, '剩余时间应该是个正数');
 });
