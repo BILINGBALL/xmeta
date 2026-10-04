@@ -288,19 +288,51 @@ function showInline(id, msg) {
   el.classList.remove('xm-hidden')
 }
 
+/** 和 SDK 内部的 at() 同构：拼出目标玩具的地址。只为兜底用。 */
+function toyUrl(slug, extra) {
+  const url = location.protocol + '//www.bilibili.com/toy/' +
+    encodeURIComponent(slug) + '/index.html'
+  const qs = new URLSearchParams(extra || {}).toString()
+  return qs ? url + '?' + qs : url
+}
+
+/** 出问题时把 userActivation 的状态带上，省得来回猜 */
+function uaDiag() {
+  const ua = navigator.userActivation
+  if (!ua) return 'navigator.userActivation 不可用'
+  return 'userActivation: isActive=' + ua.isActive + ', hasBeenActive=' + ua.hasBeenActive
+}
+
+/**
+ * 跳到另一个玩具。
+ *
+ * 优先用 toy.navigate。但它会检查 navigator.userActivation.isActive ——
+ * 那是**瞬时**状态，实机上出现过「明明是用户点的，检查却是 false」的情况
+ * （点过一次拒绝之后重新授权，返回游戏必现）。
+ *
+ * SDK 自己在 navigate 内部本来就有 window.open 兜底，可那个检查在它之前
+ * 就抛了，兜底永远走不到。所以这里自己走一遍同样的兜底 —— 对用户来说
+ * 能跳回去就行，走哪条路无所谓。
+ */
+function navigateToToy(slug, extra, hintId) {
+  toy.navigate({ type: 'toy', id: slug, extra: extra }).catch((e) => {
+    let opened = null
+    try { opened = window.open(toyUrl(slug, extra), '_blank') } catch (err) { /* 忽略 */ }
+    if (opened) return // 兜底成功了
+
+    showInline(hintId,
+      '跳转没有成功（' + (e.message || e) + '）。请再点一次。\n' + uaDiag())
+    console.warn('[xmeta] 跳转失败：', e, navigator.userActivation)
+  })
+}
+
 // ── 「拒绝」：直接送回游戏，什么都不带 ──
 //
 // navigate 必须紧贴用户手势：SDK 会检查 navigator.userActivation.isActive，
-// 那是**瞬时**状态 —— 中间插一次 await 就可能已经失效，然后报
-// 「navigate requires user activation」。所以这里不用 async，直接调。
+// 那是瞬时状态 —— 中间插一次 await 就可能已经失效。所以这里不用 async。
 $('btnDeny').addEventListener('click', () => {
   if (!ctx) return
-  toy.navigate({ type: 'toy', id: ctx.slug })
-    .then(() => clearShared(REQ_KEY))
-    .catch((e) => {
-      showInline('denyHint', '跳转没有成功（' + (e.message || e) + '）。请再点一次。')
-      console.warn('[xmeta] 返回游戏失败：', e)
-    })
+  navigateToToy(ctx.slug, null, 'denyHint')
 })
 
 // ── 返回游戏 ──
@@ -317,15 +349,8 @@ $('btnBack').addEventListener('click', () => {
     ts: Date.now()
   })
 
-  // 同上：紧贴手势调用，不插 await
-  toy.navigate({
-    type: 'toy',
-    id: pendingReturn.returnSlug,
-    extra: { code: pendingReturn.code, st: ST || '' }
-  }).catch((e) => {
-    showInline('backHint', '跳转没有成功（' + (e.message || e) + '）。请再点一次。')
-    console.warn('[xmeta] 返回游戏失败：', e)
-  })
+  navigateToToy(pendingReturn.returnSlug,
+    { code: pendingReturn.code, st: ST || '' }, 'backHint')
 })
 
 $('btnRetry').addEventListener('click', () => boot())
