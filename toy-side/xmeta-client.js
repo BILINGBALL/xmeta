@@ -435,7 +435,18 @@
 
   function onSession(fn) {
     listeners.push(fn)
-    if (SESSION) fn(SESSION)
+    // 立即回调也要包 try/catch。
+    //
+    // emit() 里包了，这里原来没包 —— 而注册时如果已经有 session（比如
+    // 刚从本地恢复），回调是**同步**跑的，它一抛错就会沿着调用栈冒到
+    // 调用方的脚本里。
+    //
+    // 实测踩过：demo toy 的 onSession 回调里引用了还没声明的变量，
+    // 抛出的 ReferenceError 把后面注册的两个按钮监听一起带走了，
+    // 界面上表现为「点了没反应」。一个监听器的问题不该让整页瘫掉。
+    if (SESSION) {
+      try { fn(SESSION) } catch (e) { console.error('[xmeta] onSession 回调出错', e) }
+    }
     return function () {
       listeners = listeners.filter(function (f) { return f !== fn })
     }

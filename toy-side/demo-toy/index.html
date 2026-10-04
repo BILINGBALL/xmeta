@@ -87,7 +87,7 @@
 const CONFIG = {
   apiBase:       'https://www.oxth.com:8443',
   centerToySlug: 'xmeta',
-  clientId:      'xmeta_v8lTN7_zee7Kv11TxkN7BQ'
+  clientId:      'PUT_CLIENT_ID_HERE'
 }
 
 const $ = (id) => document.getElementById(id)
@@ -95,12 +95,75 @@ const $ = (id) => document.getElementById(id)
 function showErr(msg) { $('errBox').textContent = msg; $('errBox').classList.remove('xm-hidden') }
 function clearErr() { $('errBox').classList.add('xm-hidden') }
 
+// ── 开启联机（必须在用户手势里调用，toy.navigate 需要手势）──
+$('btnLogin').addEventListener('click', async () => {
+  clearErr()
+  $('btnLogin').disabled = true
+  try {
+    await XMETA.login()
+    // 成功的话页面就被跳走了，这行不会执行到
+  } catch (e) {
+    showErr('开启失败：' + (e.message || e))
+    $('btnLogin').disabled = false
+  }
+})
+
+// ── 调试：看看我自己在这款玩具里的 toyOpenId ──
+$('btnWho').addEventListener('click', async () => {
+  clearErr()
+  try {
+    if (!(await toy.isSupport('getUserProfile'))) {
+      throw new Error('当前环境不支持获取用户信息，请在 B站 App 内或电脑浏览器打开。')
+    }
+    const p = await toy.getUserProfile()
+    if (!p.toyOpenId) throw new Error('这款玩具没开启 OpenID 模式，拿不到 toyOpenId。')
+    $('tip').textContent = '本玩具内的 toyOpenId：' + p.toyOpenId +
+      '（昵称：' + (p.nickname || '—') + '）'
+  } catch (e) {
+    showErr(e.message || String(e))
+  }
+})
+
+
 function decodePayload(jwt) {
   const b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
   const bin = atob(b64)
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
   return JSON.parse(new TextDecoder().decode(bytes))
+}
+
+// ── 剩余时间 ──
+// 用户自己选的时长，过期后要回中心玩具再授权一次。把它显示出来，
+// 别让人玩到一半突然掉线还不知道为什么。
+let countdown = null
+
+function fmtLeft(ms) {
+  const s = Math.floor(ms / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h > 0) return h + ' 小时 ' + m + ' 分'
+  if (m > 0) return m + ' 分 ' + (s % 60) + ' 秒'
+  return (s % 60) + ' 秒'
+}
+
+function startCountdown() {
+  if (countdown) clearInterval(countdown)
+  $('rowLeft').classList.remove('xm-hidden')
+  const tick = () => {
+    const ms = XMETA.getRemainingMs()
+    if (ms <= 0) {
+      $('vLeft').textContent = '已过期'
+      $('vLeft').className = 'xm-kv__v xm-kv__v--muted'
+      $('btnLogin').textContent = '重新获取'
+      clearInterval(countdown)
+      countdown = null
+      return
+    }
+    $('vLeft').textContent = '还剩 ' + fmtLeft(ms)
+  }
+  tick()
+  countdown = setInterval(tick, 1000)
 }
 
 let configured = false
@@ -153,68 +216,6 @@ if (configured) {
   // 用户明明已经拿到身份了，界面上却还有个红字 —— 看起来像坏了。
   XMETA.onSession(() => clearErr())
 }
-
-// ── 剩余时间 ──
-// 用户自己选的时长，过期后要回中心玩具再授权一次。把它显示出来，
-// 别让人玩到一半突然掉线还不知道为什么。
-let countdown = null
-
-function fmtLeft(ms) {
-  const s = Math.floor(ms / 1000)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  if (h > 0) return h + ' 小时 ' + m + ' 分'
-  if (m > 0) return m + ' 分 ' + (s % 60) + ' 秒'
-  return (s % 60) + ' 秒'
-}
-
-function startCountdown() {
-  if (countdown) clearInterval(countdown)
-  $('rowLeft').classList.remove('xm-hidden')
-  const tick = () => {
-    const ms = XMETA.getRemainingMs()
-    if (ms <= 0) {
-      $('vLeft').textContent = '已过期'
-      $('vLeft').className = 'xm-kv__v xm-kv__v--muted'
-      $('btnLogin').textContent = '重新获取'
-      clearInterval(countdown)
-      countdown = null
-      return
-    }
-    $('vLeft').textContent = '还剩 ' + fmtLeft(ms)
-  }
-  tick()
-  countdown = setInterval(tick, 1000)
-}
-
-// ── 开启联机（必须在用户手势里调用，toy.navigate 需要手势）──
-$('btnLogin').addEventListener('click', async () => {
-  clearErr()
-  $('btnLogin').disabled = true
-  try {
-    await XMETA.login()
-    // 成功的话页面就被跳走了，这行不会执行到
-  } catch (e) {
-    showErr('开启失败：' + (e.message || e))
-    $('btnLogin').disabled = false
-  }
-})
-
-// ── 调试：看看我自己在这款玩具里的 toyOpenId ──
-$('btnWho').addEventListener('click', async () => {
-  clearErr()
-  try {
-    if (!(await toy.isSupport('getUserProfile'))) {
-      throw new Error('当前环境不支持获取用户信息，请在 B站 App 内或电脑浏览器打开。')
-    }
-    const p = await toy.getUserProfile()
-    if (!p.toyOpenId) throw new Error('这款玩具没开启 OpenID 模式，拿不到 toyOpenId。')
-    $('tip').textContent = '本玩具内的 toyOpenId：' + p.toyOpenId +
-      '（昵称：' + (p.nickname || '—') + '）'
-  } catch (e) {
-    showErr(e.message || String(e))
-  }
-})
 </script>
 </body>
 </html>

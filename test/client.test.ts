@@ -306,3 +306,25 @@ test('会话是按 clientId 分桶的，别的玩具的不认', () => {
 
   assert.equal(sb.XMETA.getSession(), null, '不该认别的玩具存的会话');
 });
+
+test('onSession 回调抛错，不该把调用方的脚本一起带走', () => {
+  const sb = loadClient();
+  sb.__store.set('xmeta:sess:xmeta_t', JSON.stringify({
+    jwt: 'a.b.c', uid: '42', expiresAt: Date.now() + 3600_000,
+  }));
+  sb.XMETA.configure(CFG);
+
+  // 注册时会立刻同步回调（已经有 session）。回调里抛错 ——
+  // 真实场景是回调引用了还没声明的变量。
+  assert.doesNotThrow(() => {
+    sb.XMETA.onSession(() => {
+      throw new Error('回调炸了');
+    });
+  }, '回调的错不该冒到调用方');
+
+  // 关键：后面的代码还要能正常跑。
+  // 出过的事故就是这里注册的事件监听全没挂上，界面上「点了没反应」。
+  let reached = false;
+  sb.XMETA.onSession(() => { reached = true; });
+  assert.equal(reached, true, '后面的注册应该照常执行');
+});
