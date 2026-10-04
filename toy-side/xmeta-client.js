@@ -30,9 +30,12 @@
  * 默认 6 小时）。最长 24 小时，没有自动续期，所以到期后需要用户回
  * 中心玩具再授权一次。
  *
- * 因此接入方应该把剩余时间显示给用户，别让他玩到一半突然掉线：
+ * 会话存在本地（localStorage，key 带 clientId 前缀），**刷新页面、
+ * 重开 App 都不用重新授权**，只有真的到期了才需要。所以接入方应该把
+ * 剩余时间显示给用户，别让他玩到一半突然掉线：
  *   XMETA.getRemainingMs()   还剩多少毫秒，没登录返回 0
- *   XMETA.onSession(fn)      授权成功时触发，fn 收到的 session 里有 expiresAt
+ *   XMETA.onSession(fn)      有身份时触发（包括从本地恢复），fn 收到 session
+ *   XMETA.logout()           主动清掉本地会话
  *
  * 用户也可能在中心玩具里手动把自己在某个玩具上的身份失活。
  * 那种情况本地验签看不出来（JWT 是自包含的），需要确认就打
@@ -45,10 +48,11 @@
   'use strict'
 
   var CFG = { apiBase: '', centerToySlug: '', clientId: '' }
-  var SESSION = null            // { jwt, uid, expiresAt, raw }
+  var SESSION = null            // { jwt, uid, expiresAt, raw? }
   var listeners = []
   var errorListeners = []
   var VERIFIER_KEY = ''
+  var SESSION_KEY = ''
   var pollTimer = null
 
   /**
@@ -160,6 +164,11 @@
       console.warn('[xmeta] apiBase 是 http 而页面是 https，请求会被浏览器按混合内容拦截。')
     }
     VERIFIER_KEY = 'xmeta:pkce:' + CFG.clientId
+    SESSION_KEY = 'xmeta:sess:' + CFG.clientId
+
+    // 上次拿到的身份还在有效期内就直接恢复：用户刷新页面、重开 App
+    // 都不该再走一遍过桥
+    restoreSession()
   }
 
   /** 当前这一轮尝试的 state（login 时写入） */
@@ -348,8 +357,50 @@
       expiresAt: Date.now() + res.expires_in * 1000,
       raw: res
     }
+    saveSession()
     emit()
     return SESSION
+  }
+
+  /**
+   * 把会话存到本地。
+   *
+   * 不存的话，页面一刷新身份就没了，用户每次进来都得重新走一遍过桥 ——
+   * 而 token 本来能活 3~24 小时，中间刷新几十次是常态。
+   *
+   * 存 localStorage 而不是 B站 云存储：云存储的读额度是**整个玩具的
+   * 所有玩家共享**的，每次进页面都读一次，人一多就会被限流打爆，而且是
+   * 被别的玩家连累。localStorage 不限速、同步读、秒出。
+   *
+   * 代价：token 会在 localStorage 里躺到过期。同源的其它玩具理论上读得到，
+   * 但 token 绑定了 aud（只对这个玩具有效），而且用户随时能在个人中心
+   * 手动失活。要提前结束也可以调 XMETA.logout()。
+   */
+  function saveSession() {
+    if (!SESSION) return
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        jwt: SESSION.jwt,
+        uid: SESSION.uid,
+        expiresAt: SESSION.expiresAt
+      }))
+    } catch (e) { /* 隐私模式，忽略 */ }
+  }
+
+  function clearStoredSession() {
+    try { localStorage.removeItem(SESSION_KEY) } catch (e) { /* 忽略 */ }
+  }
+
+  /** 从本地恢复。过期的顺手清掉，免得每次都要解析一遍。 */
+  function restoreSession() {
+    var raw = null
+    try { raw = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null') } catch (e) { return }
+
+    if (!raw || !raw.jwt || !raw.expiresAt) return
+    if (raw.expiresAt <= Date.now()) { clearStoredSession(); return }
+
+    SESSION = { jwt: raw.jwt, uid: raw.uid, expiresAt: raw.expiresAt }
+    emit()
   }
 
   /** 这枚 token 还剩多少毫秒。没登录或已过期返回 0。 */
@@ -363,6 +414,7 @@
     clearAttempt()
     clearShared(REQ_KEY)
     clearShared(RES_KEY)
+    clearStoredSession()
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
     SESSION = null
     emit()

@@ -26,8 +26,8 @@ const SRC = readFileSync(
 const CLIENT_PATH = '/toy/abc123/index.html';
 
 /** 造一个够用的浏览器环境，把脚本真正跑起来 */
-function loadClient(): Record<string, any> {
-  const store = new Map<string, string>();
+function loadClient(existingStore?: Map<string, string>): Record<string, any> {
+  const store = existingStore ?? new Map<string, string>();
   const fetched: string[] = [];
 
   const sandbox: Record<string, any> = {
@@ -224,4 +224,85 @@ test('state 对得上时才真的去换，并拿到 session', async () => {
   assert.equal(sb.__store.has('xmeta:res'), false, '用完要清掉');
   assert.equal(sb.__store.has('xmeta:pkce:xmeta_t'), false, 'PKCE 记录也要清掉');
   assert.equal(sb.XMETA.getRemainingMs() > 0, true, '剩余时间应该是个正数');
+  assert.ok(sb.__store.has('xmeta:sess:xmeta_t'), '会话要存到本地');
+});
+
+// ─────────────────────────────────────────────────────────────
+// 会话持久化
+//
+// 不存的话页面一刷新身份就没了，用户每次进来都得重新走一遍过桥 ——
+// 而 token 本来能活 3~24 小时，中间刷新几十次是常态。
+// ─────────────────────────────────────────────────────────────
+
+test('重开页面之后身份还在，不用重新授权', () => {
+  const first = loadClient();
+  first.XMETA.configure(CFG);
+  // 模拟上一次成功换取之后存下来的
+  first.__store.set('xmeta:sess:xmeta_t', JSON.stringify({
+    jwt: 'a.b.c',
+    uid: '42',
+    expiresAt: Date.now() + 3600_000,
+  }));
+
+  // 同一个浏览器环境（同一个 store）重新加载脚本 —— 等价于刷新页面
+  const second = loadClient(first.__store);
+  second.XMETA.configure(CFG);
+
+  const s = second.XMETA.getSession();
+  assert.ok(s, '应该从本地恢复出身份');
+  assert.equal(s.uid, '42');
+  assert.ok(second.XMETA.getRemainingMs() > 0);
+  assert.deepEqual(second.__fetched, [], '恢复身份不该发任何请求');
+});
+
+test('恢复身份时会通知 onSession', () => {
+  const sb = loadClient();
+  sb.__store.set('xmeta:sess:xmeta_t', JSON.stringify({
+    jwt: 'a.b.c', uid: '42', expiresAt: Date.now() + 3600_000,
+  }));
+
+  let got = null;
+  sb.XMETA.configure(CFG);
+  sb.XMETA.onSession((s: unknown) => { got = s; });
+
+  assert.ok(got, 'onSession 应该立刻拿到已恢复的身份');
+});
+
+test('过期的会话不会被恢复，并且顺手清掉', () => {
+  const sb = loadClient();
+  sb.__store.set('xmeta:sess:xmeta_t', JSON.stringify({
+    jwt: 'a.b.c', uid: '42', expiresAt: Date.now() - 1000,
+  }));
+
+  sb.XMETA.configure(CFG);
+
+  assert.equal(sb.XMETA.getSession(), null, '过期的不该恢复');
+  assert.equal(sb.XMETA.getRemainingMs(), 0);
+  assert.equal(sb.__store.has('xmeta:sess:xmeta_t'), false, '应该被清掉');
+});
+
+test('logout 会连本地存的会话一起清掉', () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+  sb.__store.set('xmeta:sess:xmeta_t', JSON.stringify({
+    jwt: 'a.b.c', uid: '42', expiresAt: Date.now() + 3600_000,
+  }));
+  sb.XMETA.configure(CFG); // 重新 configure 以恢复
+  assert.ok(sb.XMETA.getSession(), '先确认恢复成功');
+
+  sb.XMETA.logout();
+
+  assert.equal(sb.XMETA.getSession(), null);
+  assert.equal(sb.__store.has('xmeta:sess:xmeta_t'), false, '存储里也要清掉');
+});
+
+test('会话是按 clientId 分桶的，别的玩具的不认', () => {
+  const sb = loadClient();
+  sb.__store.set('xmeta:sess:some_other_toy', JSON.stringify({
+    jwt: 'a.b.c', uid: '99', expiresAt: Date.now() + 3600_000,
+  }));
+
+  sb.XMETA.configure(CFG);
+
+  assert.equal(sb.XMETA.getSession(), null, '不该认别的玩具存的会话');
 });
