@@ -246,6 +246,11 @@ function render(data) {
       else if (t.clientRevoked) tag = '<span class="xm-tag xm-tag--muted">已停用</span>'
       else tag = '<span class="xm-tag xm-tag--ok">已认领</span>'
 
+      // 作者可以手动刷新 toy 的图标 / 作者名等元数据
+      const refreshBtn =
+        '<button class="xm-tag xm-tag--btn" data-refresh-slug="' + escapeHtml(t.slug) +
+        '">刷新</button>'
+
       let meta = t.slug
       if (t.clientId) meta += ' · ' + t.clientId
       if (t.pendingClaim) {
@@ -253,7 +258,7 @@ function render(data) {
           Math.round((new Date(t.pendingClaim.expiresAt) - Date.now()) / 3600000))
         meta += ' · 验证码剩 ' + hours + ' 小时 / 可试 ' + t.pendingClaim.attemptsLeft + ' 次'
       }
-      return itemHtml(t.iconUrl, t.title || t.slug, meta, tag)
+      return itemHtml(t.iconUrl, t.title || t.slug, meta, tag + refreshBtn)
     }).join('')
   } else {
     $('secOwned').classList.add('xm-hidden')
@@ -357,6 +362,31 @@ $('usageList').addEventListener('click', async (e) => {
   } catch (err) {
     fail('退出失败。', err.message || String(err))
     btn.disabled = false
+  }
+})
+
+// ── 手动刷新 toy 元数据（图标 / 作者名等）──
+$('ownedList').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-refresh-slug]')
+  if (!btn || !currentProfile) return
+
+  btn.disabled = true
+  const orig = btn.textContent
+  btn.textContent = '刷新中…'
+  try {
+    await request('/api/toy/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        toyOpenId: currentProfile.toyOpenId,
+        slug: btn.getAttribute('data-refresh-slug')
+      })
+    })
+    await load()
+  } catch (err) {
+    fail('刷新失败。', err.message || String(err))
+    btn.disabled = false
+    btn.textContent = orig
   }
 })
 </script>

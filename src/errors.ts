@@ -31,6 +31,8 @@ export const Errors = {
 
   toyNotVerified: () => new AppError('toy_not_verified', '该 toy 尚未完成认领', 403),
 
+  forbidden: (message = '没有权限执行此操作') => new AppError('forbidden', message, 403),
+
   claimNotFound: () =>
     new AppError('claim_not_found', '没有进行中的认领，请先发起认领', 404),
 

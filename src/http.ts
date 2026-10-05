@@ -35,6 +35,11 @@ export const verifyClaimSchema = identitySchema.extend({ slug: slugSchema });
 
 export const mineSchema = identitySchema.pick({ toyOpenId: true });
 
+/** toy 作者手动刷新 toy 元数据 */
+export const refreshToySchema = identitySchema.pick({ toyOpenId: true }).extend({
+  slug: slugSchema,
+});
+
 export const bridgeAuthorizeSchema = identitySchema.extend({
   cid: z.string().min(1).max(128),
   /** PKCE challenge（S256），必填。code 会进 URL，没它 code 就是裸奔的兑换券 */

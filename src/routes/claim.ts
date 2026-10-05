@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { config } from '../config.js';
 import type { BiliDeps } from '../deps.js';
 import { Errors } from '../errors.js';
-import { mineSchema, parse, startClaimSchema, verifyClaimSchema } from '../http.js';
+import { mineSchema, parse, refreshToySchema, startClaimSchema, verifyClaimSchema } from '../http.js';
 import { htmlContainsNonce, normalizeIconUrl } from '../lib/bili.js';
 import { clientId, randomNonce } from '../lib/ids.js';
 import { rateLimit } from '../lib/ratelimit.js';
@@ -13,6 +13,7 @@ import {
   getOwnedToys,
   getPendingClaim,
   getToyBySlug,
+  refreshToy,
   startClaim,
   upsertToyFromDetail,
   upsertUser,
@@ -214,5 +215,37 @@ export async function claimRoutes(
     );
 
     return { uid: user.id, nickname: user.nickname, toys: items };
+  });
+
+  /**
+   * 作者手动刷新 toy 元数据（图标、作者名/头像等）。
+   *
+   * 只有 toy 的所有者能调。刷新走 B站 detail 接口，成功后覆盖入库。
+   * 不在读路径自动做——这些字段平时不怎么变，作者想更新时点一下就行。
+   */
+  app.post('/api/toy/refresh', async (req) => {
+    limit(req, 'toy:refresh', 10, 60_000);
+
+    const body = parse(refreshToySchema, req.body);
+    const user = await upsertUser({ toyOpenId: body.toyOpenId });
+
+    const toy = await getToyBySlug(body.slug);
+    if (!toy) throw Errors.toyNotFound(body.slug);
+    if (toy.owner_uid !== user.id) throw Errors.forbidden('你不是该 toy 的所有者');
+
+    const fresh = await refreshToy(body.slug);
+    const client = await getClientByToyId(fresh.toy_id);
+
+    return {
+      toyId: fresh.toy_id,
+      slug: fresh.slug,
+      title: fresh.title,
+      iconUrl: normalizeIconUrl(fresh.icon_url),
+      authorName: fresh.author_name,
+      state: fresh.state,
+      clientId: client?.client_id ?? null,
+      revoked: Boolean(client?.revoked_at),
+      syncedAt: fresh.synced_at,
+    };
   });
 }

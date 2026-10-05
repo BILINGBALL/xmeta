@@ -30,36 +30,17 @@
     <div class="xm-hero xm-rise">
       <div class="xm-hero__ring" id="ring"></div>
       <h1 class="xm-hero__name" id="toyName">—</h1>
-      <p class="xm-hero__ask">申请使用 xmeta 联机身份</p>
     </div>
 
     <p class="xm-note xm-mt" style="text-align:center">
       xmeta 将为你生成该游戏的联机凭证
     </p>
 
-    <div class="xm-actions xm-actions--row xm-rise xm-rise--2" style="margin-top:16px">
-      <button class="xm-btn xm-btn--ghost xm-btn--sm" id="btnAbout">了解 xmeta</button>
-      <button class="xm-btn xm-btn--ghost xm-btn--sm" id="btnFollow">关注作者</button>
-    </div>
-
-    <div id="aboutPanel" class="xm-about xm-hidden">
-      <div class="xm-about__brand">
-        <span class="xm-brand__dot"></span>xmeta 身份服务
-      </div>
-      xmeta 是一个<b>独立于任何 toy</b>的联机身份服务。
-      每个 toy 的 toyOpenId 互相不通用，xmeta 帮你把它们统一成一个匿名身份，
-      这样接入 xmeta 的 toy 就能认出你、保存进度，<b>但它们拿不到你的 B站 账号，也看不到你在其它 toy 的数据</b>。
-    </div>
-
     <div class="xm-card xm-mt-lg xm-rise xm-rise--2">
       <div class="xm-facts">
         <div class="xm-fact">
-          <div class="xm-fact__k">会拿到</div>
+          <div class="xm-fact__k">授权</div>
           <div class="xm-fact__v">昵称 · 头像 · 一个<b>匿名标识</b></div>
-        </div>
-        <div class="xm-fact xm-fact--deny">
-          <div class="xm-fact__k">不会拿到</div>
-          <div class="xm-fact__v">B站 账号 · UID · 你在其它 toy 的数据</div>
         </div>
         <div class="xm-fact">
           <div class="xm-fact__k">用来</div>
@@ -67,11 +48,6 @@
         </div>
       </div>
     </div>
-
-    <p class="xm-note xm-mt">
-      这个身份由 xmeta 统一管理，之后玩其它接入 xmeta 的游戏可以沿用，
-      不用重复授权。
-    </p>
 
     <div class="xm-mt-lg xm-rise xm-rise--3">
       <p class="xm-label">这次授权有效多久</p>
@@ -289,29 +265,8 @@ async function boot() {
   paintRing($('ring'), ctx.title || ctx.slug, ctx.iconUrl)
   paintRing($('ringDone'), ctx.title || ctx.slug, ctx.iconUrl)
 
-  // 关注作者：跳作者的 B站 空间
-  const followBtn = $('btnFollow')
-  if (ctx.authorMid) {
-    followBtn.addEventListener('click', () => {
-      const url = 'https://space.bilibili.com/' + encodeURIComponent(ctx.authorMid)
-      try { toy.navigate({ type: 'url', url: url }) }
-      catch (e) { window.open(url, '_blank') }
-    })
-  } else {
-    followBtn.disabled = true
-    followBtn.textContent = '关注作者'
-  }
-
   show('s-consent')
 }
-
-// ── 了解 xmeta：展开 / 收起信息面板 ──
-$('btnAbout').addEventListener('click', () => {
-  const panel = $('aboutPanel')
-  const btn = $('btnAbout')
-  const open = panel.classList.toggle('xm-hidden')
-  btn.textContent = open ? '了解 xmeta' : '暂停'
-})
 
 // ── 用户点了「允许」—— 到这里才真正去要授权 ──
 $('btnAllow').addEventListener('click', async () => {

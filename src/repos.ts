@@ -1,7 +1,8 @@
 import type pg from 'pg';
 import { query, queryOne, withTransaction } from './db.js';
 import { config } from './config.js';
-import type { ToyDetail } from './lib/bili.js';
+import { Errors } from './errors.js';
+import { fetchToyDetail, type ToyDetail } from './lib/bili.js';
 
 /** 所有 id 类字段（bigint / bigserial）在 pg 里都是 string，避免 JS number 精度问题。 */
 
@@ -16,7 +17,7 @@ export type AppUser = {
 export type Toy = {
   toy_id: string;
   slug: string;
-  title: string | null;
+  title: string;
   icon_url: string | null;
   author_mid: string | null;
   author_name: string | null;
@@ -24,6 +25,8 @@ export type Toy = {
   bili_version: number | null;
   state: 'unclaimed' | 'pending' | 'verified' | 'disabled';
   owner_uid: string | null;
+  /** 元数据最后一次从 B站 detail 接口同步的时间，用于惰性刷新判断 */
+  synced_at: Date | null;
 };
 
 export type ToyClaim = {
@@ -83,7 +86,7 @@ export async function upsertUser(input: {
 export async function getOwnedToys(uid: string): Promise<Toy[]> {
   const res = await query<Toy>(
     `select toy_id, slug, title, icon_url, author_mid, author_name, author_face,
-            bili_version, state, owner_uid
+            bili_version, state, owner_uid, synced_at
        from toy
       where owner_uid = $1
       order by verified_at desc nulls last`,
@@ -111,7 +114,7 @@ export async function upsertToyFromDetail(detail: ToyDetail): Promise<Toy> {
             synced_at    = now(),
             updated_at   = now()
      returning toy_id, slug, title, icon_url, author_mid, author_name, author_face,
-               bili_version, state, owner_uid`,
+               bili_version, state, owner_uid, synced_at`,
     [
       detail.toyId,
       detail.slug,
@@ -129,7 +132,7 @@ export async function upsertToyFromDetail(detail: ToyDetail): Promise<Toy> {
 export async function getToyBySlug(slug: string): Promise<Toy | null> {
   return queryOne<Toy>(
     `select toy_id, slug, title, icon_url, author_mid, author_name, author_face,
-            bili_version, state, owner_uid
+            bili_version, state, owner_uid, synced_at
        from toy where slug = $1`,
     [slug],
   );
@@ -138,10 +141,25 @@ export async function getToyBySlug(slug: string): Promise<Toy | null> {
 export async function getToyById(toyId: string): Promise<Toy | null> {
   return queryOne<Toy>(
     `select toy_id, slug, title, icon_url, author_mid, author_name, author_face,
-            bili_version, state, owner_uid
+            bili_version, state, owner_uid, synced_at
        from toy where toy_id = $1`,
     [toyId],
   );
+}
+
+/**
+ * 手动刷新 toy 元数据（图标、作者名/头像等）。
+ *
+ * 这是给 toy 作者用的：作者在「我的 toy」里点「刷新」按钮，
+ * 服务端去 B站 detail 接口拉最新数据覆盖入库。
+ *
+ * 不在读路径自动调——这些字段平时不怎么变，没必要每次请求都碰 B站。
+ * 返回刷新后的 toy；B站 接口失败时抛错，由调用方决定怎么提示。
+ */
+export async function refreshToy(slug: string): Promise<Toy> {
+  const detail = await fetchToyDetail(slug);
+  if (!detail) throw Errors.toyNotFound(slug);
+  return upsertToyFromDetail(detail);
 }
 
 // ---------------------------------------------------------------- claims

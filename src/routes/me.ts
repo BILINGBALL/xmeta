@@ -29,7 +29,13 @@ type OwnedToyRow = {
   slug: string;
   title: string | null;
   icon_url: string | null;
+  author_mid: string | null;
+  author_name: string | null;
+  author_face: string | null;
+  bili_version: number | null;
   state: string;
+  owner_uid: string | null;
+  synced_at: Date | null;
   verified_at: Date | null;
   client_id: string | null;
   client_revoked_at: Date | null;
@@ -43,6 +49,13 @@ type UsageRow = {
   slug: string;
   title: string | null;
   icon_url: string | null;
+  author_mid: string | null;
+  author_name: string | null;
+  author_face: string | null;
+  bili_version: number | null;
+  state: string;
+  owner_uid: string | null;
+  synced_at: Date | null;
   client_id: string | null;
   last_used_at: Date;
   uses: number;
@@ -69,7 +82,9 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
 
     // 作者视角：我认领了哪些 toy，附带还没完成的认领进度
     const owned = await query<OwnedToyRow>(
-      `select t.toy_id, t.slug, t.title, t.icon_url, t.state, t.verified_at,
+      `select t.toy_id, t.slug, t.title, t.icon_url, t.author_mid, t.author_name,
+              t.author_face, t.bili_version, t.state, t.owner_uid, t.synced_at,
+              t.verified_at,
               c.client_id, c.revoked_at as client_revoked_at,
               tc.nonce        as claim_nonce,
               tc.expires_at   as claim_expires_at,
@@ -97,7 +112,8 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     //
     // 带出 revoked_at：用户手动失活过的，界面要能显示成「已退出」。
     const usage = await query<UsageRow>(
-      `select t.toy_id, t.slug, t.title, t.icon_url,
+      `select t.toy_id, t.slug, t.title, t.icon_url, t.author_mid, t.author_name,
+              t.author_face, t.bili_version, t.state, t.owner_uid, t.synced_at,
               c.client_id,
               u.last_used_at, u.uses,
               r.revoked_at
