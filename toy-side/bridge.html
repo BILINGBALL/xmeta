@@ -406,9 +406,11 @@ $('btnDeny').addEventListener('click', () => {
   navigateToToy(ctx.slug, null, 'denyHint')
 })
 
-// 顶部返回键：和「拒绝」一样，直接送回游戏
+// 顶部返回键：已经授权出结果了，它就等于「返回游戏」，把 code 带回去；
+// 还没出结果时才是「拒绝」，直接送回游戏什么都不带。
 $('btnTopBack').addEventListener('click', () => {
   if (!ctx) return
+  if (pendingReturn) return returnWithCode()
   navigateToToy(ctx.slug, null, 'denyHint')
 })
 
@@ -430,12 +432,17 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !xmetaModal.classList.contains('xm-hidden')) closeXmetaModal()
 })
 
-// ── 返回游戏 ──
-$('btnBack').addEventListener('click', () => {
-  if (!pendingReturn) return
-
-  // 把结果写进共享槽。App 内回跳带不了 extra，落回来那个页面只能靠它；
-  // Web 端 URL 上有 code，槽是冗余的，但检测会按 code 值去重，留着无害。
+/**
+ * 把结果写进共享槽，然后跳回发起方。
+ *
+ * 写槽和跳转必须绑在一起：**一旦已经授权出结果（pendingReturn 有值），
+ * 任何「离开这一页回游戏」的动作都必须把这枚 code 带上。** 顶部那个返回
+ * 箭头原来走的是「拒绝」那条路 —— 用户在成功页顺手点它，授权码就被
+ * 丢掉了，回到游戏是「未连接」，看起来跟没授权一模一样。
+ */
+function returnWithCode() {
+  // App 内回跳带不了 extra，落回来那个页面只能靠共享槽；Web 端 URL 上
+  // 有 code，槽是冗余的，但检测会按 code 值去重，留着无害。
   //
   // 这里不再需要「必须真跳转前才写」那种时序讲究了 —— 第三方检测只读
   // 不消费，写早了也没人能把它抢走。
@@ -462,6 +469,12 @@ $('btnBack').addEventListener('click', () => {
 
   navigateToToy(pendingReturn.returnSlug,
     { code: pendingReturn.code, st: ST }, 'backHint')
+}
+
+// ── 返回游戏 ──
+$('btnBack').addEventListener('click', () => {
+  if (!pendingReturn) return
+  returnWithCode()
 })
 
 $('btnRetry').addEventListener('click', () => boot())

@@ -377,6 +377,9 @@ if (configured) {
 const DIAG_KEYS = [
   ['req', 'xmeta:req'],                          // 本次请求（claimed 才是被中心 toy 接手过）
   ['code', 'xmeta:code'],                        // 中心 toy 写下的待兑换授权码
+  // 旧格式的槽。中心 toy 过渡期会双写它 —— 所以 "legacy=有 而 code=无"
+  // 就说明线上跑的 bridge.html 还是旧版（没写新键）。
+  ['legacy', 'xmeta:res'],
   ['pkce', 'xmeta:pkce:' + CONFIG.clientId],     // 本地 PKCE 记录，兑换全靠它
   ['sess', 'xmeta:sess:' + CONFIG.clientId]      // 已保存的会话
 ]
