@@ -328,6 +328,7 @@ body.xm--with-nav .xm-page {
 .xm-facts { margin: 0; }
 .xm-fact {
   display: flex;
+  align-items: center;
   gap: 16px;
   padding: 13px 0;
   border-bottom: 1px solid var(--xm-line);
@@ -550,6 +551,19 @@ body.xm--with-nav .xm-page {
 }
 .xm-btn--quiet:hover:not(:disabled) { color: var(--xm-ink-2); }
 
+/* 危险按钮：停用 / 失活等不可恢复操作 */
+.xm-btn--danger {
+  background: var(--xm-danger);
+  color: #fff;
+  border-color: var(--xm-danger);
+  box-shadow: 0 4px 14px rgba(239, 68, 68, .35);
+}
+.xm-btn--danger:hover:not(:disabled) {
+  background: #dc2626;
+  border-color: #dc2626;
+  box-shadow: 0 6px 18px rgba(239, 68, 68, .45);
+}
+
 /* 小按钮：用于了解 xmeta / 关注作者 等次要操作 */
 .xm-btn--sm {
   width: auto;
@@ -692,6 +706,101 @@ body.xm--with-nav .xm-page {
 .xm-hidden { display: none !important; }
 .xm-mt { margin-top: 12px; }
 .xm-mt-lg { margin-top: 24px; }
+
+/* ================================================================ xmeta 品牌链接（强可点击） */
+.xm-brand-link {
+  color: var(--xm-pink);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  padding: 1px 4px;
+  border-radius: 6px;
+  transition: background .15s, color .15s;
+}
+.xm-brand-link:hover {
+  background: var(--xm-pink-light);
+  color: var(--xm-pink-dark);
+}
+
+/* ================================================================ 链接样式按钮 */
+.xm-btn--link {
+  background: var(--xm-pink-wash);
+  border: 1px solid var(--xm-pink);
+  color: var(--xm-pink-dark);
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: none;
+}
+.xm-btn--link:hover {
+  background: var(--xm-pink);
+  color: #fff;
+  box-shadow: var(--xm-pink-glow);
+}
+
+/* ================================================================ xmeta 介绍弹窗 */
+.xm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.xm-modal__mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .5);
+  backdrop-filter: blur(2px);
+}
+.xm-modal__card {
+  position: relative;
+  background: var(--xm-surface);
+  border-radius: var(--xm-r-lg);
+  padding: 24px 20px 20px;
+  max-width: 360px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
+  animation: xm-rise .25s cubic-bezier(.2, .7, .3, 1) both;
+}
+.xm-modal__close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--xm-ink-3);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.xm-modal__close:hover { background: var(--xm-sunken); color: var(--xm-ink); }
+.xm-modal__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--xm-pink);
+  margin-bottom: 12px;
+}
+.xm-modal__title {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--xm-ink);
+}
+.xm-modal__body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--xm-ink-2);
+  margin: 0 0 10px;
+}
+.xm-modal__body b { color: var(--xm-ink); font-weight: 600; }
 
 /* ================================================================ 动效 */
 .xm-rise {

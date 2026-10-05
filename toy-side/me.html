@@ -11,10 +11,10 @@
 
 <!-- 顶部栏 -->
 <header class="xm-topbar">
-  <button class="xm-topbar__back" onclick="history.back()" aria-label="返回">
+  <button class="xm-topbar__back" id="btnBack" onclick="goBack()" aria-label="返回">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
   </button>
-  <h1 class="xm-topbar__title">我的身份</h1>
+  <h1 class="xm-topbar__title" id="topTitle">我的身份</h1>
   <div class="xm-topbar__right"></div>
 </header>
 
@@ -97,6 +97,47 @@
     </div>
   </section>
 
+  <!-- toy 详情页 -->
+  <section id="s-toy-detail" class="xm-hidden">
+    <div class="xm-card" style="display:flex;align-items:center;gap:15px">
+      <img class="xm-avatar" id="tdIcon" alt="" hidden>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:18px;font-weight:750" id="tdTitle">—</div>
+        <div class="xm-small xm-mono" id="tdState"></div>
+      </div>
+    </div>
+
+    <div class="xm-card xm-mt-lg" style="padding-top:6px;padding-bottom:6px">
+      <div id="tdFields"></div>
+    </div>
+
+    <div class="xm-actions xm-mt-lg">
+      <button class="xm-btn xm-btn--ghost" id="tdRefresh">刷新 toy 信息</button>
+    </div>
+  </section>
+
+  <!-- JWT 详情页 -->
+  <section id="s-jwt-detail" class="xm-hidden">
+    <div class="xm-card" style="display:flex;align-items:center;gap:15px">
+      <img class="xm-avatar" id="jdIcon" alt="" hidden>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:18px;font-weight:750" id="jdTitle">—</div>
+        <div class="xm-small xm-mono" id="jdStatus"></div>
+      </div>
+    </div>
+
+    <div class="xm-card xm-mt-lg" style="padding-top:6px;padding-bottom:6px">
+      <div id="jdFields"></div>
+    </div>
+
+    <div class="xm-actions xm-mt-lg">
+      <button class="xm-btn xm-btn--danger" id="jdRevoke">失活此凭证</button>
+    </div>
+    <p class="xm-small xm-mt" style="text-align:center;color:var(--xm-ink-3)">
+      失活后该 toy 的所有已签发凭证立即失效，下次使用需重新授权。
+    </p>
+  </section>
+
   <div id="devWarn" class="xm-alert xm-alert--warn xm-hidden"></div>
 </div>
 
@@ -135,7 +176,17 @@ const API_BASE = 'https://www.oxth.com:8443'
 })()
 
 const $ = (id) => document.getElementById(id)
-const SECTIONS = ['s-intro', 's-loading', 's-main', 's-error']
+const SECTIONS = ['s-intro', 's-loading', 's-main', 's-error', 's-toy-detail', 's-jwt-detail']
+
+// 详情页的返回：回主列表，而不是真的 history.back（可能跳出 toy）
+let lastSection = 's-intro'
+function goBack() {
+  if (lastSection === 's-toy-detail' || lastSection === 's-jwt-detail') {
+    show('s-main')
+  } else {
+    history.back()
+  }
+}
 
 // 缓存按 toyOpenId 的哈希分桶 —— 同一台设备可能有多个 B站 账号。
 // 用哈希而不是明文，是因为 localStorage 的 key 在 DevTools 里一眼可见，
@@ -144,7 +195,15 @@ const CACHE_PREFIX = 'xmeta:me:'
 const OK_KEY = 'xmeta:me:ok'
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
-const show = (name) => SECTIONS.forEach((s) => $(s).classList.toggle('xm-hidden', s !== name))
+const show = (name) => {
+  lastSection = name
+  SECTIONS.forEach((s) => $(s).classList.toggle('xm-hidden', s !== name))
+  const titles = {
+    's-toy-detail': 'toy 详情',
+    's-jwt-detail': '凭证详情',
+  }
+  $('topTitle').textContent = titles[name] || '我的身份'
+}
 
 function escapeHtml(s) {
   return String(s).replace(/[<>&"]/g, (c) =>
@@ -244,12 +303,12 @@ function render(data) {
       let tag
       if (t.pendingClaim) tag = '<span class="xm-tag">认领中</span>'
       else if (t.clientRevoked) tag = '<span class="xm-tag xm-tag--muted">已停用</span>'
-      else tag = '<span class="xm-tag xm-tag--ok">已认领</span>'
+      else tag = ''   // 已认领的不重复标，section 标题已经说明
 
-      // 作者可以手动刷新 toy 的图标 / 作者名等元数据
-      const refreshBtn =
-        '<button class="xm-tag xm-tag--btn" data-refresh-slug="' + escapeHtml(t.slug) +
-        '">刷新</button>'
+      // 进入 toy 详情页：查看 aud / client_id、刷新信息、停用 XMETA
+      const settingsBtn =
+        '<button class="xm-tag xm-tag--btn" data-toy-slug="' + escapeHtml(t.slug) +
+        '">设置</button>'
 
       let meta = t.slug
       if (t.clientId) meta += ' · ' + t.clientId
@@ -258,7 +317,7 @@ function render(data) {
           Math.round((new Date(t.pendingClaim.expiresAt) - Date.now()) / 3600000))
         meta += ' · 验证码剩 ' + hours + ' 小时 / 可试 ' + t.pendingClaim.attemptsLeft + ' 次'
       }
-      return itemHtml(t.iconUrl, t.title || t.slug, meta, tag + refreshBtn)
+      return itemHtml(t.iconUrl, t.title || t.slug, meta, tag + settingsBtn)
     }).join('')
   } else {
     $('secOwned').classList.add('xm-hidden')
@@ -272,7 +331,8 @@ function render(data) {
       const tag = t.revokedAt
         ? '<span class="xm-tag xm-tag--muted">已退出</span>'
         : t.clientId
-          ? '<button class="xm-tag xm-tag--btn" data-cid="' + escapeHtml(t.clientId) + '">退出</button>'
+          ? '<button class="xm-tag xm-tag--btn" data-cid="' + escapeHtml(t.clientId) +
+            '" data-usage-slug="' + escapeHtml(t.slug) + '">详情</button>'
           : ''
       return itemHtml(t.iconUrl, t.title || t.slug, meta, tag)
     }).join('')
@@ -286,8 +346,76 @@ function render(data) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 详情页辅助
+// ─────────────────────────────────────────────────────────────
+
+/** 渲染一个可复制的键值行 */
+function fieldRow(label, value, mono) {
+  const v = value === null || value === undefined || value === '' ? '—' : String(value)
+  const cls = mono ? 'xm-mono' : ''
+  return '<div class="xm-item" style="padding:10px 0;border-bottom:1px solid var(--xm-line)">' +
+    '<div style="flex:none;width:90px;color:var(--xm-ink-3);font-size:13px">' + escapeHtml(label) + '</div>' +
+    '<div class="' + cls + '" style="flex:1;min-width:0;word-break:break-all">' + escapeHtml(v) + '</div>' +
+    '<button class="xm-tag xm-tag--btn" data-copy="' + escapeHtml(v) + '" style="flex:none">复制</button>' +
+    '</div>'
+}
+
+/** toy 详情页 */
+let currentToy = null
+function showToyDetail(slug) {
+  if (!lastData) return
+  const t = lastData.ownedToys.find((x) => x.slug === slug)
+  if (!t) return
+  currentToy = t
+
+  if (t.iconUrl) { $('tdIcon').src = t.iconUrl; $('tdIcon').hidden = false }
+  else $('tdIcon').hidden = true
+  $('tdTitle').textContent = t.title || t.slug
+  const stateMap = { verified: '已认领', pending: '认领中', unclaimed: '未认领', disabled: '已禁用' }
+  $('tdState').textContent = '状态：' + (stateMap[t.state] || t.state) +
+    (t.clientRevoked ? ' · 已停用' : '')
+
+  $('tdFields').innerHTML =
+    fieldRow('toy_id (aud)', t.toyId, true) +
+    fieldRow('client_id', t.clientId || '—', true) +
+    fieldRow('slug', t.slug, true) +
+    fieldRow('认领时间', t.verifiedAt ? new Date(t.verifiedAt).toLocaleString() : '—')
+
+  show('s-toy-detail')
+}
+
+/** JWT 详情页 */
+let currentUsage = null
+function showJwtDetail(cid) {
+  if (!lastData) return
+  const t = lastData.usage.find((x) => x.clientId === cid)
+  if (!t) return
+  currentUsage = t
+
+  if (t.iconUrl) { $('jdIcon').src = t.iconUrl; $('jdIcon').hidden = false }
+  else $('jdIcon').hidden = true
+  $('jdTitle').textContent = t.title || t.slug
+  $('jdStatus').textContent = t.revokedAt
+    ? '已失活 · ' + new Date(t.revokedAt).toLocaleString()
+    : '生效中'
+
+  $('jdFields').innerHTML =
+    fieldRow('toy_id', t.toyId, true) +
+    fieldRow('client_id', t.clientId, true) +
+    fieldRow('slug', t.slug, true) +
+    fieldRow('最近使用', timeAgo(t.lastUsedAt)) +
+    fieldRow('使用次数', t.uses)
+
+  $('jdRevoke').disabled = !!t.revokedAt
+  $('jdRevoke').textContent = t.revokedAt ? '已失活' : '失活此凭证'
+
+  show('s-jwt-detail')
+}
+
+// ─────────────────────────────────────────────────────────────
 let loading = false
 let currentProfile = null
+let lastData = null   // 最近一次 /api/me 的返回，详情页从这里取数据
 
 async function load() {
   if (loading) return
@@ -305,7 +433,7 @@ async function load() {
 
     // 先拿缓存渲染，网络那趟慢慢来
     const cached = readCache(profile.toyOpenId)
-    if (cached) render(cached)
+    if (cached) { lastData = cached; render(cached) }
 
     const fresh = await request('/api/me', {
       method: 'POST',
@@ -313,6 +441,7 @@ async function load() {
       body: JSON.stringify({ toyOpenId: profile.toyOpenId })
     })
     writeCache(profile.toyOpenId, fresh)
+    lastData = fresh
     render(fresh)
 
     try { localStorage.setItem(OK_KEY, '1') } catch (e) { /* 忽略 */ }
@@ -338,38 +467,45 @@ if (seenOk) {
 $('btnRefresh').addEventListener('click', () => load())
 $('btnRetry').addEventListener('click', () => load())
 
-// ── 手动失活：退出某个 toy ──
-// 事件委托，因为列表是每次渲染重建的
-$('usageList').addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-cid]')
-  if (!btn || !currentProfile) return
-
-  const name = btn.closest('.xm-item')?.querySelector('.xm-item__title')?.textContent
-  if (!confirm('退出《' + (name || '这个 toy') + '》？\n\n之前签发的 token 会立即失效，' +
-               '下次要玩得重新授权一次。')) return
-
-  btn.disabled = true
+// ── 复制按钮（详情页字段）──
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-copy]')
+  if (!btn) return
+  const val = btn.getAttribute('data-copy')
   try {
-    await request('/api/me/revoke', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        toyOpenId: currentProfile.toyOpenId,
-        cid: btn.getAttribute('data-cid')
-      })
-    })
-    await load()
+    await navigator.clipboard.writeText(val)
+    const orig = btn.textContent
+    btn.textContent = '已复制'
+    btn.disabled = true
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false }, 1200)
   } catch (err) {
-    fail('退出失败。', err.message || String(err))
-    btn.disabled = false
+    // 降级：选中文本
+    const range = document.createRange()
+    range.selectNodeContents(btn.previousElementSibling)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
   }
 })
 
-// ── 手动刷新 toy 元数据（图标 / 作者名等）──
-$('ownedList').addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-refresh-slug]')
-  if (!btn || !currentProfile) return
+// ── 身份使用记录：详情 → JWT 详情页 ──
+$('usageList').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-cid]')
+  if (!btn) return
+  showJwtDetail(btn.getAttribute('data-cid'))
+})
 
+// ── 我认领的 toy：设置 → toy 详情页 ──
+$('ownedList').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-toy-slug]')
+  if (!btn) return
+  showToyDetail(btn.getAttribute('data-toy-slug'))
+})
+
+// ── toy 详情页：刷新 toy 信息 ──
+$('tdRefresh').addEventListener('click', async () => {
+  if (!currentToy || !currentProfile) return
+  const btn = $('tdRefresh')
   btn.disabled = true
   const orig = btn.textContent
   btn.textContent = '刷新中…'
@@ -379,14 +515,46 @@ $('ownedList').addEventListener('click', async (e) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         toyOpenId: currentProfile.toyOpenId,
-        slug: btn.getAttribute('data-refresh-slug')
+        slug: currentToy.slug
       })
     })
     await load()
+    // 重新打开详情页（数据已更新）
+    showToyDetail(currentToy.slug)
   } catch (err) {
     fail('刷新失败。', err.message || String(err))
+  } finally {
     btn.disabled = false
     btn.textContent = orig
+  }
+})
+
+// ── JWT 详情页：失活凭证 ──
+$('jdRevoke').addEventListener('click', async () => {
+  if (!currentUsage || !currentProfile) return
+  if (!confirm(
+    '确认失活《' + (currentUsage.title || currentUsage.slug) + '》的凭证？\n\n' +
+    '该 toy 之前签发的所有凭证立即失效，下次使用需重新授权。'
+  )) return
+
+  const btn = $('jdRevoke')
+  btn.disabled = true
+  btn.textContent = '失活中…'
+  try {
+    await request('/api/me/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        toyOpenId: currentProfile.toyOpenId,
+        cid: currentUsage.clientId
+      })
+    })
+    await load()
+    show('s-main')
+  } catch (err) {
+    fail('失活失败。', err.message || String(err))
+    btn.disabled = false
+    btn.textContent = '失活此凭证'
   }
 })
 </script>

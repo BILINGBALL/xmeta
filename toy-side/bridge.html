@@ -33,7 +33,7 @@
     </div>
 
     <p class="xm-note xm-mt" style="text-align:center">
-      xmeta 将为你生成该游戏的联机凭证
+      <span class="xm-brand-link" id="xmetaLink">XMETA</span> 将为你免费提供该游戏的联机服务
     </p>
 
     <div class="xm-card xm-mt-lg xm-rise xm-rise--2">
@@ -43,7 +43,7 @@
           <div class="xm-fact__v">昵称 · 头像 · 一个<b>匿名标识</b></div>
         </div>
         <div class="xm-fact">
-          <div class="xm-fact__k">用来</div>
+          <div class="xm-fact__k">用于</div>
           <div class="xm-fact__v">作为你访问该 toy 联机功能的凭证</div>
         </div>
       </div>
@@ -65,6 +65,9 @@
     <div class="xm-actions">
       <button class="xm-btn xm-btn--primary" id="btnAllow">允许</button>
       <button class="xm-btn xm-btn--ghost" id="btnDeny">拒绝</button>
+    </div>
+    <div class="xm-actions" style="margin-top:8px">
+      <button class="xm-btn xm-btn--link xm-btn--sm" id="btnStay">留在 XMETA</button>
     </div>
     <p class="xm-small xm-mt xm-hidden" id="denyHint" style="color:var(--xm-danger)"></p>
   </section>
@@ -100,6 +103,30 @@
 
   <!-- 配置错误时出现（仅开发者会看到） -->
   <div id="devWarn" class="xm-alert xm-alert--warn xm-hidden xm-mt-lg"></div>
+
+  <!-- xmeta 介绍弹窗 -->
+  <div id="xmetaModal" class="xm-modal xm-hidden">
+    <div class="xm-modal__mask" data-close-xmeta></div>
+    <div class="xm-modal__card">
+      <button class="xm-modal__close" data-close-xmeta aria-label="关闭">×</button>
+      <div class="xm-modal__brand">
+        <span class="xm-brand__dot"></span>xmeta
+      </div>
+      <p class="xm-modal__title">什么是 xmeta？</p>
+      <p class="xm-modal__body">
+        xmeta 是一个独立的<b>联机身份服务 toy</b>。
+        你在 xmeta 里的 toyOpenId 会作为你的匿名身份——它和你在其它 toy 里的 toyOpenId 没有关系，xmeta 也看不到它们。
+      </p>
+      <p class="xm-modal__body">
+        你授权给某个 toy 时，xmeta 给它签发一张<b>只对这个 toy 有效</b>的凭证；
+        不同 toy 拿到的凭证互不通用，A toy 的凭证访问不了 B toy 的数据。
+      </p>
+      <p class="xm-modal__body">
+        xmeta 完全免费，不收集任何个人信息。
+      </p>
+      <button class="xm-btn xm-btn--primary" data-close-xmeta style="width:100%;margin-top:8px">知道了</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -360,6 +387,24 @@ $('btnDeny').addEventListener('click', () => {
 $('btnTopBack').addEventListener('click', () => {
   if (!ctx) return
   navigateToToy(ctx.slug, null, 'denyHint')
+})
+
+// ── 留在 XMETA：跳转到 xmeta 主页 ──
+// xmeta 自己的 slug 是部署时固定的（MY_TOY_SLUG=xmeta）
+$('btnStay').addEventListener('click', () => {
+  navigateToToy('xmeta', null, 'denyHint')
+})
+
+// ── xmeta 弹窗 ──
+const xmetaModal = $('xmetaModal')
+function openXmetaModal() { xmetaModal.classList.remove('xm-hidden') }
+function closeXmetaModal() { xmetaModal.classList.add('xm-hidden') }
+$('xmetaLink').addEventListener('click', openXmetaModal)
+xmetaModal.querySelectorAll('[data-close-xmeta]').forEach((el) => {
+  el.addEventListener('click', closeXmetaModal)
+})
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !xmetaModal.classList.contains('xm-hidden')) closeXmetaModal()
 })
 
 // ── 返回游戏 ──
