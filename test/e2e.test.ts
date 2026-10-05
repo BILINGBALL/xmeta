@@ -315,31 +315,6 @@ test('不在档位里的时长会被服务端拒绝', async () => {
   assert.equal(json.error.code, 'invalid_param');
 });
 
-test('手动失活后，introspect 立刻说它无效了', async () => {
-  const { accessToken } = await bridgeOnce();
-
-  const before = await post('/api/oauth/introspect', { token: accessToken });
-  assert.equal(before.status, 200);
-  assert.equal(before.json.active, true);
-  assert.equal(before.json.audience, TOY_ID);
-  assert.ok(before.json.remaining > 0, '应该报出还剩多久');
-
-  const revoke = await post('/api/me/revoke', { toyOpenId: PLAYER_OPENID, cid: clientId });
-  assert.equal(revoke.status, 200);
-  assert.equal(revoke.json.toyId, TOY_ID);
-
-  const after = await post('/api/oauth/introspect', { token: accessToken });
-  assert.equal(after.json.active, false);
-  assert.equal(after.json.reason, 'revoked');
-});
-
-test('失活只挡住它之前签发的 token，之后重新授权的仍然有效', async () => {
-  // 上一条测试已经失活过了，这里重新走一次过桥
-  const { accessToken } = await bridgeOnce();
-  const { json } = await post('/api/oauth/introspect', { token: accessToken });
-  assert.equal(json.active, true, '失活记的是时间点，不该影响之后新签发的');
-});
-
 test('被篡改的 token 在 introspect 里一律无效', async () => {
   const { accessToken } = await bridgeOnce();
   const tampered = accessToken.slice(0, -4) + 'AAAA';
@@ -364,7 +339,7 @@ test('个人中心：一次请求拿全身份、使用记录', async () => {
 
   const row = json.usage.find((u: any) => u.slug === SLUG);
   assert.ok(row, '使用记录里应该有这个 toy');
-  assert.ok(row.clientId, '要带上 clientId —— 前端靠它做失活');
+  assert.ok(row.clientId, '要带上 clientId');
   assert.ok(row.lastUsedAt, '要有最近使用时间');
   assert.ok(row.uses >= 1);
 });
@@ -385,17 +360,6 @@ test('个人中心：没见过的身份返回空壳而不是报错', async () =>
   assert.equal(json.user, null);
   assert.deepEqual(json.ownedToys, []);
   assert.deepEqual(json.usage, []);
-});
-
-test('个人中心：失活过的 toy 标成已退出，但仍然带 clientId', async () => {
-  await post('/api/me/revoke', { toyOpenId: PLAYER_OPENID, cid: clientId });
-
-  const { json } = await post('/api/me', { toyOpenId: PLAYER_OPENID });
-  const row = json.usage.find((u: any) => u.slug === SLUG);
-
-  assert.ok(row, '失活不该把使用记录抹掉');
-  assert.ok(row.revokedAt, '应该标出失活时间');
-  assert.equal(row.clientId, clientId);
 });
 
 test('未认领的 toy 不能过桥', async () => {

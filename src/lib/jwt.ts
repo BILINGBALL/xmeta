@@ -152,9 +152,6 @@ export async function listPublicJwks(): Promise<JWK[]> {
  *
  * 只校验签名和 iss —— aud 由调用方自己比对（introspect 的场景是
  * 「这枚 token 还有效吗」，不是「它是不是给这个 toy 的」）。
- *
- * 注意这里**不查失活名单**：那是调用方的事，因为判断依据是
- * token 的 iat 和 token_revocation 的时间点，属于业务逻辑。
  */
 export async function verifyToken(token: string): Promise<JWTPayload> {
   const jwks = createLocalJWKSet({ keys: await listPublicJwks() });

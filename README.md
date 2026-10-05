@@ -74,11 +74,10 @@ npm run dev               # http://127.0.0.1:8787
 | POST | `/api/claim/verify` | 抓源码校验 nonce，通过则下发 client_id |
 | POST | `/api/toy/mine` | 查询自己认领了哪些 toy |
 | POST | `/api/me` | 个人中心：身份 + 认领的 toy + 使用记录 |
-| POST | `/api/me/revoke` | 手动失活：让某人在某个 toy 上的 token 立即作废 |
 | GET | `/api/bridge/context?cid=` | 过桥页加载时确认 client_id 有效 |
 | POST | `/api/bridge/authorize` | 用 toyOpenId 换一次性 code |
 | POST | `/api/oauth/token` | 用 code 换 JWT |
-| POST | `/api/oauth/introspect` | 查一枚 token 还有效吗（含失活状态） |
+| POST | `/api/oauth/introspect` | 查一枚 token 还有效吗 |
 | GET | `/.well-known/jwks.json` | 公钥，接入方拿来验签 |
 | GET | `/.well-known/xmeta-configuration` | 接入方元信息 |
 | GET | `/xmeta-client.js` | 接入脚本，第三方 toy 直接 `<script src>` 引入 |
@@ -98,7 +97,7 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
   "aud": "27289601636352",        // ★ 目标 toy_id，接入方必须校验
   "jti": "...",
   "iat": 1791041000,              // 整秒（标准 NumericDate）
-  "iat_ms": 1791041000123,        // 签发时的毫秒时间戳，失活判断用，接入方可忽略
+  "iat_ms": 1791041000123,        // 签发时的毫秒时间戳，接入方可忽略
   "exp": 1791041900
 }
 ```
@@ -109,7 +108,7 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 `/api/oauth/token` 不带 `code_verifier` 也会失败。`code` 会出现在 URL 里
 （Web 端拼在 query 上），没有 PKCE 的话，谁看到这条 URL 都能在过期前把它换掉。
 
-### 有效期与失活
+### 有效期
 
 **token 能活多久由用户在授权时自己选**：3 / 6 / 12 / 24 小时，默认 6 小时。
 没有自动续期，到期后用户回中心 toy 再授权一次。
@@ -121,26 +120,7 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 接入方拿 `XMETA.getRemainingMs()` 能看到还剩多久，**应该显示给用户**，
 别让人玩到一半突然掉线。
 
-用户也可以在「我的身份」里对某个 toy 点「退出」，让**此刻之前签发的
-所有 token 立即失效**。实现上记的是时间点（`token_revocation`）而不是
-逐枚 jti —— 判断时拿 token 的 `iat` 和那个时间点比一下就行，不需要
-维护令牌清单。
-
-> ⚠️ 失活时间点必须由**应用**生成，不能用数据库的 `now()`。
-> 判定的另一边是 token 的 `iat`（应用时钟），两边来自不同机器的话，
-> 哪怕只差几百毫秒，刚失活完立刻重新授权拿到的 token 就会被误杀。
-> 实测我们的 RDS 就比应用快 400ms 左右。
-
-**接入方要不要感知失活？**
-
-JWT 是自包含的，本地验签只能验出「签名对、没过期」，**验不出用户后来
-手动失活了**。两种选择：
-
-- **只本地验签**：省一次网络调用，代价是失活最多滞后到 token 过期
-- **调 `POST /api/oauth/introspect`**：失活立即生效
-
-因为 token 最长 24 小时，前者最坏也就滞后那么久。强一致场景（比如
-联机的写操作）用后者。
+需要服务端再确认一次 token 有效性，调 `POST /api/oauth/introspect`。
 
 ---
 

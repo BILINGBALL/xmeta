@@ -3,20 +3,12 @@ import { Errors } from '../errors.js';
 import { introspectSchema, parse } from '../http.js';
 import { verifyToken } from '../lib/jwt.js';
 import { rateLimit } from '../lib/ratelimit.js';
-import { getRevocation } from '../repos.js';
 
 /**
  * 查一枚 token 还有效吗。纯查询，不改状态。
  *
- * 为什么需要它：JWT 是自包含的，接入方本地验签只能验出「签名对、
- * 没过期」，**验不出用户后来手动失活了**。
- *
- * 所以有两种用法，接入方自己选：
- *   - 只要本地验签：省一次网络调用，代价是失活最多滞后到 token 过期
- *   - 每次用之前调一下这里：失活立即生效
- *
- * 因为 token 最长 24 小时，前者最坏也就滞后那么久。需要强一致的
- * 场景（比如联机的写操作）用后者。
+ * JWT 是自包含的，本地验签只能验出「签名对、没过期」。
+ * 这个端点让接入方在服务端再确认一次，拿到 uid / aud / 剩余时长。
  */
 export async function introspectRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/oauth/introspect', async (req) => {
@@ -37,20 +29,6 @@ export async function introspectRoutes(app: FastifyInstance): Promise<void> {
     const uid = payload.sub;
     const audience = payload.aud;
     if (!uid || !audience || !payload.iat) return { active: false };
-
-    // 失活判断：token 的签发时刻早于失活时间点，就作废。
-    // 这就是「记时间点而不是记令牌清单」的用法。
-    //
-    // 签发时刻优先用 iat_ms（应用时钟的毫秒），退回到 iat*1000 兼容
-    // 改成整数 iat 之前签发的旧 token。
-    const issuedMs =
-      typeof payload.iat_ms === 'number'
-        ? payload.iat_ms
-        : (typeof payload.iat === 'number' ? payload.iat : 0) * 1000;
-    const revocation = await getRevocation(uid, String(audience));
-    if (revocation && issuedMs < revocation.revoked_at.getTime()) {
-      return { active: false, reason: 'revoked' };
-    }
 
     const now = Math.floor(Date.now() / 1000);
     return {

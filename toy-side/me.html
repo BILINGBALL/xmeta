@@ -129,13 +129,6 @@
     <div class="xm-card xm-mt-lg" style="padding-top:6px;padding-bottom:6px">
       <div id="jdFields"></div>
     </div>
-
-    <div class="xm-actions xm-mt-lg">
-      <button class="xm-btn xm-btn--danger" id="jdRevoke">失活此凭证</button>
-    </div>
-    <p class="xm-small xm-mt" style="text-align:center;color:var(--xm-ink-3)">
-      失活后该 toy 的所有已签发凭证立即失效，下次使用需重新授权。
-    </p>
   </section>
 
   <div id="devWarn" class="xm-alert xm-alert--warn xm-hidden"></div>
@@ -328,12 +321,10 @@ function render(data) {
     $('secUsage').classList.remove('xm-hidden')
     $('usageList').innerHTML = data.usage.map((t) => {
       const meta = '最近 ' + timeAgo(t.lastUsedAt) + ' · 共 ' + t.uses + ' 次'
-      const tag = t.revokedAt
-        ? '<span class="xm-tag xm-tag--muted">已退出</span>'
-        : t.clientId
-          ? '<button class="xm-tag xm-tag--btn" data-cid="' + escapeHtml(t.clientId) +
-            '" data-usage-slug="' + escapeHtml(t.slug) + '">详情</button>'
-          : ''
+      const tag = t.clientId
+        ? '<button class="xm-tag xm-tag--btn" data-cid="' + escapeHtml(t.clientId) +
+          '" data-usage-slug="' + escapeHtml(t.slug) + '">详情</button>'
+        : ''
       return itemHtml(t.iconUrl, t.title || t.slug, meta, tag)
     }).join('')
   } else {
@@ -395,9 +386,7 @@ function showJwtDetail(cid) {
   if (t.iconUrl) { $('jdIcon').src = t.iconUrl; $('jdIcon').hidden = false }
   else $('jdIcon').hidden = true
   $('jdTitle').textContent = t.title || t.slug
-  $('jdStatus').textContent = t.revokedAt
-    ? '已失活 · ' + new Date(t.revokedAt).toLocaleString()
-    : '生效中'
+  $('jdStatus').textContent = '生效中'
 
   $('jdFields').innerHTML =
     fieldRow('toy_id', t.toyId, true) +
@@ -405,9 +394,6 @@ function showJwtDetail(cid) {
     fieldRow('slug', t.slug, true) +
     fieldRow('最近使用', timeAgo(t.lastUsedAt)) +
     fieldRow('使用次数', t.uses)
-
-  $('jdRevoke').disabled = !!t.revokedAt
-  $('jdRevoke').textContent = t.revokedAt ? '已失活' : '失活此凭证'
 
   show('s-jwt-detail')
 }
@@ -526,35 +512,6 @@ $('tdRefresh').addEventListener('click', async () => {
   } finally {
     btn.disabled = false
     btn.textContent = orig
-  }
-})
-
-// ── JWT 详情页：失活凭证 ──
-$('jdRevoke').addEventListener('click', async () => {
-  if (!currentUsage || !currentProfile) return
-  if (!confirm(
-    '确认失活《' + (currentUsage.title || currentUsage.slug) + '》的凭证？\n\n' +
-    '该 toy 之前签发的所有凭证立即失效，下次使用需重新授权。'
-  )) return
-
-  const btn = $('jdRevoke')
-  btn.disabled = true
-  btn.textContent = '失活中…'
-  try {
-    await request('/api/me/revoke', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        toyOpenId: currentProfile.toyOpenId,
-        cid: currentUsage.clientId
-      })
-    })
-    await load()
-    show('s-main')
-  } catch (err) {
-    fail('失活失败。', err.message || String(err))
-    btn.disabled = false
-    btn.textContent = '失活此凭证'
   }
 })
 </script>

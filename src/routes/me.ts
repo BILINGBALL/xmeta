@@ -2,13 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { query, queryOne } from '../db.js';
 import { Errors } from '../errors.js';
-import { mineSchema, parse, revokeSchema } from '../http.js';
+import { mineSchema, parse } from '../http.js';
 import { normalizeIconUrl } from '../lib/bili.js';
 import { rateLimit } from '../lib/ratelimit.js';
-import { getClient, getToyById, revokeTokensForToy } from '../repos.js';
 
 /**
- * 个人中心的数据源 + 手动失活。
+ * 个人中心的数据源。
  *
  * `/api/me` 一次把页面要的东西全返回，减少往返 —— 页面本身会把结果
  * 缓存到 localStorage，正常情况下打开是秒出的，这个接口只在后台刷新时打。
@@ -59,7 +58,6 @@ type UsageRow = {
   client_id: string | null;
   last_used_at: Date;
   uses: number;
-  revoked_at: Date | null;
 };
 
 export async function meRoutes(app: FastifyInstance): Promise<void> {
@@ -105,22 +103,18 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       [user.id],
     );
 
-    // 用户视角：这个身份在哪些 toy 上被用过、现在还能不能用。
+    // 用户视角：这个身份在哪些 toy 上被用过。
     //
     // 读 identity_usage 而不是聚合 auth_code —— 后者是短命凭证，
     // 过期就被清掉，拿它当历史源会让这份记录缩水到只剩最近一天。
-    //
-    // 带出 revoked_at：用户手动失活过的，界面要能显示成「已退出」。
     const usage = await query<UsageRow>(
       `select t.toy_id, t.slug, t.title, t.icon_url, t.author_mid, t.author_name,
               t.author_face, t.bili_version, t.state, t.owner_uid, t.synced_at,
               c.client_id,
-              u.last_used_at, u.uses,
-              r.revoked_at
+              u.last_used_at, u.uses
          from identity_usage u
          join toy t on t.toy_id = u.toy_id
          left join toy_client c on c.toy_id = t.toy_id
-         left join token_revocation r on r.uid = u.uid and r.toy_id = t.toy_id
         where u.uid = $1
         order by u.last_used_at desc`,
       [user.id],
@@ -159,43 +153,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         iconUrl: normalizeIconUrl(r.icon_url),
         lastUsedAt: r.last_used_at,
         uses: r.uses,
-        revokedAt: r.revoked_at,
       })),
-    };
-  });
-
-  /**
-   * 手动失活：让这个用户在这个 toy 上、此刻之前签发的所有 token 作废。
-   *
-   * 记的是时间点而不是逐个 token，所以不需要令牌清单。
-   * 「退出这个游戏」的语义正好如此 —— 连还没到期的也一起挡掉。
-   */
-  app.post('/api/me/revoke', async (req) => {
-    const rl = rateLimit(`me:revoke:${req.ip}`, 30, 60_000);
-    if (!rl.ok) throw Errors.rateLimited(rl.retryAfter);
-
-    const body = parse(revokeSchema, req.body);
-
-    const user = await queryOne<{ id: string }>(
-      `select id from app_user where home_toy_id = $1 and toy_open_id = $2`,
-      [config.MY_TOY_ID, body.toyOpenId],
-    );
-    if (!user) throw Errors.invalidIdentity();
-
-    const client = await getClient(body.cid);
-    if (!client) throw Errors.clientNotFound();
-
-    const toy = await getToyById(client.toy_id);
-    if (!toy) throw Errors.clientNotFound();
-
-    const revokedAt = await revokeTokensForToy(user.id, toy.toy_id);
-
-    return {
-      ok: true,
-      toyId: toy.toy_id,
-      toySlug: toy.slug,
-      revokedAt,
-      message: `已退出《${toy.title || toy.slug}》。之前签发的 token 立即失效。`,
     };
   });
 }

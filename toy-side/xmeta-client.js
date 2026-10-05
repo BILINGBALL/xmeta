@@ -37,8 +37,7 @@
  *   XMETA.onSession(fn)      有身份时触发（包括从本地恢复），fn 收到 session
  *   XMETA.logout()           主动清掉本地会话
  *
- * 用户也可能在中心 toy 里手动把自己在某个 toy 上的身份失活。
- * 那种情况本地验签看不出来（JWT 是自包含的），需要确认就打
+ * 本地验签只能验出「签名对、没过期」。需要服务端再确认一次就打
  * POST /api/oauth/introspect。
  *
  * 注意：localStorage 在 www.bilibilitoy.com 下是所有 toy 共享的，
@@ -397,8 +396,8 @@
    * 被别的玩家连累。localStorage 不限速、同步读、秒出。
    *
    * 代价：token 会在 localStorage 里躺到过期。同源的其它 toy 理论上读得到，
-   * 但 token 绑定了 aud（只对这个 toy 有效），而且用户随时能在个人中心
-   * 手动失活。要提前结束也可以调 XMETA.logout()。
+   * 但 token 绑定了 aud（只对这个 toy 有效）。要提前结束也可以调
+   * XMETA.logout()。
    */
   function saveSession() {
     if (!SESSION) return

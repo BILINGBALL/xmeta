@@ -405,57 +405,6 @@ export async function recordUsage(uid: string, toyId: string): Promise<void> {
   );
 }
 
-// ---------------------------------------------------------------- 失活
-
-export type RevocationRow = {
-  uid: string;
-  toy_id: string;
-  revoked_at: Date;
-};
-
-/**
- * 让某人在某个 toy 上、此刻之前签发的所有 token 作废。
- *
- * 记的是「时间点」而不是逐个 jti：判断时拿 token 的 iat 和这里的
- * revoked_at 比一下就行，不必为每一枚 token 存一行、也不必维护清单。
- * 副作用是连失活之前签发但还没到期的也一起挡掉 —— 这正是
- * 「退出这个游戏」该有的语义。
- *
- * ⚠️ revoked_at 必须由**应用**生成，不能用数据库的 now()。
- * 判定的另一边是 token 的 iat，那个来自应用的 Date.now()；
- * 如果这边用数据库时钟，两台机器哪怕只差几百毫秒，刚失活完立刻
- * 重新授权拿到的 token 就会被误判成已失效。实测我们的 RDS 就比
- * 应用快 400ms 左右，这不是理论问题。
- */
-export async function revokeTokensForToy(uid: string, toyId: string): Promise<Date> {
-  const at = new Date();
-  const row = await queryOne<RevocationRow>(
-    `insert into token_revocation (uid, toy_id, revoked_at)
-     values ($1, $2, $3)
-     on conflict (uid, toy_id) do update set revoked_at = excluded.revoked_at
-     returning uid, toy_id, revoked_at`,
-    [uid, toyId, at],
-  );
-  return row!.revoked_at;
-}
-
-export async function getRevocations(uid: string): Promise<RevocationRow[]> {
-  const res = await query<RevocationRow>(
-    `select uid, toy_id, revoked_at from token_revocation where uid = $1`,
-    [uid],
-  );
-  return res.rows;
-}
-
-export async function getRevocation(uid: string, toyId: string): Promise<RevocationRow | null> {
-  return queryOne<RevocationRow>(
-    `select uid, toy_id, revoked_at
-       from token_revocation
-      where uid = $1 and toy_id = $2`,
-    [uid, toyId],
-  );
-}
-
 /** 清掉过期数据，交给定时任务调用即可 */
 export async function cleanupExpired(): Promise<{ codes: number; claims: number }> {
   // auth_code 只保留还活着的码。1 小时的宽限纯粹是为了排查问题时

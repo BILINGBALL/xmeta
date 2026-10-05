@@ -56,10 +56,6 @@ export const bridgeAuthorizeSchema = identitySchema.extend({
     .nullish(),
 });
 
-export const revokeSchema = identitySchema.pick({ toyOpenId: true }).extend({
-  cid: z.string().min(1).max(128),
-});
-
 export const introspectSchema = z.object({
   token: z.string().min(1).max(4096),
 });
