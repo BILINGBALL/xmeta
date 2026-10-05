@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { query, queryOne } from '../db.js';
 import { Errors } from '../errors.js';
 import { mineSchema, parse, revokeSchema } from '../http.js';
+import { normalizeIconUrl } from '../lib/bili.js';
 import { rateLimit } from '../lib/ratelimit.js';
 import { getClient, getToyById, revokeTokensForToy } from '../repos.js';
 
@@ -66,7 +67,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       return { user: null, ownedToys: [], usage: [] };
     }
 
-    // 作者视角：我认领了哪些玩具，附带还没完成的认领进度
+    // 作者视角：我认领了哪些 toy，附带还没完成的认领进度
     const owned = await query<OwnedToyRow>(
       `select t.toy_id, t.slug, t.title, t.icon_url, t.state, t.verified_at,
               c.client_id, c.revoked_at as client_revoked_at,
@@ -89,7 +90,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       [user.id],
     );
 
-    // 用户视角：这个身份在哪些玩具上被用过、现在还能不能用。
+    // 用户视角：这个身份在哪些 toy 上被用过、现在还能不能用。
     //
     // 读 identity_usage 而不是聚合 auth_code —— 后者是短命凭证，
     // 过期就被清掉，拿它当历史源会让这份记录缩水到只剩最近一天。
@@ -120,7 +121,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         toyId: r.toy_id,
         slug: r.slug,
         title: r.title,
-        iconUrl: r.icon_url,
+        iconUrl: normalizeIconUrl(r.icon_url),
         state: r.state,
         verifiedAt: r.verified_at,
         clientId: r.client_id,
@@ -139,7 +140,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         clientId: r.client_id,
         slug: r.slug,
         title: r.title,
-        iconUrl: r.icon_url,
+        iconUrl: normalizeIconUrl(r.icon_url),
         lastUsedAt: r.last_used_at,
         uses: r.uses,
         revokedAt: r.revoked_at,
@@ -148,7 +149,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * 手动失活：让这个用户在这个玩具上、此刻之前签发的所有 token 作废。
+   * 手动失活：让这个用户在这个 toy 上、此刻之前签发的所有 token 作废。
    *
    * 记的是时间点而不是逐个 token，所以不需要令牌清单。
    * 「退出这个游戏」的语义正好如此 —— 连还没到期的也一起挡掉。

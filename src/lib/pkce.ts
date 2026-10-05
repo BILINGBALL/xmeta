@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 
 /**
- * PKCE (RFC 7636)。接入方是纯静态玩具时没有 client_secret，
+ * PKCE (RFC 7636)。接入方是纯静态 toy 时没有 client_secret，
  * code 又会出现在 URL 里（B站 shell 会转发 query），所以 PKCE 是必要的。
  */
 

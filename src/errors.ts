@@ -24,12 +24,12 @@ export const Errors = {
     new AppError('invalid_identity', message, 400),
 
   toyNotFound: (slug: string) =>
-    new AppError('toy_not_found', `玩具 ${slug} 不存在或已被删除`, 404),
+    new AppError('toy_not_found', `toy ${slug} 不存在或已被删除`, 404),
 
   toyAlreadyClaimed: () =>
-    new AppError('toy_already_claimed', '该玩具已被认领', 409),
+    new AppError('toy_already_claimed', '该 toy 已被认领', 409),
 
-  toyNotVerified: () => new AppError('toy_not_verified', '该玩具尚未完成认领', 403),
+  toyNotVerified: () => new AppError('toy_not_verified', '该 toy 尚未完成认领', 403),
 
   claimNotFound: () =>
     new AppError('claim_not_found', '没有进行中的认领，请先发起认领', 404),

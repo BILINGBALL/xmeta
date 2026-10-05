@@ -47,9 +47,9 @@ if (PLACEHOLDER_SLUGS.has(env.MY_TOY_SLUG)) anchorProblems.push('MY_TOY_SLUG 还
 if (anchorProblems.length > 0) {
   console.warn(
     `[xmeta] 警告：身份锚点没配好 —— ${anchorProblems.join('、')}\n` +
-      '      这两个值必须指向你的中心玩具：\n' +
-      '        MY_TOY_ID  = 中心玩具的 toy_id（数字）\n' +
-      '        MY_TOY_SLUG= 中心玩具的 slug\n' +
+      '      这两个值必须指向你的中心 toy：\n' +
+      '        MY_TOY_ID  = 中心 toy 的 toy_id（数字）\n' +
+      '        MY_TOY_SLUG= 中心 toy 的 slug\n' +
       '      没配好之前，认领和过桥拿到的身份都无法正确归档。',
   );
 }
@@ -65,7 +65,7 @@ export const config = {
 /**
  * 用户在授权时能选的有效期（小时）。
  *
- * 24 是上限，意味着用户每天都要回中心玩具续一次 —— 这是刻意的：
+ * 24 是上限，意味着用户每天都要回中心 toy 续一次 —— 这是刻意的：
  * 不用刷新令牌把用户一直留在登录态，而是把「这次授权管多久」
  * 交给用户自己决定。
  *

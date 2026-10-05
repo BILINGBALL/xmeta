@@ -17,7 +17,7 @@ import { newUuid } from './ids.js';
 /**
  * ES256 签名密钥。
  *
- * 用非对称签名而不是 HS256：接入方多半是个纯静态玩具，
+ * 用非对称签名而不是 HS256：接入方多半是个纯静态 toy，
  * 拿不到也不该拿到能「签发」的密钥，只能拿公钥验签。
  *
  * 密钥对在首次需要时生成并落库，支持多把共存（kid 区分）以便轮转。
@@ -151,7 +151,7 @@ export async function listPublicJwks(): Promise<JWK[]> {
  * 校验一枚自家签发的 token。用于 introspect 端点。
  *
  * 只校验签名和 iss —— aud 由调用方自己比对（introspect 的场景是
- * 「这枚 token 还有效吗」，不是「它是不是给这个玩具的」）。
+ * 「这枚 token 还有效吗」，不是「它是不是给这个 toy 的」）。
  *
  * 注意这里**不查失活名单**：那是调用方的事，因为判断依据是
  * token 的 iat 和 token_revocation 的时间点，属于业务逻辑。

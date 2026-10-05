@@ -1,5 +1,5 @@
 /**
- * xmeta-client.js —— 第三方玩具接入脚本
+ * xmeta-client.js —— 第三方 toy 接入脚本
  *
  * 用法：
  *   <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
@@ -7,28 +7,28 @@
  *   <script>
  *     XMETA.configure({
  *       apiBase: 'https://your-api.example.com',
- *       centerToySlug: '<中心玩具的 slug>',
+ *       centerToySlug: '<中心 toy 的 slug>',
  *       clientId: '<认领后拿到的 client_id>'
  *     })
  *
  *     // 必须在用户点击里调用（toy.navigate 需要手势）
  *     btn.onclick = () => XMETA.login()
  *
- *     // 从中心玩具跳回来之后会自动换取 JWT 并派发事件
+ *     // 从中心 toy 跳回来之后会自动换取 JWT 并派发事件
  *     XMETA.onSession(s => console.log(s.jwt, s.uid))
  *
  *     // 想知道还剩多久，用来提示用户
  *     XMETA.getRemainingMs()
  *   </script>
  *
- * 关于 centerToySlug —— 这是**中心玩具**的 slug，不是你自己玩具的。
- * 你不需要告诉 SDK 自己是谁：client_id 已经唯一标识了你的玩具，
+ * 关于 centerToySlug —— 这是**中心 toy**的 slug，不是你自己 toy 的。
+ * 你不需要告诉 SDK 自己是谁：client_id 已经唯一标识了你的 toy，
  * 服务端由它反查出你的 slug 和 toy_id，回跳目标也由服务端给出。
  * 客户端指定不了回跳地址，这样就堵掉了开放重定向。
  *
  * 关于有效期 —— **用户在授权时自己选** token 能活多久（3/6/12/24 小时，
  * 默认 6 小时）。最长 24 小时，没有自动续期，所以到期后需要用户回
- * 中心玩具再授权一次。
+ * 中心 toy 再授权一次。
  *
  * 会话存在本地（localStorage，key 带 clientId 前缀），**刷新页面、
  * 重开 App 都不用重新授权**，只有真的到期了才需要。所以接入方应该把
@@ -37,11 +37,11 @@
  *   XMETA.onSession(fn)      有身份时触发（包括从本地恢复），fn 收到 session
  *   XMETA.logout()           主动清掉本地会话
  *
- * 用户也可能在中心玩具里手动把自己在某个玩具上的身份失活。
+ * 用户也可能在中心 toy 里手动把自己在某个 toy 上的身份失活。
  * 那种情况本地验签看不出来（JWT 是自包含的），需要确认就打
  * POST /api/oauth/introspect。
  *
- * 注意：localStorage 在 www.bilibilitoy.com 下是所有玩具共享的，
+ * 注意：localStorage 在 www.bilibilitoy.com 下是所有 toy 共享的，
  * 所以 key 都带上 clientId 前缀，避免互相踩。
  */
 (function (global) {
@@ -57,21 +57,21 @@
   var prepared = null            // 预生成的 PKCE 对，login() 时同步取用
 
   /**
-   * 玩具之间跳转用的传参通道。
+   * toy 之间跳转用的传参通道。
    *
    * B站 App 里 toy.navigate 走的是原生 JSB，实测 **不会透传 extra**：
    * 传 {cid,cc,st} 过去，目标页的 location.search 里只有原生自己加的
    * from_spmid=toy.toy-detail.<来源id>.0。Web 端则正常（SDK 自己拼 URL）。
    *
-   * 好在所有玩具的内层 iframe 都在 www.bilibilitoy.com 这一个源下
+   * 好在所有 toy 的内层 iframe 都在 www.bilibilitoy.com 这一个源下
    * （sandbox 带 allow-same-origin），localStorage 是共享的 —— 实测
-   * 玩具 A 写进去的键，玩具 B 读得到。所以拿它当兜底通道。
+   * toy A 写进去的键，toy B 读得到。所以拿它当兜底通道。
    *
    * 两边都走：URL 参数优先（Web 端能用），拿不到再读 localStorage。
    * 只在同一台设备上有效，但过桥本来就是同设备跳过去再跳回来。
    */
   var REQ_KEY = 'xmeta:req'      // 发起方写：{ cid, cc, st, ts }
-  var RES_KEY = 'xmeta:res'      // 中心玩具写：{ code, st, returnSlug, ts }
+  var RES_KEY = 'xmeta:res'      // 中心 toy 写：{ code, st, returnSlug, ts }
   var SHARED_TTL_MS = 3 * 60 * 1000
 
   function writeShared(key, value) {
@@ -259,8 +259,8 @@
     // App 内 navigate 不透传 extra，所以参数另写一份到共享的 localStorage。
     // URL 那份照样带着 —— Web 端能生效，且这样两端的排查方式一致。
     //
-    // claimed 表示「中心玩具已经接手过这个请求」。不标记的话，用户在这之后
-    // 直接打开中心玩具，会被一个还"新鲜"的旧请求弹到过桥页，而不是首页。
+    // claimed 表示「中心 toy 已经接手过这个请求」。不标记的话，用户在这之后
+    // 直接打开中心 toy，会被一个还"新鲜"的旧请求弹到过桥页，而不是首页。
     writeShared(REQ_KEY, {
       cid: CFG.clientId,
       cc: pair.challenge,
@@ -276,12 +276,12 @@
     })
 
     // 回来时页面要是没有重新加载，handleRedirect 就不会再跑，
-    // 所以这里起个轮询盯着共享存储，等中心玩具把结果写进来。
+    // 所以这里起个轮询盯着共享存储，等中心 toy 把结果写进来。
     startPolling()
   }
 
   /**
-   * 盯着 RES_KEY，等中心玩具写回 { code, st, returnSlug }。
+   * 盯着 RES_KEY，等中心 toy 写回 { code, st, returnSlug }。
    * 页面重新加载时走 handleRedirect 就够了；这个是为了覆盖
    * 「App 里跳回来但页面没重载」的情况。
    */
@@ -308,7 +308,7 @@
   }
 
   /**
-   * 页面加载时检查是不是「从中心玩具跳回来」。
+   * 页面加载时检查是不是「从中心 toy 跳回来」。
    * 是的话用 code 换 JWT。返回 session 或 null。
    */
   async function handleRedirect() {
@@ -392,12 +392,12 @@
    * 不存的话，页面一刷新身份就没了，用户每次进来都得重新走一遍过桥 ——
    * 而 token 本来能活 3~24 小时，中间刷新几十次是常态。
    *
-   * 存 localStorage 而不是 B站 云存储：云存储的读额度是**整个玩具的
+   * 存 localStorage 而不是 B站 云存储：云存储的读额度是**整个 toy 的
    * 所有玩家共享**的，每次进页面都读一次，人一多就会被限流打爆，而且是
    * 被别的玩家连累。localStorage 不限速、同步读、秒出。
    *
-   * 代价：token 会在 localStorage 里躺到过期。同源的其它玩具理论上读得到，
-   * 但 token 绑定了 aud（只对这个玩具有效），而且用户随时能在个人中心
+   * 代价：token 会在 localStorage 里躺到过期。同源的其它 toy 理论上读得到，
+   * 但 token 绑定了 aud（只对这个 toy 有效），而且用户随时能在个人中心
    * 手动失活。要提前结束也可以调 XMETA.logout()。
    */
   function saveSession() {

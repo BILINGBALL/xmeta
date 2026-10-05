@@ -4,16 +4,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>我的身份</title>
-<link rel="stylesheet" href="https://www.oxth.com:8443/xmeta-ui.css">
+<link rel="stylesheet" href="xmeta-ui.css">
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 </head>
-<body class="xm">
+<body class="xm xm--with-nav">
+
+<!-- 顶部栏 -->
+<header class="xm-topbar">
+  <button class="xm-topbar__back" onclick="history.back()" aria-label="返回">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+  </button>
+  <h1 class="xm-topbar__title">我的身份</h1>
+  <div class="xm-topbar__right"></div>
+</header>
+
 <div class="xm-page">
 
   <!-- ① 说明 -->
   <section id="s-intro">
-    <h1 class="xm-display">我的联机身份</h1>
-    <p class="xm-body xm-mt" style="margin-top:8px">看看你的身份，以及它在哪些玩具上被用过。</p>
+    <div class="xm-hero xm-rise">
+      <div class="xm-brandmark" aria-hidden="true">
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 12 L28 28" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>
+          <path d="M28 12 L12 28" stroke="#fff" stroke-width="4.5" stroke-linecap="round" opacity=".82"/>
+          <circle cx="20" cy="20" r="2.6" fill="#fff"/>
+        </svg>
+      </div>
+      <h1 class="xm-hero__name">我的联机身份</h1>
+      <p class="xm-hero__ask">看看你的身份，以及它在哪些 toy 上被用过。</p>
+    </div>
     <p class="xm-note xm-mt-lg" style="margin-top:28px">
       点下面的按钮会请求一次你的公开资料（昵称、头像）来确认身份。
       平台会弹出确认框，你也可以拒绝。
@@ -31,27 +50,32 @@
   <!-- ③ 内容 -->
   <section id="s-main" class="xm-hidden">
 
-    <div style="display:flex;align-items:center;gap:15px">
+    <div class="xm-card xm-rise" style="display:flex;align-items:center;gap:15px">
       <img class="xm-avatar" id="avatar" alt="" hidden>
       <div style="flex:1;min-width:0">
-        <div style="font-size:19px;font-weight:700;letter-spacing:-.015em" id="nickname">—</div>
+        <div style="font-size:19px;font-weight:750;letter-spacing:-.015em" id="nickname">—</div>
         <div class="xm-small xm-mono" id="uidLine"></div>
       </div>
     </div>
 
     <section id="secOwned" class="xm-hidden xm-mt-lg">
-      <p class="xm-label">我认领的玩具</p>
-      <div id="ownedList"></div>
+      <p class="xm-label">我认领的 toy</p>
+      <div class="xm-card" style="padding-top:6px;padding-bottom:6px">
+        <div id="ownedList"></div>
+      </div>
     </section>
 
     <section id="secUsage" class="xm-hidden xm-mt-lg">
       <p class="xm-label">身份使用记录</p>
-      <div id="usageList"></div>
+      <div class="xm-card" style="padding-top:6px;padding-bottom:6px">
+        <div id="usageList"></div>
+      </div>
     </section>
 
-    <p class="xm-note xm-mt-lg xm-hidden" id="emptyNote">
+    <div class="xm-empty xm-hidden" id="emptyNote">
+      <div class="xm-empty__glyph">⌁</div>
       还没有任何记录。去一款接入 xmeta 的游戏里点「开启联机」试试。
-    </p>
+    </div>
 
     <div class="xm-actions xm-mt-lg">
       <button class="xm-btn xm-btn--quiet" id="btnRefresh">刷新</button>
@@ -64,7 +88,10 @@
 
   <!-- 出错 -->
   <section id="s-error" class="xm-hidden">
-    <div class="xm-alert xm-alert--error" id="errBox"></div>
+    <div class="xm-empty">
+      <div class="xm-empty__glyph">!</div>
+      <div class="xm-alert xm-alert--error" id="errBox"></div>
+    </div>
     <div class="xm-actions">
       <button class="xm-btn xm-btn--ghost" id="btnRetry">重试</button>
     </div>
@@ -72,6 +99,22 @@
 
   <div id="devWarn" class="xm-alert xm-alert--warn xm-hidden"></div>
 </div>
+
+<!-- 底部导航 -->
+<nav class="xm-bottomnav">
+  <a class="xm-bottomnav__item" href="index.html">
+    <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg>
+    <span>首页</span>
+  </a>
+  <a class="xm-bottomnav__item is-active" href="me.html">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+    <span>身份</span>
+  </a>
+  <a class="xm-bottomnav__item" href="claim.html">
+    <svg viewBox="0 0 24 24"><path d="M12 2v20"/><path d="M2 12h20"/></svg>
+    <span>认领</span>
+  </a>
+</nav>
 
 <script>
 // ⚠️ 部署前改成你的 API 地址
@@ -83,7 +126,7 @@ const API_BASE = 'https://www.oxth.com:8443'
     problems.push('API_BASE 指向 127.0.0.1 —— 那指的是访问者自己的设备，不是你的服务器')
   }
   if (location.protocol === 'https:' && /^http:\/\//.test(API_BASE)) {
-    problems.push('API_BASE 是 http，而玩具页面是 https —— 会被浏览器按混合内容拦截')
+    problems.push('API_BASE 是 http，而 toy 页面是 https —— 会被浏览器按混合内容拦截')
   }
   if (!problems.length) return
   const el = document.getElementById('devWarn')
@@ -167,7 +210,7 @@ function timeAgo(iso) {
 // ─────────────────────────────────────────────────────────────
 function itemHtml(iconUrl, title, meta, tag) {
   const icon = iconUrl
-    ? '<img class="xm-item__icon" src="' + escapeHtml(iconUrl) + '" alt="">'
+    ? '<img class="xm-item__icon" src="' + escapeHtml(iconUrl) + '" alt="" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'">'
     : '<div class="xm-item__icon"></div>'
   return '<div class="xm-item">' + icon +
     '<div class="xm-item__body">' +
@@ -252,7 +295,7 @@ async function load() {
 
     // 到这里平台已经授权过，不会重复弹窗
     const profile = await toy.getUserProfile()
-    if (!profile.toyOpenId) throw new Error('这款玩具没有开启 OpenID 模式，个人中心不可用。')
+    if (!profile.toyOpenId) throw new Error('这款 toy 没有开启 OpenID 模式，个人中心不可用。')
     currentProfile = profile
 
     // 先拿缓存渲染，网络那趟慢慢来
@@ -290,14 +333,14 @@ if (seenOk) {
 $('btnRefresh').addEventListener('click', () => load())
 $('btnRetry').addEventListener('click', () => load())
 
-// ── 手动失活：退出某个玩具 ──
+// ── 手动失活：退出某个 toy ──
 // 事件委托，因为列表是每次渲染重建的
 $('usageList').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-cid]')
   if (!btn || !currentProfile) return
 
   const name = btn.closest('.xm-item')?.querySelector('.xm-item__title')?.textContent
-  if (!confirm('退出《' + (name || '这个玩具') + '》？\n\n之前签发的 token 会立即失效，' +
+  if (!confirm('退出《' + (name || '这个 toy') + '》？\n\n之前签发的 token 会立即失效，' +
                '下次要玩得重新授权一次。')) return
 
   btn.disabled = true

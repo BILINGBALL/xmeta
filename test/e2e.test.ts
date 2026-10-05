@@ -33,7 +33,7 @@ const stubBili: BiliDeps = {
     return {
       toyId: TOY_ID,
       slug,
-      title: '测试玩具',
+      title: '测试 toy',
       iconUrl: null,
       version: 1,
       authorMid: '12345',
@@ -104,7 +104,7 @@ test('认领第一步：下发一次性 nonce', async () => {
 });
 
 test('中途退出再进来，验证码不变', async () => {
-  // 重新发布一次玩具要十几分钟，用户中途退出是常态。
+  // 重新发布一次 toy 要十几分钟，用户中途退出是常态。
   // 如果这里换了 nonce，他已经发布出去的那个就作废了，
   // 之后验证只会得到一个莫名其妙的「源码里没找到验证码」。
   const { status, json } = await post('/api/claim/start', {
@@ -116,7 +116,7 @@ test('中途退出再进来，验证码不变', async () => {
   assert.equal(status, 200);
   assert.equal(json.state, 'pending');
   assert.equal(json.reused, true, '应该标明是沿用上次的验证码');
-  assert.equal(json.nonce, nonce, '同一个用户 + 同一个玩具必须拿到同一个验证码');
+  assert.equal(json.nonce, nonce, '同一个用户 + 同一个 toy 必须拿到同一个验证码');
 });
 
 test('认领第二步：源码里搜到 nonce 才放行', async () => {
@@ -236,7 +236,7 @@ test('换 JWT：签名与 claims 都正确', async () => {
   // aud 绑定：拿同一个 token 去验另一个 toy 的 audience 必须失败
   await assert.rejects(
     jwtVerify(json.access_token, key, { audience: '999999999999' }),
-    'token 不能被用于 aud 之外的玩具',
+    'token 不能被用于 aud 之外的 toy',
   );
 });
 
@@ -360,16 +360,16 @@ test('个人中心：一次请求拿全身份、使用记录', async () => {
   assert.equal(status, 200);
   assert.ok(json.user, '玩家已经有身份了');
   assert.ok(json.user.uid, '要有 uid');
-  assert.ok(json.usage.length >= 1, '应该有用过这个玩具的记录');
+  assert.ok(json.usage.length >= 1, '应该有用过这个 toy 的记录');
 
   const row = json.usage.find((u: any) => u.slug === SLUG);
-  assert.ok(row, '使用记录里应该有这个玩具');
+  assert.ok(row, '使用记录里应该有这个 toy');
   assert.ok(row.clientId, '要带上 clientId —— 前端靠它做失活');
   assert.ok(row.lastUsedAt, '要有最近使用时间');
   assert.ok(row.uses >= 1);
 });
 
-test('个人中心：作者视角能看到自己认领的玩具', async () => {
+test('个人中心：作者视角能看到自己认领的 toy', async () => {
   const { json } = await post('/api/me', { toyOpenId: AUTHOR_OPENID });
 
   assert.equal(json.ownedToys.length, 1);
@@ -387,7 +387,7 @@ test('个人中心：没见过的身份返回空壳而不是报错', async () =>
   assert.deepEqual(json.usage, []);
 });
 
-test('个人中心：失活过的玩具标成已退出，但仍然带 clientId', async () => {
+test('个人中心：失活过的 toy 标成已退出，但仍然带 clientId', async () => {
   await post('/api/me/revoke', { toyOpenId: PLAYER_OPENID, cid: clientId });
 
   const { json } = await post('/api/me', { toyOpenId: PLAYER_OPENID });
@@ -398,7 +398,7 @@ test('个人中心：失活过的玩具标成已退出，但仍然带 clientId',
   assert.equal(row.clientId, clientId);
 });
 
-test('未认领的玩具不能过桥', async () => {
+test('未认领的 toy 不能过桥', async () => {
   const { challenge } = pkce();
   const { status, json } = await post('/api/bridge/authorize', {
     cid: 'xmeta_does_not_exist',

@@ -3,81 +3,82 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Toy 联机工具</title>
-<link rel="stylesheet" href="https://www.oxth.com:8443/xmeta-ui.css">
+<title>xmeta · 联机身份</title>
+<link rel="stylesheet" href="xmeta-ui.css">
 <script>
-// 第三方玩具用 toy.navigate 跳过来时落点固定是 index.html。
+// 第三方 toy 用 toy.navigate 跳过来时落点固定是 index.html。
 // 参数优先取 URL（Web 端 SDK 会把 extra 拼进去），拿不到时回落到
 // localStorage（App 内不透传 extra，发起方会把参数另写一份）。
-window.__XMETA_HAD_CID__ = false
 ;(function () {
   var qs = new URLSearchParams(location.search)
   if (qs.get('cid')) {
-    window.__XMETA_HAD_CID__ = true
     location.replace('bridge.html?' + location.search.slice(1))
     return
   }
   try {
     var req = JSON.parse(localStorage.getItem('xmeta:req') || 'null')
-    // claimed 的不能再转发：那是中心玩具已经接手过的旧请求。
-    // 少了这个判断，用户在这之后直接打开本玩具，会被弹到过桥页而不是首页。
+    // claimed 的不能再转发：那是中心 toy 已经接手过的旧请求。
     if (req && req.cid && !req.claimed && req.ts && Date.now() - req.ts < 3 * 60 * 1000) {
-      window.__XMETA_HAD_CID__ = true
       location.replace('bridge.html')
     }
   } catch (e) { /* 忽略 */ }
 })()
 </script>
 </head>
-<body class="xm">
+<body class="xm xm--with-nav">
 <div class="xm-page xm-page--center">
 
-  <div class="xm-hero">
-    <div class="xm-hero__ring xm-hero__ring--empty" style="font-size:26px">x</div>
-    <h1 class="xm-hero__name">Toy 联机工具</h1>
-    <p class="xm-hero__ask">让玩家在不同玩具里是同一个玩家</p>
+  <div class="xm-hero xm-rise">
+    <div class="xm-brandmark" aria-hidden="true">
+      <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 12 L28 28" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>
+        <path d="M28 12 L12 28" stroke="#fff" stroke-width="4.5" stroke-linecap="round" opacity=".82"/>
+        <circle cx="20" cy="20" r="2.6" fill="#fff"/>
+      </svg>
+    </div>
+    <p class="xm-kicker xm-mt-lg">xmeta</p>
+    <h1 class="xm-hero__name">一处管理你<br>所有 toy 的身份</h1>
+    <p class="xm-hero__ask">各 toy 数据相互隔离，由中心 toy 统一签发和管理身份凭证。</p>
   </div>
 
-  <div class="xm-actions xm-mt-lg" style="margin-top:32px">
-    <a class="xm-btn xm-btn--primary" href="claim.html">认领我的玩具</a>
+  <div class="xm-actions xm-rise xm-rise--2">
+    <a class="xm-btn xm-btn--primary" href="claim.html">认领我的 toy</a>
     <a class="xm-btn xm-btn--ghost" href="me.html">查看我的身份</a>
   </div>
 
-  <p class="xm-small xm-mt" style="text-align:center">
-    过桥授权页不能直接打开，它由游戏里的「开启联机」按钮带参数跳过来。
-  </p>
-
-  <div class="xm-foot">
-    <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span>
+  <div class="xm-card xm-card--quiet xm-mt-lg xm-rise xm-rise--3">
+    <div class="xm-facts">
+      <div class="xm-fact">
+        <span class="xm-fact__k">我是作者</span>
+        <span class="xm-fact__v">认领 toy，拿到 client_id，给你的 toy 接入联机身份</span>
+      </div>
+      <div class="xm-fact">
+        <span class="xm-fact__k">我是玩家</span>
+        <span class="xm-fact__v">在接入的 toy 里点「开启联机」，跳到这里完成一次授权</span>
+      </div>
+    </div>
   </div>
 
-  <!-- 开发诊断：只在参数丢失时出现 -->
-  <div id="dbg" class="xm-alert xm-alert--warn xm-hidden"></div>
+  <div class="xm-foot">
+    <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 联机身份服务</span>
+  </div>
+
 </div>
 
-<script>
-if (!window.__XMETA_HAD_CID__) {
-  var el = document.getElementById('dbg')
-  if (el) {
-    var esc = function (s) {
-      return String(s).replace(/[<>&]/g, function (c) {
-        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]
-      })
-    }
-    var req = null
-    try { req = localStorage.getItem('xmeta:req') } catch (e) {}
-
-    el.classList.remove('xm-hidden')
-    el.style.marginTop = '24px'
-    el.innerHTML =
-      '<b>诊断：没能进入过桥流程</b><br>' +
-      'URL 和 localStorage 两条通道都没拿到参数。<br><br>' +
-      '<b>收到的地址</b><br><code>' + esc(location.href) + '</code><br><br>' +
-      '<b>发起方写的请求</b><br><code>' +
-      (req ? esc(req) : '（读不到 —— 要么上一页没点按钮，要么跨 toy 共享失败）') +
-      '</code>'
-  }
-}
-</script>
+<!-- 底部导航 -->
+<nav class="xm-bottomnav">
+  <a class="xm-bottomnav__item is-active" href="index.html">
+    <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg>
+    <span>首页</span>
+  </a>
+  <a class="xm-bottomnav__item" href="me.html">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+    <span>身份</span>
+  </a>
+  <a class="xm-bottomnav__item" href="claim.html">
+    <svg viewBox="0 0 24 24"><path d="M12 2v20"/><path d="M2 12h20"/></svg>
+    <span>认领</span>
+  </a>
+</nav>
 </body>
 </html>

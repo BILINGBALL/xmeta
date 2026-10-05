@@ -195,7 +195,7 @@ test('state 对不上当前这一轮的，同样忽略', async () => {
   assert.deepEqual(sb.__fetched, []);
 });
 
-test('发给别的玩具的结果不认识', async () => {
+test('发给别的 toy 的结果不认识', async () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
 
@@ -296,7 +296,7 @@ test('logout 会连本地存的会话一起清掉', () => {
   assert.equal(sb.__store.has('xmeta:sess:xmeta_t'), false, '存储里也要清掉');
 });
 
-test('会话是按 clientId 分桶的，别的玩具的不认', () => {
+test('会话是按 clientId 分桶的，别的 toy 的不认', () => {
   const sb = loadClient();
   sb.__store.set('xmeta:sess:some_other_toy', JSON.stringify({
     jwt: 'a.b.c', uid: '99', expiresAt: Date.now() + 3600_000,
@@ -304,7 +304,7 @@ test('会话是按 clientId 分桶的，别的玩具的不认', () => {
 
   sb.XMETA.configure(CFG);
 
-  assert.equal(sb.XMETA.getSession(), null, '不该认别的玩具存的会话');
+  assert.equal(sb.XMETA.getSession(), null, '不该认别的 toy 存的会话');
 });
 
 test('onSession 回调抛错，不该把调用方的脚本一起带走', () => {

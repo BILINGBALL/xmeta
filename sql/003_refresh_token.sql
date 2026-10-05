@@ -1,7 +1,7 @@
 -- 刷新令牌。
 --
--- access_token 短命（默认 15 分钟），过期后由第三方玩具拿 refresh_token
--- 静默换一对新的，用户无感 —— 不需要再跳回中心玩具重新授权。
+-- access_token 短命（默认 15 分钟），过期后由第三方 toy 拿 refresh_token
+-- 静默换一对新的，用户无感 —— 不需要再跳回中心 toy 重新授权。
 --
 -- 三条安全约束：
 --   1. 只存 sha256，不存明文。库被读走也不能直接拿去用。
@@ -9,8 +9,8 @@
 --   3. family_id 串起同一条轮换链。已经用过的令牌再出现，
 --      说明它被复制走了 —— 整条链立即作废，两边都得重新授权。
 --
--- 另外 client_id 是绑定的一部分：给玩具 A 的令牌只能换出 aud=A 的
--- access_token，换个玩具用不了。
+-- 另外 client_id 是绑定的一部分：给 toy A 的令牌只能换出 aud=A 的
+-- access_token，换个 toy 用不了。
 create table if not exists refresh_token (
   token_hash text        primary key,
   uid        bigint      not null references app_user(id) on delete cascade,

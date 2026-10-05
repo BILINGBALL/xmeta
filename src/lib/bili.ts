@@ -48,6 +48,8 @@ type RawDetail = {
     id?: number | string;
     title?: string;
     icon_url?: string;
+    share_icon_url?: string;
+    poster_url?: string;
     version?: number;
     user_info?: { mid?: number | string; name?: string; face?: string };
   };
@@ -112,12 +114,45 @@ export async function fetchToyDetail(slug: string): Promise<ToyDetail | null> {
     toyId: String(d.id),
     slug,
     title: d.title ?? '',
-    iconUrl: d.icon_url ?? null,
+    iconUrl: pickIconUrl(d.icon_url, d.share_icon_url, d.poster_url),
     version: typeof d.version === 'number' ? d.version : null,
     authorMid: d.user_info?.mid != null ? String(d.user_info.mid) : null,
     authorName: d.user_info?.name ?? null,
     authorFace: d.user_info?.face ?? null,
   };
+}
+
+/**
+ * 把单个图标 URL 规范化成 https 可加载的形式。
+ * 用于读出库里旧数据时兜底（库里可能存了 http:// 或协议相对地址）。
+ */
+export function normalizeIconUrl(raw: string | null | undefined): string | null {
+  return pickIconUrl(raw);
+}
+
+/**
+ * 选一个能在 https 页面里正常加载的图标 URL。
+ *
+ * B站 detail 接口返回的 icon_url 经常没有扩展名（实测 Content-Type 仍是
+ * image/jpeg，能看），但偶尔会是 http:// 或空串。toy 页面跑在 https 上，
+ * http:// 会被浏览器按混合内容拦掉，所以这里统一升级到 https://。
+ *
+ * 兜底顺序：icon_url → share_icon_url → poster_url。前两个拿不到再用海报图，
+ * 至少不会是个裂图。
+ */
+function pickIconUrl(...candidates: Array<string | null | undefined>): string | null {
+  for (const raw of candidates) {
+    if (!raw) continue;
+    let url = raw.trim();
+    if (!url) continue;
+    // 协议相对：//host/path → https://host/path
+    if (url.startsWith('//')) url = 'https:' + url;
+    // http → https（混合内容会被拦）
+    else if (url.startsWith('http://')) url = 'https://' + url.slice('http://'.length);
+    else if (!url.startsWith('https://')) continue; // 不认其它协议
+    return url;
+  }
+  return null;
 }
 
 /** 从 shell HTML 里解出内层 iframe 的 src */

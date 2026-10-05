@@ -13,13 +13,16 @@ const TOY_SIDE = path.resolve(
 type Asset = { file: string; type: string };
 
 /**
- * 玩具端共用的静态资源。挂在服务端而不是让每个玩具各自存一份：
- * 这样只有一份，修 bug 不用挨个通知接入方重新上传。
- * 和官方 toy-sdk 从 s1.hdslb.com 加载是一个路子。
+ * toy 端共用的静态资源。
+ *
+ * xmeta-client.js 仍由服务端分发：第三方 toy 各自存一份的话，修 bug
+ * 要挨个通知接入方重新上传，和官方 toy-sdk 从 s1.hdslb.com 加载一个路子。
+ *
+ * xmeta-ui.css 不再走服务端 —— 它随 toy 页面一起发布到 toy 平台，
+ * 页面用相对路径本地引用即可。
  */
 const ASSETS: Record<string, Asset> = {
   '/xmeta-client.js': { file: 'xmeta-client.js', type: 'application/javascript; charset=utf-8' },
-  '/xmeta-ui.css': { file: 'xmeta-ui.css', type: 'text/css; charset=utf-8' },
 };
 
 export async function staticRoutes(app: FastifyInstance): Promise<void> {
@@ -37,7 +40,7 @@ export async function staticRoutes(app: FastifyInstance): Promise<void> {
 
       // 内容哈希当 ETag，配 no-cache（每次回源校验，没变就 304）。
       //
-      // 不用 max-age：这两个文件改完要立刻对所有玩具生效。带 5 分钟缓存的话，
+      // 不用 max-age：这两个文件改完要立刻对所有 toy 生效。带 5 分钟缓存的话，
       // 「服务器到底部署了没有」会变成一个说不清的问题 —— 明明 git pull 了，
       // 用户那边还是旧脚本，只能靠猜。实测为此浪费过两轮排查。
       //

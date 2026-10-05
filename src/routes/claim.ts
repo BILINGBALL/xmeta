@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import type { BiliDeps } from '../deps.js';
 import { Errors } from '../errors.js';
 import { mineSchema, parse, startClaimSchema, verifyClaimSchema } from '../http.js';
-import { htmlContainsNonce } from '../lib/bili.js';
+import { htmlContainsNonce, normalizeIconUrl } from '../lib/bili.js';
 import { clientId, randomNonce } from '../lib/ids.js';
 import { rateLimit } from '../lib/ratelimit.js';
 import {
@@ -75,7 +75,7 @@ export async function claimRoutes(
         slug: toy.slug,
         title: toy.title,
         clientId: client?.client_id ?? null,
-        message: '这个玩具已经归你所有了',
+        message: '这个 toy 已经归你所有了',
       };
     }
 
@@ -94,7 +94,7 @@ export async function claimRoutes(
       slug: toy.slug,
       title: toy.title,
       authorName: toy.author_name,
-      iconUrl: toy.icon_url,
+      iconUrl: normalizeIconUrl(toy.icon_url),
       nonce: claim.nonce,
       /** 沿用了上次那个验证码 —— 前端据此换个说法，别让人以为又变了 */
       reused,
@@ -204,7 +204,7 @@ export async function claimRoutes(
           toyId: t.toy_id,
           slug: t.slug,
           title: t.title,
-          iconUrl: t.icon_url,
+          iconUrl: normalizeIconUrl(t.icon_url),
           authorName: t.author_name,
           state: t.state,
           clientId: client?.client_id ?? null,

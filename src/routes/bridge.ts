@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { config, DEFAULT_TOKEN_TTL_HOURS } from '../config.js';
 import { Errors } from '../errors.js';
 import { bridgeAuthorizeSchema, parse } from '../http.js';
+import { normalizeIconUrl } from '../lib/bili.js';
 import { randomToken } from '../lib/ids.js';
 import { rateLimit } from '../lib/ratelimit.js';
 import { getClient, getToyById, insertAuthCode, upsertUser } from '../repos.js';
@@ -19,7 +20,7 @@ import { getClient, getToyById, insertAuthCode, upsertUser } from '../repos.js';
  */
 
 export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
-  /** 过桥页加载时用：确认这个 client_id 有效，拿到要展示的玩具信息 */
+  /** 过桥页加载时用：确认这个 client_id 有效，拿到要展示的 toy 信息 */
   app.get('/api/bridge/context', async (req: FastifyRequest) => {
     const rl = rateLimit(`bridge:ctx:${req.ip}`, 120, 60_000);
     if (!rl.ok) throw Errors.rateLimited(rl.retryAfter);
@@ -41,7 +42,9 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       toyId: toy.toy_id,
       slug: toy.slug,
       title: toy.title,
-      iconUrl: toy.icon_url,
+      // 旧数据里可能存了 http:// 的图标，toy 页面跑在 https 上会被拦。
+      // 这里统一升一下级，不用改库。
+      iconUrl: normalizeIconUrl(toy.icon_url),
       authorName: toy.author_name,
       ttlSeconds: config.AUTH_CODE_TTL_SECONDS,
     };

@@ -4,13 +4,13 @@
 
 | 需要什么 | 为什么 |
 |---|---|
-| 一台有**公网域名 + HTTPS** 的服务器 | 玩具跑在 `https://www.bilibilitoy.com`，浏览器会拦 http 的混合内容。**没有 HTTPS 整个服务用不了** |
+| 一台有**公网域名 + HTTPS** 的服务器 | toy 跑在 `https://www.bilibilitoy.com`，浏览器会拦 http 的混合内容。**没有 HTTPS 整个服务用不了** |
 | Node.js ≥ 20（建议 22） | `engines` 要求 |
 | PostgreSQL | 已经在用阿里云 RDS |
 | 域名解析 | 例：`api.xmeta.xxx.com` → 服务器 IP |
 
-> 玩具访问你的 API 是**跨域**的，服务已经放开了 `ALLOWED_ORIGINS=https://www.bilibilitoy.com`。
-> 如果换成自己托管的玩具域，记得同步改。
+> toy 访问你的 API 是**跨域**的，服务已经放开了 `ALLOWED_ORIGINS=https://www.bilibilitoy.com`。
+> 如果换成自己托管的 toy 域，记得同步改。
 
 ---
 
@@ -185,9 +185,9 @@ server {
 ```
 
 这时对外地址是 `https://你的域名:8443`，`.env` 里的 `PUBLIC_BASE_URL`
-和玩具端 `API_BASE` 都要带上端口号。记得在安全组放行 `8443`。
+和 toy 端 `API_BASE` 都要带上端口号。记得在安全组放行 `8443`。
 
-> 端口可以换，但**协议不能是 http**。玩具页面跑在 https 上，
+> 端口可以换，但**协议不能是 http**。toy 页面跑在 https 上，
 > 它调 http 接口会被浏览器按混合内容拦掉——只有 `127.0.0.1`
 > 是例外（Chrome 把它当作可信来源），所以本地能跑通不代表线上能跑通。
 
@@ -204,7 +204,7 @@ curl https://api.你的域名.com/.well-known/xmeta-configuration
 `jwks.json` 应该返回一把 `"kty":"EC","crv":"P-256"` 的密钥。
 `xmeta-configuration` 里的 `issuer` 应该等于你的 `PUBLIC_BASE_URL`。
 
-再验一下 CORS（玩具是跨域调用的，这条不过整个链路就废了）：
+再验一下 CORS（toy 是跨域调用的，这条不过整个链路就废了）：
 
 ```bash
 curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
@@ -217,7 +217,7 @@ curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
 
 ---
 
-## 5. 更新玩具端
+## 5. 更新 toy 端
 
 1. 把 `toy-side/` 下的 `index.html`、`claim.html`、`bridge.html` 里的
    `const API_BASE = 'http://127.0.0.1:8787'` **改成你的 HTTPS 域名**。
@@ -225,9 +225,9 @@ curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
    > 忘了改是新手最常见的坑：`127.0.0.1` 在用户手机上指的是用户自己的手机。
 
 2. 把三个文件上传到 `xmeta`（覆盖原来的 `index.html`），发布。
-   `xmeta-client.js` 是给第三方玩具作者用的，不用传到 xmeta。
+   `xmeta-client.js` 是给第三方 toy 作者用的，不用传到 xmeta。
 
-3. **在 B站 玩具后台开启 `xmeta` 的 OpenID 模式。**
+3. **在 B站 toy 后台开启 `xmeta` 的 OpenID 模式。**
    不开的话 `getUserProfile()` 不返回 `toyOpenId`，整条链断在第一环。
 
 4. 在手机 B站 App 里打开 `xmeta`，走一遍认领流程试试。
@@ -240,7 +240,7 @@ curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
 |---|---|
 | 页面报 `Failed to fetch` | `API_BASE` 没改成 HTTPS 域名，或 CORS 没放开 |
 | `getUserProfile` 抛 `unsupported` | 在外部手机浏览器里打开了。只能在 B站 App 内或桌面 Web 用 |
-| 拿不到 `toyOpenId` | 玩具没开 OpenID 模式 |
+| 拿不到 `toyOpenId` | toy 没开 OpenID 模式 |
 | 认领报 `nonce_not_in_source` | 改了没重新发布，或 nonce 没写进 `index.html`（要写进入口那个文件） |
 | 认领报 `upstream_fetch_failed` | 服务器访问不了 `bilibili.com`，检查出网和 DNS |
 | 限流报 429 | 限流是单实例内存态。多实例部署要换 Redis，见 README「还没做」 |
