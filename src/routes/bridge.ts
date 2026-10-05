@@ -46,6 +46,7 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       // 这里统一升一下级，不用改库。
       iconUrl: normalizeIconUrl(toy.icon_url),
       authorName: toy.author_name,
+      authorMid: toy.author_mid,
       ttlSeconds: config.AUTH_CODE_TTL_SECONDS,
     };
   });

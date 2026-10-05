@@ -131,8 +131,7 @@ body.xm {
   font-weight: 600;
   line-height: 1;
   margin: 0;
-  /* 给左右按钮留位，保证标题居中 */
-  padding-right: 40px;
+  /* 左右按钮各占 40px，标题用 flex:1 自然居中，不需要额外 padding */
 }
 .xm-topbar__right {
   width: 40px;
@@ -548,11 +547,51 @@ body.xm--with-nav .xm-page {
 
 .xm-btn--quiet {
   background: transparent; color: var(--xm-ink-3);
-  padding: 11px 20px; font-size: 14px; font-weight: 500;
 }
 .xm-btn--quiet:hover:not(:disabled) { color: var(--xm-ink-2); }
 
+/* 小按钮：用于了解 xmeta / 关注作者 等次要操作 */
+.xm-btn--sm {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 两个小按钮并排 */
+.xm-actions--row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.xm-actions--row .xm-btn { flex: 1; }
+
 .xm-btn:disabled { opacity: .42; cursor: not-allowed; box-shadow: none; }
+
+/* xmeta 信息展开面板 */
+.xm-about {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: var(--xm-r);
+  background: var(--xm-sunken);
+  border: 1px solid var(--xm-line);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--xm-ink-2);
+}
+.xm-about b { color: var(--xm-pink); }
+.xm-about__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--xm-ink);
+  margin-bottom: 6px;
+}
+.xm-about__brand .xm-brand__dot { margin: 0; }
 
 /* ================================================================ 提示 */
 .xm-alert {
