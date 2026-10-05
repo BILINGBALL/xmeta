@@ -160,6 +160,13 @@ toy 页面本身跑在 https 上，调 http 接口会被浏览器按混合内容
   // 必须在用户手势里调用，toy.navigate 需要手势
   document.querySelector('#login').onclick = () => XMETA.login()
 
+  // 用户授权完跳回来，SDK 只会**检测到**那枚授权码，不会替你兑换。
+  // 兑换要用户再点一次 —— 这样只有用户看得见的这个页面能消费掉它。
+  XMETA.onCodeReady(() => { document.querySelector('#finish').hidden = false })
+  document.querySelector('#finish').onclick = async () => {
+    try { await XMETA.completeLogin() } catch (e) { alert(e.message) }
+  }
+
   XMETA.onSession(s => {
     // 把 s.jwt 交给自己的服务端验签
     // s.uid 是 xmeta 内的用户 id，不是 B站 UID
@@ -167,6 +174,15 @@ toy 页面本身跑在 https 上，调 http 接口会被浏览器按混合内容
   })
 </script>
 ```
+
+> **为什么兑换要用户再点一次。** 过桥是「跳走再跳回来」，而跳走时那个页面
+> 实例并没有消失，只是看不见了。如果兑换是自动的，看不见的那个实例就可能
+> 抢在用户看得见的实例之前把一次性 `code` 消费掉，表现就是「第一次授权
+> 回来显示未连接，再授权一次才行」。
+>
+> 所以 SDK 把两件事拆开：**检测**只读、幂等，多少实例同时检测都互不影响；
+> **兑换**绑在用户手势上，只有用户点得到的页面能触发。竞态不是被绕开，是
+> 结构上不存在了。
 
 ---
 
@@ -205,7 +221,23 @@ B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / PKCE / �
    > 所以 URL 那条路一直保留着，而不是直接删掉。
 
    正因为它全 toy 共享，`xmeta-client.js` 的 key 一律带 `clientId` 前缀，
-   免得不同 toy 互相踩；PKCE verifier 只暂存在那里，真正的凭证只放内存。
+   免得不同 toy 互相踩。
+
+   **`xmeta:code` 是一份公开契约**（想自己接、不用 `xmeta-client.js` 的，
+   照它读就行）：
+
+   | | |
+   |---|---|
+   | 键 | `xmeta:code` —— 全局单槽，所有 toy 共用 |
+   | 值 | `{ v, clientId, code, state, returnSlug, expiresAt, ts }` |
+   | 时效 | 到 `expiresAt` 为止（= 授权码的 60 秒有效期） |
+   | 读方 | **只读**。只在「兑换成功 / 判定过期 / 用户取消」三种终态才允许删 |
+
+   `clientId` 不能省 —— 单槽是所有 toy 共用的，它是「这枚码不是给我的」
+   唯一判据。leg 1 的 `xmeta:req`（发起方写、中心 toy 读）不在这个契约里。
+
+   ⚠️ 注意这份共享是**双向**的：PKCE verifier 和暂存的会话也在同一个源下，
+   同源的别的 toy 都读得到。凭证的暴露面见下面「几个必须知道的坑」。
 
 3. **`getUserProfile()` 在外部手机浏览器里不支持**，只在 B站 App 内和桌面 Web 可用。
 4. **`toy.navigate` 必须在用户手势里「同步」调用，不能跨 `await`。**

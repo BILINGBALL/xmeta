@@ -14,7 +14,14 @@
  *     // 必须在用户点击里调用（toy.navigate 需要手势）
  *     btn.onclick = () => XMETA.login()
  *
- *     // 从中心 toy 跳回来之后会自动换取 JWT 并派发事件
+ *     // 从中心 toy 跳回来之后，SDK 会检测到那枚授权码并通知你 ——
+ *     // 但**不会自动兑换**，兑换要用户再点一次：
+ *     XMETA.onCodeReady(() => { btnFinish.hidden = false })
+ *     btnFinish.onclick = async () => {
+ *       try { await XMETA.completeLogin() } catch (e) { showError(e.message) }
+ *     }
+ *
+ *     // 有身份时触发（包括从本地恢复）
  *     XMETA.onSession(s => console.log(s.jwt, s.uid))
  *
  *     // 想知道还剩多久，用来提示用户
@@ -26,6 +33,16 @@
  * 服务端由它反查出你的 slug 和 toy_id，回跳目标也由服务端给出。
  * 客户端指定不了回跳地址，这样就堵掉了开放重定向。
  *
+ * 关于「为什么要用户再点一次」—— 过桥是「跳走再跳回来」，而跳走时
+ * 那个页面实例并没有消失，只是看不见了。如果兑换是自动的，看不见的
+ * 那个实例就可能抢在用户看得见的实例之前，把一次性 code 消费掉，
+ * 结果就是「第一次授权回来显示未连接，再授权一次才行」。
+ *
+ * 所以这里把两件事拆开：
+ *   检测 —— 只读、幂等，多少个实例同时检测都互不影响
+ *   兑换 —— 绑在用户手势上，只有用户点得到的那个页面能触发
+ * 竞态就不再是「靠时序侥幸避开」，而是结构上不存在。
+ *
  * 关于有效期 —— **用户在授权时自己选** token 能活多久（3/6/12/24 小时，
  * 默认 6 小时）。最长 24 小时，没有自动续期，所以到期后需要用户回
  * 中心 toy 再授权一次。
@@ -35,6 +52,8 @@
  * 剩余时间显示给用户，别让他玩到一半突然掉线：
  *   XMETA.getRemainingMs()   还剩多少毫秒，没登录返回 0
  *   XMETA.onSession(fn)      有身份时触发（包括从本地恢复），fn 收到 session
+ *   XMETA.setSession(jwt)    装上一枚已有的 token（例如你存在自己云存储里
+ *                            的那份），有效返回 true、无效/过期返回 false
  *   XMETA.logout()           主动清掉本地会话
  *
  * 本地验签只能验出「签名对、没过期」。需要服务端再确认一次就打
@@ -49,12 +68,12 @@
   var CFG = { apiBase: '', centerToySlug: '', clientId: '' }
   var SESSION = null            // { jwt, uid, expiresAt, raw? }
   var listeners = []
-  var errorListeners = []
   var VERIFIER_KEY = ''
   var SESSION_KEY = ''
   var pollTimer = null
+  var sessionWatchTimer = null   // 等另一个页面实例把会话交出来
   var prepared = null            // 预生成的 PKCE 对，login() 时同步取用
-  var exchanging = false         // doExchange 页面内互斥，防止 polling 和 handleRedirect 同时兑换
+  var exchanging = false         // completeLogin 页面内互斥，防止手快连点打出两次 POST
 
   /**
    * toy 之间跳转用的传参通道。
@@ -70,24 +89,29 @@
    * 两边都走：URL 参数优先（Web 端能用），拿不到再读 localStorage。
    * 只在同一台设备上有效，但过桥本来就是同设备跳过去再跳回来。
    */
-  var REQ_KEY = 'xmeta:req'      // 发起方写：{ cid, cc, st, ts }
-  var RES_KEY = 'xmeta:res'      // 中心 toy 写：{ code, st, returnSlug, ts }
+  var REQ_KEY = 'xmeta:req'          // 发起方写：{ cid, cc, st, ts, claimed }
+  /**
+   * 中心 toy 写下的「待兑换授权码」槽。**这是一份公开契约**，
+   * 键名、值结构、TTL 都写在 README 里，第三方 toy 可以只读它。
+   *
+   * 键是全局单槽（所有 toy 共用一个），所以值里的 clientId 不能省 ——
+   * 它是「这枚码不是给我的」的唯一判据。
+   */
+  var CODE_KEY = 'xmeta:code'
+  /** 旧版本的槽（键名不同、无 expiresAt）。过渡期清一清，见 bridge.html。 */
+  var LEGACY_RES_KEY = 'xmeta:res'
   var SHARED_TTL_MS = 3 * 60 * 1000
+  /** 没检测到 code 时，等另一个页面实例把会话写出来的最长时间 */
+  var SESSION_WATCH_MS = 10 * 1000
+  /** 槽里没有 expiresAt 时的兜底有效期（URL 那条路用它，量的是「页面加载至今」） */
+  var FALLBACK_CODE_TTL_MS = 60 * 1000
+
+  var loadedAt = Date.now()
+  /** 已通知过的 code —— 只在内存里去重，绝不写共享键（那又会变成一个会被抢的槽） */
+  var notifiedCode = null
 
   function writeShared(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)) } catch (e) { /* 隐私模式 */ }
-  }
-
-  /** 只认新鲜的，避免上一次残留的请求串到这一次 */
-  function readShared(key) {
-    try {
-      var v = JSON.parse(localStorage.getItem(key) || 'null')
-      if (!v || typeof v !== 'object' || !v.ts) return null
-      if (Date.now() - v.ts > SHARED_TTL_MS) return null
-      return v
-    } catch (e) {
-      return null
-    }
   }
 
   function clearShared(key) {
@@ -201,44 +225,135 @@
     } catch (e) { /* 忽略 */ }
   }
 
+  // ── 检测待兑换的 code ────────────────────────────────────────────
+  //
+  //      ★ 不变式：槽只在三种**终态**被删 —— 兑换成功 / 判定过期 / 用户取消。
+  //        任何「看一眼」都不许删。
+  //
+  //      以前这里是 takeSharedResult()：先 clearShared() 再校验 state。
+  //      于是一个**没有 verifier 的实例**读一眼也能把结果毁掉，让真正能
+  //      兑换的实例扑空 —— 两败俱伤。这和「后台实例先醒」是并列的两个杀手，
+  //      只把兑换改成手动、不动这里，等于留了个洞。
+  // ────────────────────────────────────────────────────────────────
+
+  /** 读槽。**纯读**，绝不删。 */
+  function readPending() {
+    try {
+      var p = JSON.parse(localStorage.getItem(CODE_KEY) || 'null')
+      if (!p || typeof p !== 'object' || !p.code) return null
+      return p
+    } catch (e) {
+      return null
+    }
+  }
+
+  function clearPending() {
+    clearShared(CODE_KEY)
+    clearShared(LEGACY_RES_KEY)
+  }
+
   /**
-   * 从共享存储里取「属于本轮尝试」的结果，取到就立刻删掉。
-   *
-   * 两点必须做，否则会把用户永久卡住：
-   *
-   *   1. 立刻删。code 是一次性的，留着它只会在每次进页面时重放一次
-   *      注定失败的请求 —— 报错、不清、再报错，永远出不来。
-   *
-   *   2. 按 state 过滤。上一轮如果中途放弃（比如点了拒绝），它的结果
-   *      可能还躺在那里；拿旧结果去换只会得到一个对不上号的错。
+   * 槽里那枚 code 是不是「此刻、本实例、该兑换的那一枚」。**纯读**。
+   * 不满足就返回 null —— 除了「已过期」，其它情况一律**不清槽**。
    */
-  function takeSharedResult() {
-    var shared = readShared(RES_KEY)
-    if (!shared || !shared.code) return null
-    clearShared(RES_KEY)
+  function detectPending() {
+    var p = readPending()
+    if (!p) return null
+
+    // 单槽是所有 toy 共用的，这枚码可能根本不是发给我的
+    if (p.clientId !== CFG.clientId) return null
 
     var mine = mySlug()
-    if (shared.returnSlug && mine && shared.returnSlug !== mine) return null
+    if (p.returnSlug && mine && p.returnSlug !== mine) return null
+
+    // 过期是终态：清掉它，免得每次进页面都拿一枚死码来问
+    var expiresAt = typeof p.expiresAt === 'number'
+      ? p.expiresAt
+      : (typeof p.ts === 'number' ? p.ts + FALLBACK_CODE_TTL_MS : 0)
+    if (!expiresAt || Date.now() > expiresAt) {
+      clearPending()
+      return null
+    }
 
     // 必须对得上「当前正在进行的这一轮」。
     //
-    // 注意这里是 `!expect ||` 而不是 `expect &&` —— 没有正在进行的尝试时
-    // 一定要拒绝。那说明这是一条残留：上一轮的结果没被消费掉（页面没重载
-    // 且轮询超时，或者轮询压根没跑起来），而它的 verifier 早就没了。
-    // 放行的话就会拿着一条无主的 code 去换，报「找不到本次登录的 PKCE 记录」。
+    // 注意是 `!expect ||` 而不是 `expect &&` —— 没有进行中的一轮时一定要
+    // 拒绝。那说明这是一条残留：上一轮的结果没被消费掉（页面没重载且轮询
+    // 超时），而它的 verifier 早就没了。放行就会拿着一条无主的 code 去换，
+    // 报「找不到本次登录的 PKCE 记录」。
     var expect = currentState()
-    if (!expect || shared.st !== expect) return null
+    if (!expect || !p.state || p.state !== expect) return null
 
-    return shared
+    // 已经连上了就别再冒一个「完成登录」的按钮
+    if (SESSION && getRemainingMs() > 0) return null
+
+    return { code: p.code, state: p.state, returnSlug: p.returnSlug || null }
+  }
+
+  /**
+   * 检测有没有可兑换的 code，两个来源：
+   *   1. 中心 toy 写下的共享槽（App 和 Web 都走这条）；
+   *   2. URL 上的 ?code=，只在槽读不到时兜底（Web 端 navigate 会把
+   *      extra 拼进地址）。URL 里没有时间戳，只能按「页面加载至今」估。
+   *
+   * **纯读，不消耗。**
+   */
+  function detectCode() {
+    var fromSlot = detectPending()
+    if (fromSlot) return fromSlot
+
+    var qs = new URLSearchParams(global.location.search)
+    var code = qs.get('code')
+    if (!code) return null
+
+    if (Date.now() - loadedAt > FALLBACK_CODE_TTL_MS) return null
+
+    var expect = currentState()
+    var state = qs.get('st')
+    if (!expect || !state || state !== expect) return null
+    if (SESSION && getRemainingMs() > 0) return null
+
+    return { code: code, state: state, returnSlug: null }
+  }
+
+  var codeReadyListeners = []
+
+  /**
+   * 订阅「检测到待兑换的授权码」。回调收 { code, state, returnSlug }。
+   *
+   * 只读、幂等：同一枚 code 在一个页面实例里只通知一次，多个实例同时
+   * 检测也互不影响。接入方应该据此渲染一个按钮，由用户点它去兑换。
+   */
+  function onCodeReady(fn) {
+    codeReadyListeners.push(fn)
+    return function () {
+      codeReadyListeners = codeReadyListeners.filter(function (f) { return f !== fn })
+    }
+  }
+
+  function emitCodeReady(pending) {
+    if (!pending || pending.code === notifiedCode) return
+    notifiedCode = pending.code
+    codeReadyListeners.forEach(function (fn) {
+      try { fn(pending) } catch (e) { console.error('[xmeta] onCodeReady 回调出错', e) }
+    })
+  }
+
+  /** 检测一次；有就通知接入方。返回检测结果（纯读） */
+  function probe() {
+    var pending = detectCode()
+    if (pending) emitCodeReady(pending)
+    return pending
   }
 
   /** 发起过桥。必须在用户手势（click）里调用。 */
   async function login() {
     if (!CFG.clientId) throw new Error('[xmeta] 还没 configure')
 
-    // 新一轮开始：把上一轮可能残留的结果清掉。
-    // 不清的话它会被当成这一轮的结果拿去换，报一个莫名其妙的错。
-    clearShared(RES_KEY)
+    // 新一轮开始：把上一轮可能残留的结果清掉，免得被当成这一轮的结果。
+    // 这就是「用户重新发起」那个终态。
+    clearPending()
+    notifiedCode = null
 
     // 取预生成好的 PKCE。极小概率还没就绪（脚本刚加载就点），兜底现场算一次。
     var pair = prepared
@@ -280,69 +395,135 @@
     startPolling()
   }
 
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  }
+
   /**
-   * 盯着 RES_KEY，等中心 toy 写回 { code, st, returnSlug }。
-   * 页面重新加载时走 handleRedirect 就够了；这个是为了覆盖
-   * 「App 里跳回来但页面没重载」的情况。
+   * 短时间盯着共享的会话记录，谁先拿到算谁的。
+   *
+   * 兑换只认一个一次性 code，而可能有两个页面实例在抢：用户点的那个
+   * （跳走之后还在后台跑）和跳回来时新加载的那个。没抢到的那边**不能**
+   * 就此显示未连接 —— 抢到的那边会把会话写进 localStorage
+   * （xmeta:sess:<clientId>，同源共享），等一下就能读到。
+   *
+   * 少了这一步，「第一次授权回来显示未连接、再授权一次才行」就会出现：
+   * 输的那边检查时赢的那边还没写完，于是双方都停在未连接。
+   */
+  function stopWatching() {
+    if (sessionWatchTimer) { clearInterval(sessionWatchTimer); sessionWatchTimer = null }
+  }
+
+  function watchForSession(timeoutMs) {
+    if (sessionWatchTimer) return
+    var deadline = Date.now() + (timeoutMs || SESSION_WATCH_MS)
+    sessionWatchTimer = setInterval(function () {
+      if (Date.now() > deadline) { stopWatching(); return }
+      restoreSession()          // 读到就 emit，接入方的 onSession 会收到
+      if (SESSION && getRemainingMs() > 0) stopWatching()
+    }, 500)
+  }
+
+  /**
+   * 盯着共享槽，等中心 toy 把 code 写进来 —— 覆盖「App 里跳回来但页面
+   * 没重载」的情况（这种情况下 handleRedirect 不会再跑）。
+   *
+   * **只检测、只通知，不兑换。** 兑换交给用户点按钮。
    */
   function startPolling() {
     // 先清掉可能还在跑的旧轮询：它的截止时间是按上一轮算的
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+    stopPolling()
 
     var deadline = Date.now() + SHARED_TTL_MS
     pollTimer = setInterval(function () {
       if (Date.now() > deadline) {
-        clearInterval(pollTimer)
-        pollTimer = null
+        stopPolling()
         return
       }
-      var shared = takeSharedResult()
-      if (!shared) return
-      clearInterval(pollTimer)
-      pollTimer = null
-      doExchange(shared.code, shared.st).catch(function (e) {
-        console.error('[xmeta] 换取 JWT 失败：', e.message)
-        emitError(tagged('等待结果', e))
-      })
+      if (probe()) stopPolling()   // 通知过了就收工，后面用户自己会点
     }, 1000)
   }
 
   /**
-   * 页面加载时检查是不是「从中心 toy 跳回来」。
-   * 是的话用 code 换 JWT。返回 session 或 null。
+   * 处理「从中心 toy 跳回来」。**只检测、只通知，不兑换。**
+   *
+   * 兑换要用户点按钮（completeLogin），这样只有用户看得见、点得到的
+   * 那个页面会去消费那枚一次性 code，后台实例拿它没办法。
+   *
+   * 返回待兑换的 code 信息或 null；同时会触发 onCodeReady。
    */
-  async function handleRedirect() {
+  function handleRedirect() {
     // 已经有有效 session 就直接用 —— 可能是另一个窗口刚兑换完写进来的，
     // 也可能是本页 restoreSession 时还没写完、现在补一次。
-    if (SESSION && getRemainingMs() > 0) return SESSION
+    if (SESSION && getRemainingMs() > 0) return null
     restoreSession()
-    if (SESSION) return SESSION
+    if (SESSION) return null
 
-    var qs = new URLSearchParams(global.location.search)
-    var code = qs.get('code')
-    var state = qs.get('st')
+    return probe()
+  }
 
-    if (code) {
-      // Web 端：SDK 自己拼 URL，extra 会带过来
-      try {
-        global.history.replaceState(null, '', global.location.pathname + global.location.hash)
-      } catch (e) { /* 忽略 */ }
-    } else {
-      // App 端：navigate 不透传 extra，改从共享的 localStorage 取
-      var shared = takeSharedResult()
-      if (shared) { code = shared.code; state = shared.st }
+  /** 把 URL 上的 ?code= / ?st= 抹掉 */
+  function stripCodeFromUrl() {
+    try {
+      if (!new URLSearchParams(global.location.search).get('code')) return
+      global.history.replaceState(null, '', global.location.pathname + global.location.hash)
+    } catch (e) { /* 忽略 */ }
+  }
+
+  /**
+   * 兑换失败的善后。返回一个 session 表示「其实算成功」（两个 tab 都点了
+   * 按钮时，输的那边可以采纳赢的那边写下的会话）。
+   */
+  function settleAfterFailure(e) {
+    var code = e && e.code
+
+    if (code === 'code_used') {
+      // 另一个 tab 抢先兑换了。它的会话就在同源的 localStorage 里。
+      restoreSession()
+      if (SESSION && getRemainingMs() > 0) {
+        clearPending()
+        clearAttempt()
+        stripCodeFromUrl()
+        return SESSION
+      }
     }
 
-    if (code) return doExchange(code, state)
+    // 只有「这枚 code 已经确定没用了」才算终态、才清槽。
+    // 网络抖动之类的可重试错误必须留着，否则用户再点一次会被告知
+    // 「没有待兑换的授权码」—— 明明按钮还在，莫名其妙。
+    if (code === 'code_used' || code === 'code_expired' || code === 'invalid_code') {
+      clearPending()
+      clearAttempt()
+      stripCodeFromUrl()
+    }
 
-    // 没有可用的结果 —— 什么都不做，等用户点「开启联机」重新授权一次
     return null
   }
 
-  /** 用 code + code_verifier 换 JWT */
-  async function doExchange(code, state) {
-    // 页面内互斥：polling 和 handleRedirect 可能同时触发，
-    // code 是一次性的，换第二次只会拿到「已使用」的错。
+  /**
+   * 兑换待处理的授权码，建立会话。**必须在用户手势里调用。**
+   *
+   * 这是整条链路上**唯一**会消费那枚一次性 code 的地方。绑在用户手势上，
+   * 意味着只有用户看得见的页面能触发它 —— 看不见的后台实例想抢也抢不了。
+   *
+   * 成功返回 session；失败抛错，接入方应该接住并显示给用户。
+   */
+  async function completeLogin() {
+    if (SESSION && getRemainingMs() > 0) return SESSION
+
+    // 兑换前重新检测一次：可能已经过期了，也可能已经没得换了
+    var pending = detectCode()
+    if (!pending) {
+      // 没有待兑换的。要是已经有会话（别的实例刚兑换完），当成成功。
+      restoreSession()
+      if (SESSION && getRemainingMs() > 0) return SESSION
+      var none = new Error('没有待兑换的授权码，请点「开启联机」重新授权一次')
+      none.code = 'no_pending_code'
+      throw none
+    }
+
+    // 页面内互斥，**同步置位** —— 防止用户手快连点，那样会打出两次 POST，
+    // 而 code 是一次性的，第二次必然失败。
     if (exchanging) return null
     exchanging = true
 
@@ -353,37 +534,32 @@
       expectState = localStorage.getItem(VERIFIER_KEY + ':st')
     } catch (e) { /* 忽略 */ }
 
-    // 无论成败都先清掉。code 是一次性的，重试注定失败；
-    // 留着它只会让每次进页面都重放一次失败的请求。
-    clearAttempt()
-    clearShared(RES_KEY)
-    clearShared(REQ_KEY)
-
-    // 没有 verifier / state 对不上，是「这轮没得换」，不是错误。
-    //
-    // 典型来路：上一轮残留的结果，或者用户清了缓存之后又点进来。
-    // 这时候用户什么都没做错，弹一个红字只会让他以为坏了 ——
-    // 其实界面上显示「未获取」，再点一次「开启联机」就好了。
-    // 这里不抛，只是安静地当没登录。
-    if (!verifier) {
-      console.warn('[xmeta] 收到一个授权结果，但本地没有对应的 PKCE 记录，已忽略')
+    if (!verifier || !expectState || pending.state !== expectState) {
+      // 本地没有对应的 PKCE 记录 / state 对不上 = 这轮没得换。
+      // 用户什么都没做错，但也没法在这点上成功，清掉残留让他重新发起。
+      clearAttempt()
       exchanging = false
-      return null
-    }
-    if (expectState && state !== expectState) {
-      console.warn('[xmeta] state 不匹配，已忽略这次结果')
-      exchanging = false
-      return null
+      var stale = new Error('本地找不到本次登录的 PKCE 记录，请点「开启联机」重新授权一次')
+      stale.code = 'no_pkce_record'
+      throw stale
     }
 
     try {
       var res = await post('/api/oauth/token', {
         grant_type: 'authorization_code',
-        code: code,
+        code: pending.code,
         client_id: CFG.clientId,
         code_verifier: verifier
       })
+      // 成功是终态：清槽 + 清 PKCE 记录 + 抹掉 URL 上的 code
+      clearPending()
+      clearAttempt()
+      stripCodeFromUrl()
       return applyTokens(res)
+    } catch (e) {
+      var adopted = settleAfterFailure(e)
+      if (adopted) return adopted
+      throw e
     } finally {
       exchanging = false
     }
@@ -400,6 +576,32 @@
     saveSession()
     emit()
     return SESSION
+  }
+
+  /**
+   * 装上一枚手上已有的 access_token，返回它能不能用。
+   *
+   * 这是给「凭证本来就存在别处」的场景：接入方把 token 存在自己的云存储里
+   * （按「登录用户 + toy」隔离、跨设备），换台设备打开时读回来装进去，
+   * 就等于已连接，不用再过一次桥。
+   *
+   * 有效性只看 payload 里的 exp —— 这里不验签（客户端验不了），
+   * 真正的校验在接入方的服务端。返回 false 表示这枚 token 解不开或已过期，
+   * 调用方应当按「未连接」处理，引导用户重新授权。
+   */
+  function setSession(jwt) {
+    if (typeof jwt !== 'string' || !jwt) return false
+
+    var claims = decodeClaims(jwt)
+    if (!claims || typeof claims.exp !== 'number') return false
+
+    var expiresAt = claims.exp * 1000
+    if (expiresAt <= Date.now()) return false
+
+    SESSION = { jwt: jwt, uid: claims.sub || null, expiresAt: expiresAt }
+    saveSession()
+    emit()
+    return true
   }
 
   /**
@@ -449,28 +651,35 @@
     return Math.max(0, SESSION.expiresAt - Date.now())
   }
 
-  /** 清掉本地会话。下次要用得重新过桥。 */
+  /** 清掉本地会话，以及所有躺着的中间状态。下次要用得重新过桥。 */
   function logout() {
     clearAttempt()
     clearShared(REQ_KEY)
-    clearShared(RES_KEY)
+    clearPending()
+    notifiedCode = null
     clearStoredSession()
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+    stopPolling()
+    stopWatching()
     SESSION = null
     emit()
   }
 
   /** 只解析 payload，不验签。验签必须在服务端做。 */
-  function decodeSub(jwt) {
+  function decodeClaims(jwt) {
     try {
       var b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
       var bin = atob(b64)
       var bytes = new Uint8Array(bin.length)
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-      return JSON.parse(new TextDecoder().decode(bytes)).sub
+      return JSON.parse(new TextDecoder().decode(bytes))
     } catch (e) {
       return null
     }
+  }
+
+  function decodeSub(jwt) {
+    var claims = decodeClaims(jwt)
+    return claims ? claims.sub || null : null
   }
 
   function onSession(fn) {
@@ -492,40 +701,6 @@
     }
   }
 
-  /**
-   * 订阅错误。自动续期/回跳路径上的失败原来只进 console ——
-   * 手机上根本看不到，用户只会觉得「点了没反应」。
-   * 接入方应该把它接到自己的界面上。
-   */
-  function onError(fn) {
-    errorListeners.push(fn)
-    return function () {
-      errorListeners = errorListeners.filter(function (f) { return f !== fn })
-    }
-  }
-
-  function emitError(e) {
-    errorListeners.forEach(function (fn) {
-      try { fn(e) } catch (err) { console.error('[xmeta] onError 回调出错', err) }
-    })
-  }
-
-  /**
-   * 给错误打上「从哪条路来的」。
-   *
-   * 换取触发有两个入口：页面加载时的回跳处理，和等结果的轮询。
-   * 正常情况下只有一个会跑；两个都跑就意味着有东西重入了 ——
-   * 而两边换的是同一个一次性 code，必然一个成功一个失败。
-   * 报错时带上入口名，一眼就能看出是不是这种情况。
-   */
-  function tagged(stage, e) {
-    var msg = (e && e.message) ? e.message : String(e)
-    var err = new Error('[' + stage + '] ' + msg)
-    err.stage = stage
-    err.cause = e
-    return err
-  }
-
   function getSession() {
     if (SESSION && SESSION.expiresAt > Date.now() + 5000) return SESSION
     return null
@@ -534,13 +709,24 @@
   global.XMETA = {
     configure: configure,
     login: login,
+    /**
+     * 处理「从中心 toy 跳回来」：只检测、只通知 onCodeReady，**不兑换**。
+     * 返回待兑换的 code 信息或 null。
+     */
     handleRedirect: handleRedirect,
+    /** 订阅「检测到待兑换的授权码」。据此渲染按钮，让用户点。 */
+    onCodeReady: onCodeReady,
+    /**
+     * 兑换待处理的授权码，建立会话。**必须在用户手势里调用。**
+     * 成功返回 session，失败抛错（接住它并显示给用户）。
+     */
+    completeLogin: completeLogin,
     onSession: onSession,
-    /** 订阅错误，接到自己的界面上 */
-    onError: onError,
     getSession: getSession,
     /** 这枚 token 还剩多少毫秒，没登录返回 0 */
     getRemainingMs: getRemainingMs,
+    /** 装上一枚已有的 token（比如从自己的云存储读回来的），返回能不能用 */
+    setSession: setSession,
     /** 主动清掉本地会话 */
     logout: logout
   }
@@ -552,9 +738,25 @@
   // 本文件之后的 inline script 里执行，那时配置才就绪。
   function autoHandle() {
     if (!CFG.clientId) return
-    handleRedirect().catch(function (e) {
-      console.error('[xmeta] 换取 JWT 失败：', e.message)
-      emitError(tagged('页面加载', e))
+    handleRedirect()      // 只检测、只通知 onCodeReady，不兑换
+    // 别的实例可能正在兑换 / 刚兑换完。它的会话会写进同源的 localStorage，
+    // 等一下就能接手 —— 没有这一步，「另一个实例在兑换」的这段时间里
+    // 本页会一直停在未连接。见 watchForSession 的注释。
+    watchForSession()
+  }
+
+  /**
+   * 页面切到后台就停掉轮询，回到前台立刻补一次检测。
+   *
+   * 兑换不再自动发生，所以后台实例的轮询已经没有破坏性了 —— 这里停掉
+   * 纯粹是省点无用功。回到前台立刻检测一次，是为了「同一个实例回去、
+   * 页面没重载」时不用再等一个轮询周期，按钮能马上出来。
+   */
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { stopPolling(); return }
+      if (probe()) { stopPolling(); return }
+      restoreSession()
     })
   }
 

@@ -57,10 +57,12 @@
 
   <div class="xm-actions xm-mt-lg">
     <button class="xm-btn xm-btn--primary" id="btnLogin">开启联机</button>
+    <button class="xm-btn xm-btn--primary xm-hidden" id="btnFinish">完成登录</button>
     <button class="xm-btn xm-btn--quiet" id="btnWho">查看本 toy 标识</button>
   </div>
 
   <p class="xm-small xm-mt" id="tip"></p>
+  <p class="xm-small xm-mt xm-mono" id="diag" style="color:var(--xm-ink-3);word-break:break-all"></p>
 
   <section class="xm-hidden xm-mt-lg" id="result">
     <details class="xm-details">
@@ -111,6 +113,31 @@ $('btnLogin').addEventListener('click', async () => {
   }
 })
 
+// ── 完成登录（从中心 toy 跳回来之后）──
+//
+// SDK 不会自动兑换授权码 —— 原因见 xmeta-client.js 头部：过桥是「跳走再
+// 跳回来」，跳走时那个页面实例还在后台跑，自动兑换会让它抢在用户看得见的
+// 这个页面之前把一次性 code 消费掉，表现就是「第一次回来显示未连接」。
+//
+// 所以兑换绑在用户手势上：只有用户点得到的页面能触发它。
+const TERMINAL_ERRORS = ['code_expired', 'code_used', 'invalid_code', 'no_pending_code', 'no_pkce_record']
+
+$('btnFinish').addEventListener('click', async () => {
+  clearErr()
+  const btn = $('btnFinish')
+  btn.disabled = true
+  try {
+    await XMETA.completeLogin()
+  } catch (e) {
+    showErr('完成登录失败：' + (e.message || e))
+    // 这枚码已经确定没用了，把按钮收起来，别让人反复点一个必然失败的按钮。
+    // 网络抖动之类的可重试错误则留着按钮 —— 授权码还在槽里。
+    if (TERMINAL_ERRORS.indexOf(e.code) >= 0) btn.classList.add('xm-hidden')
+  } finally {
+    btn.disabled = false
+  }
+})
+
 // ── 调试：看看我自己在这款 toy 里的 toyOpenId ──
 $('btnWho').addEventListener('click', async () => {
   clearErr()
@@ -150,23 +177,85 @@ function fmtLeft(ms) {
   return (s % 60) + ' 秒'
 }
 
+/**
+ * 未连接。两种来路：手上压根没有凭证，或者凭证已经过期 ——
+ * 都得回中心 toy 重新申请一次，没有静默续期的路子。
+ * btnText 区分这两者，文案上更好懂一点。
+ */
+function paintDisconnected(btnText) {
+  if (countdown) { clearInterval(countdown); countdown = null }
+  $('vState').textContent = '未连接'
+  $('vState').className = 'xm-live'
+  $('rowUid').classList.add('xm-hidden')
+  $('rowLeft').classList.add('xm-hidden')
+  $('btnFinish').classList.add('xm-hidden')
+  $('btnLogin').textContent = btnText || '开启联机'
+}
+
 function startCountdown() {
   if (countdown) clearInterval(countdown)
   $('rowLeft').classList.remove('xm-hidden')
   const tick = () => {
     const ms = XMETA.getRemainingMs()
     if (ms <= 0) {
-      $('vLeft').textContent = '已过期'
-      $('vLeft').className = 'xm-kv__v xm-kv__v--muted'
-      $('btnLogin').textContent = '重新获取'
-      clearInterval(countdown)
-      countdown = null
+      // 有效期为 0 就等于没身份了，回到未连接，让玩家重新申请
+      paintDisconnected('重新获取')
       return
     }
     $('vLeft').textContent = '还剩 ' + fmtLeft(ms)
   }
   tick()
   countdown = setInterval(tick, 1000)
+}
+
+// ── 联机状态 = 本 toy 云存储里那枚 access_token ──
+//
+// 为什么用云存储而不是 localStorage：云存储按「登录用户 + toy」双维度
+// 隔离，跟着登录态跨设备走。localStorage 只按**源**隔离，而所有 toy 的
+// 内层 iframe 同在 www.bilibilitoy.com 一个源下 —— 同源的别的 toy
+// 只要知道你的 clientId（它是公开的）就能读走你存在那里的凭证。
+//
+// 两条平台约束必须守住（SDK 文档「频率限制与最佳实践」）：
+//   1. 额度是**整个 toy 的所有玩家共享**的，所以当凭证存、别当内存用。
+//      这里只在「手上的 token 和云端那份不一样」时才写，页面加载读一次。
+//   2. value ≤1024 字节。本服务的 token 实测 ~380 字节，留个保险。
+const CLOUD_KEY = 'xmeta_access_token'
+const CLOUD_VALUE_MAX = 1024
+
+let cloudToken = null
+/** 首次读取的落地信号：同步的落盘要先等它，才知道云端是不是已经有同一份 */
+let cloudReady = Promise.resolve()
+
+if (typeof toy !== 'undefined') {
+  cloudReady = toy.getCloudStorage([CLOUD_KEY])
+    .then((store) => { cloudToken = store[CLOUD_KEY] || null })
+    .catch((e) => {
+      // 没登录 / 限流 / 抖动都会走这里。读不到按「没有」处理，不打扰玩家
+      console.warn('[demo] 读取云存储失败：', e)
+      cloudToken = null
+    })
+}
+
+/** 新拿到的 token 落盘。失败不抛 —— 退化成「只有本机有」而已 */
+async function syncCloudToken(jwt) {
+  await cloudReady
+  if (jwt === cloudToken) return          // 云端就是这份，别再消耗额度
+  if (jwt.length > CLOUD_VALUE_MAX) {
+    console.warn('[demo] token 超过云存储单值上限，未写入')
+    return
+  }
+  try {
+    await toy.setCloudStorage({ [CLOUD_KEY]: jwt })
+    cloudToken = jwt
+    console.log('[demo] access_token 已写入本 toy 的云存储')
+  } catch (e) {
+    if (e && e.type === 'http_error' && e.code === 307044) {
+      // 额度是同一个 toy 的所有玩家共用的，人多就容易撞上
+      console.warn('[demo] 云存储被限流，稍后再试')
+    } else {
+      console.warn('[demo] 写入云存储失败：', e)
+    }
+  }
 }
 
 let configured = false
@@ -186,7 +275,7 @@ if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
     try {
       XMETA.configure(CONFIG)
       configured = true
-      $('tip').textContent = '点「开启联机」会先跳到中心 toy 完成一次授权，然后带着授权码跳回来。'
+      $('tip').textContent = '点「开启联机」跳到中心 toy 完成一次授权；跳回来之后再点一次「完成登录」。'
     } catch (e) {
       showErr('初始化失败：' + e.message)
       $('btnLogin').disabled = true
@@ -197,14 +286,7 @@ if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
 if (configured) {
   // 回跳之后 xmeta-client.js 会自动用 code 换 JWT，换好了通知这里
   XMETA.onSession((s) => {
-    if (!s) { // 被 logout() 或彻底失效
-      $('vState').textContent = '未连接'
-      $('vState').className = 'xm-live'
-      $('rowUid').classList.add('xm-hidden')
-      $('rowLeft').classList.add('xm-hidden')
-      $('btnLogin').textContent = '开启联机'
-      return
-    }
+    if (!s) return paintDisconnected('开启联机')   // 被 logout() 或彻底失效
     $('vState').textContent = '已连接'
     $('vState').className = 'xm-live xm-live--on'
     if (s.uid) { $('vUid').textContent = s.uid; $('rowUid').classList.remove('xm-hidden') }
@@ -212,20 +294,86 @@ if (configured) {
     $('jwt').textContent = s.jwt
     $('claims').textContent = JSON.stringify(decodePayload(s.jwt), null, 2)
     $('btnLogin').textContent = '重新获取'
+    $('btnFinish').classList.add('xm-hidden')   // 已经连上了，那个按钮没用了
     $('tip').textContent = ''
     startCountdown()
+    // 拿到（或从本机恢复出）身份后，把 token 写进本 toy 的云存储 ——
+    // 那才是「联机状态」的落点。不 await：写失败不该影响玩。
+    syncCloudToken(s.jwt)
   })
 
-  // 自动路径（回跳换取）上的失败原来只进 console —— 手机上根本看不到，
-  // 用户只会觉得「点了没反应」。接到界面上。
-  XMETA.onError((e) => {
-    showErr('身份换取失败：' + (e.message || e))
-  })
+  // 检测到待兑换的授权码 —— SDK 只负责通知，兑换等用户点。
+  //
+  // 先确认 SDK 是新版：它是从中心服务器分发的，改了仓库没重启服务端的话
+  // 这里拿到的是旧脚本。旧脚本没有 onCodeReady，按钮永远不会出现 ——
+  // 而且如果不拦一下，下面那行会抛 TypeError，把后面的注册全带走，
+  // 界面上什么都不显示，极难排查。
+  if (typeof XMETA.onCodeReady !== 'function') {
+    showErr('xmeta-client.js 还是旧版本（没有 onCodeReady）。' +
+      '需要先部署服务端并重启，或强制刷新页面。')
+    $('btnLogin').disabled = true
+  } else {
+    XMETA.onCodeReady(() => {
+      $('btnFinish').classList.remove('xm-hidden')
+      $('tip').textContent = '授权已返回，点「完成登录」就好。'
+      paintDiag()
+    })
+  }
 
   // 成功时把错误清掉。否则前面某条路失败留下的报错会一直挂在那里，
   // 用户明明已经拿到身份了，界面上却还有个红字 —— 看起来像坏了。
-  XMETA.onSession(() => clearErr())
+  XMETA.onSession(() => { clearErr(); paintDiag() })
+
+  // 云存储里那枚 token 就是联机状态本身：
+  //   有效 → 装进 XMETA，直接「已连接」，不用再过一次桥；
+  //   过期 / 解不开 → 清掉，维持「未连接」，等玩家重新申请一次。
+  //
+  // 换个设备打开走的也是这条路，所以云存储里的凭证才是跨设备的那个真身，
+  // localStorage 只是这台设备上的快取。
+  cloudReady.then(() => {
+    if (!cloudToken) return
+    if (XMETA.setSession(cloudToken)) {
+      $('tip').textContent = '已用本 toy 云存储里的凭证恢复联机，不用重新授权。'
+    } else {
+      cloudToken = null
+      toy.removeCloudStorage([CLOUD_KEY]).catch(() => { /* 清不掉也没关系 */ })
+    }
+  })
 }
+
+// ── 诊断：没连上时把现场摊开 ──
+//
+// 这条链路里好几处失败是**静默**的 —— SDK 只 console.warn，界面上就一句
+// 「未连接」。不摊开的话，出了问题只能靠猜（或者让人去翻控制台）。
+// 只在未连接时显示，连上了自动消失。
+const DIAG_KEYS = [
+  ['req', 'xmeta:req'],                          // 本次请求（claimed 才是被中心 toy 接手过）
+  ['code', 'xmeta:code'],                        // 中心 toy 写下的待兑换授权码
+  ['pkce', 'xmeta:pkce:' + CONFIG.clientId],     // 本地 PKCE 记录，兑换全靠它
+  ['sess', 'xmeta:sess:' + CONFIG.clientId]      // 已保存的会话
+]
+
+function paintDiag() {
+  const el = $('diag')
+  if (!el) return
+  if (typeof XMETA !== 'undefined' && XMETA.getSession()) { el.textContent = ''; return }
+
+  const parts = DIAG_KEYS.map(([name, key]) => {
+    let v = '?'
+    try { v = localStorage.getItem(key) ? '有' : '无' } catch (e) { /* 隐私模式 */ }
+    if (name === 'req') {
+      try {
+        const req = JSON.parse(localStorage.getItem(key) || 'null')
+        if (req) v += req.claimed ? '(claimed)' : '(new)'
+      } catch (e) { /* 忽略 */ }
+    }
+    return name + '=' + v
+  })
+  el.textContent = '诊断：' + parts.join(' · ')
+}
+
+// 页面刚加载、兑换刚结束、以及等会话等超时，各采一次
+;[2500, 6000, 13000].forEach((t) => setTimeout(paintDiag, t))
 </script>
 </body>
 </html>

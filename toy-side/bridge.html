@@ -153,6 +153,11 @@ const API_BASE = 'https://www.oxth.com:8443'
 // 会把参数另写一份到共享存储（所有 toy 的内层 iframe 同源）。
 // ─────────────────────────────────────────────────────────────
 const REQ_KEY = 'xmeta:req'
+/**
+ * 待兑换的授权码槽。**这是一份公开契约**，键名 / 值结构 / TTL 写在 README 里，
+ * 第三方 toy 只读它。下面的 RES_KEY 是旧格式，过渡期双写用，下个周期可删。
+ */
+const CODE_KEY = 'xmeta:code'
 const RES_KEY = 'xmeta:res'
 const SHARED_TTL_MS = 3 * 60 * 1000
 
@@ -336,11 +341,26 @@ function showInline(id, msg) {
   el.classList.remove('xm-hidden')
 }
 
+/**
+ * 丢掉 null / undefined 的参数。
+ *
+ * URLSearchParams 会把 null 序列化成字符串 "null"，而 st 可能是 null ——
+ * 那样跳过去的页面会拿到 state="null"，跟本地记的对不上，检测谓词永远
+ * 不命中，界面上就是一个永远不出现的按钮。宁可这个参数干脆不带。
+ */
+function extraParams(extra) {
+  const out = {}
+  Object.keys(extra || {}).forEach((k) => {
+    if (extra[k] !== null && extra[k] !== undefined) out[k] = extra[k]
+  })
+  return out
+}
+
 /** 和 SDK 内部的 at() 同构：拼出目标 toy 的地址。只为兜底用。 */
 function toyUrl(slug, extra) {
   const url = location.protocol + '//www.bilibili.com/toy/' +
     encodeURIComponent(slug) + '/index.html'
-  const qs = new URLSearchParams(extra || {}).toString()
+  const qs = new URLSearchParams(extraParams(extra)).toString()
   return qs ? url + '?' + qs : url
 }
 
@@ -363,13 +383,12 @@ function uaDiag() {
  * 能跳回去就行，走哪条路无所谓。
  */
 function navigateToToy(slug, extra, hintId) {
-  toy.navigate({ type: 'toy', id: slug, extra: extra }).catch((e) => {
-    // 走 window.open 兜底：code 会拼在 URL 上，新页面的 handleRedirect
-    // 会从 URL 取。这时 RES_KEY 就多余了 —— 不清的话旧页面若还活着，
-    // polling 会抢先把 code 消费掉，新页面就只能拿到一个「已使用」的错。
-    clearShared(RES_KEY)
+  const params = extraParams(extra)
+  toy.navigate({ type: 'toy', id: slug, extra: params }).catch((e) => {
+    // 走 window.open 兜底：参数会拼在 URL 上。槽不清 —— 检测改成只读之后
+    // 它已经没有破坏性了，而且新开那个窗口也要靠它兜底。
     let opened = null
-    try { opened = window.open(toyUrl(slug, extra), '_blank') } catch (err) { /* 忽略 */ }
+    try { opened = window.open(toyUrl(slug, params), '_blank') } catch (err) { /* 忽略 */ }
     if (opened) return // 兜底成功了
 
     showInline(hintId,
@@ -415,18 +434,34 @@ document.addEventListener('keydown', (e) => {
 $('btnBack').addEventListener('click', () => {
   if (!pendingReturn) return
 
-  // App 内回跳同样带不了 extra，所以结果也写一份到共享存储。
-  // 必须真跳转前才写 —— 写早了，发起方页面若还活着会提前把 code
-  // 消费掉，等它跳回重载时就什么都拿不到了。
+  // 把结果写进共享槽。App 内回跳带不了 extra，落回来那个页面只能靠它；
+  // Web 端 URL 上有 code，槽是冗余的，但检测会按 code 值去重，留着无害。
+  //
+  // 这里不再需要「必须真跳转前才写」那种时序讲究了 —— 第三方检测只读
+  // 不消费，写早了也没人能把它抢走。
+  writeShared(CODE_KEY, {
+    v: 1,
+    clientId: CID,
+    code: pendingReturn.code,
+    state: ST,
+    returnSlug: pendingReturn.returnSlug,
+    // 授权码在服务端只有 60 秒。写绝对时刻，第三方才能在码死掉之后
+    // 把「完成登录」的按钮撤掉，而不是留一个点了必然失败的按钮。
+    expiresAt: Date.now() + (pendingReturn.expiresIn || 60) * 1000,
+    ts: Date.now()
+  })
+
+  // 过渡期双写旧格式：已经打开的页面可能还装着旧版 SDK，只写新键会让
+  // 它们静默地连不上。下一个发布周期后可以删掉这一段。
   writeShared(RES_KEY, {
     code: pendingReturn.code,
-    st: ST || '',
+    st: ST,
     returnSlug: pendingReturn.returnSlug,
     ts: Date.now()
   })
 
   navigateToToy(pendingReturn.returnSlug,
-    { code: pendingReturn.code, st: ST || '' }, 'backHint')
+    { code: pendingReturn.code, st: ST }, 'backHint')
 })
 
 $('btnRetry').addEventListener('click', () => boot())
