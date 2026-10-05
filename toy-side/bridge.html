@@ -195,6 +195,16 @@ if (!CID) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 版本标记。这一页是**上传到 toy 平台**的，不像 xmeta-client.js 那样由
+// 服务端分发 —— 所以「上传到底生效没有」没法用 curl 查，只能靠猜。
+// 启动时写一个标记，第三方 toy 的诊断行里就能看到，一眼确认。
+//
+// 改了这一页就把它 +1。
+const BRIDGE_VERSION = 2
+try {
+  localStorage.setItem('xmeta:bridge', JSON.stringify({ v: BRIDGE_VERSION, ts: Date.now() }))
+} catch (e) { /* 忽略 */ }
+
 const $ = (id) => document.getElementById(id)
 const SECTIONS = ['s-loading', 's-consent', 's-working', 's-done', 's-error']
 

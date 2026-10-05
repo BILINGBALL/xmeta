@@ -375,6 +375,9 @@ if (configured) {
 // 「未连接」。不摊开的话，出了问题只能靠猜（或者让人去翻控制台）。
 // 只在未连接时显示，连上了自动消失。
 const DIAG_KEYS = [
+  // 中心 toy 自己写的版本号。它在上传的 HTML 里、不是服务端分发的，
+  // 「上传生效没有」没法用 curl 查 —— 看这个数字最快。
+  ['bridge', 'xmeta:bridge'],
   ['req', 'xmeta:req'],                          // 本次请求（claimed 才是被中心 toy 接手过）
   ['code', 'xmeta:code'],                        // 中心 toy 写下的待兑换授权码
   // 旧格式的槽。中心 toy 过渡期会双写它 —— 所以 "legacy=有 而 code=无"
@@ -392,12 +395,16 @@ function paintDiag() {
   const parts = DIAG_KEYS.map(([name, key]) => {
     let v = '?'
     try { v = localStorage.getItem(key) ? '有' : '无' } catch (e) { /* 隐私模式 */ }
-    if (name === 'req') {
-      try {
+    try {
+      if (name === 'req') {
         const req = JSON.parse(localStorage.getItem(key) || 'null')
         if (req) v += req.claimed ? '(claimed)' : '(new)'
-      } catch (e) { /* 忽略 */ }
-    }
+      }
+      if (name === 'bridge') {
+        const b = JSON.parse(localStorage.getItem(key) || 'null')
+        v = b ? 'v' + b.v : '无'
+      }
+    } catch (e) { /* 忽略 */ }
     return name + '=' + v
   })
   el.textContent = '诊断：' + parts.join(' · ')
