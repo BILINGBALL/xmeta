@@ -364,6 +364,10 @@ function uaDiag() {
  */
 function navigateToToy(slug, extra, hintId) {
   toy.navigate({ type: 'toy', id: slug, extra: extra }).catch((e) => {
+    // 走 window.open 兜底：code 会拼在 URL 上，新页面的 handleRedirect
+    // 会从 URL 取。这时 RES_KEY 就多余了 —— 不清的话旧页面若还活着，
+    // polling 会抢先把 code 消费掉，新页面就只能拿到一个「已使用」的错。
+    clearShared(RES_KEY)
     let opened = null
     try { opened = window.open(toyUrl(slug, extra), '_blank') } catch (err) { /* 忽略 */ }
     if (opened) return // 兜底成功了

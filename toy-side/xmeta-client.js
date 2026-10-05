@@ -54,6 +54,7 @@
   var SESSION_KEY = ''
   var pollTimer = null
   var prepared = null            // 预生成的 PKCE 对，login() 时同步取用
+  var exchanging = false         // doExchange 页面内互斥，防止 polling 和 handleRedirect 同时兑换
 
   /**
    * toy 之间跳转用的传参通道。
@@ -311,6 +312,12 @@
    * 是的话用 code 换 JWT。返回 session 或 null。
    */
   async function handleRedirect() {
+    // 已经有有效 session 就直接用 —— 可能是另一个窗口刚兑换完写进来的，
+    // 也可能是本页 restoreSession 时还没写完、现在补一次。
+    if (SESSION && getRemainingMs() > 0) return SESSION
+    restoreSession()
+    if (SESSION) return SESSION
+
     var qs = new URLSearchParams(global.location.search)
     var code = qs.get('code')
     var state = qs.get('st')
@@ -334,6 +341,11 @@
 
   /** 用 code + code_verifier 换 JWT */
   async function doExchange(code, state) {
+    // 页面内互斥：polling 和 handleRedirect 可能同时触发，
+    // code 是一次性的，换第二次只会拿到「已使用」的错。
+    if (exchanging) return null
+    exchanging = true
+
     var verifier = null
     var expectState = null
     try {
@@ -355,21 +367,26 @@
     // 这里不抛，只是安静地当没登录。
     if (!verifier) {
       console.warn('[xmeta] 收到一个授权结果，但本地没有对应的 PKCE 记录，已忽略')
+      exchanging = false
       return null
     }
     if (expectState && state !== expectState) {
       console.warn('[xmeta] state 不匹配，已忽略这次结果')
+      exchanging = false
       return null
     }
 
-    var res = await post('/api/oauth/token', {
-      grant_type: 'authorization_code',
-      code: code,
-      client_id: CFG.clientId,
-      code_verifier: verifier
-    })
-
-    return applyTokens(res)
+    try {
+      var res = await post('/api/oauth/token', {
+        grant_type: 'authorization_code',
+        code: code,
+        client_id: CFG.clientId,
+        code_verifier: verifier
+      })
+      return applyTokens(res)
+    } finally {
+      exchanging = false
+    }
   }
 
   /** 处理一次成功的 token 响应 */
