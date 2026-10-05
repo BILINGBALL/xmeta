@@ -135,6 +135,7 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 | `bridge.html` | 上传到**中心 toy**，用户过桥时落到这里 |
 | `me.html` | 上传到**中心 toy**，个人中心：看自己的身份和被哪些 toy 用过 |
 | `demo-toy/index.html` | 一个最小的**第三方 toy**示例，用来跑通整条链路 |
+| `demo-toy/raw.html` | **不用 SDK 的裸接入示例** —— 整条链路约 60 行，想自己接就抄它 |
 | `xmeta-client.js` | 接入脚本。**不用自己存**，服务端已挂在 `/xmeta-client.js` |
 | `xmeta-ui.css` | 页面共用的设计系统。**随页面一起上传**，用相对路径本地引用 |
 
