@@ -60,6 +60,9 @@
     <button class="xm-btn xm-btn--primary xm-hidden" id="btnFinish">完成登录</button>
     <button class="xm-btn xm-btn--quiet" id="btnWho">查看本 toy 标识</button>
   </div>
+  <div class="xm-actions" style="margin-top:8px">
+    <button class="xm-btn xm-btn--quiet xm-btn--sm" id="btnReset">清除凭证（本地 + 云端）</button>
+  </div>
 
   <p class="xm-small xm-mt" id="tip"></p>
   <p class="xm-small xm-mt xm-mono" id="diag" style="color:var(--xm-ink-3);word-break:break-all"></p>
@@ -136,6 +139,31 @@ $('btnFinish').addEventListener('click', async () => {
   } finally {
     btn.disabled = false
   }
+})
+
+// ── 清除凭证（调试用）──
+//
+// 两份都得清，缺一个就会「看起来没清干净」：
+//   XMETA.logout()            本地那份：会话 + PKCE 记录 + 待兑换的码
+//   removeCloudStorage        云端那份：跨设备恢复全靠它，不清的话
+//                             下次进来又被恢复成「已连接」
+$('btnReset').addEventListener('click', async () => {
+  clearErr()
+  $('tip').textContent = ''
+
+  if (typeof XMETA !== 'undefined') XMETA.logout()
+  else console.warn('[demo] XMETA 没加载，只清云端')
+
+  cloudToken = null
+  try {
+    await toy.removeCloudStorage([CLOUD_KEY])
+    $('tip').textContent = '本地和云端的凭证都已清除，可以重新走一遍了。'
+  } catch (e) {
+    // 没登录 / 限流 / 抖动都会走这里。本地那份已经清了，说清楚就行。
+    console.warn('[demo] 清除云存储失败：', e)
+    showErr('本地已清除，但云端那份没清掉：' + (e.message || e))
+  }
+  paintDiag()
 })
 
 // ── 调试：看看我自己在这款 toy 里的 toyOpenId ──
