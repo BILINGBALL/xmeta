@@ -41,10 +41,6 @@
       <span class="xm-label" style="margin:0">联机状态</span>
       <span class="xm-live" id="vState">未连接</span>
     </div>
-    <div class="xm-kv">
-      <span class="xm-kv__k">client_id</span>
-      <span class="xm-kv__v xm-mono" id="vCid">—</span>
-    </div>
     <div class="xm-kv xm-hidden" id="rowUid">
       <span class="xm-kv__k">身份 uid</span>
       <span class="xm-kv__v xm-mono" id="vUid">—</span>
@@ -58,7 +54,6 @@
   <div class="xm-actions xm-mt-lg">
     <button class="xm-btn xm-btn--primary" id="btnLogin">开启联机</button>
     <button class="xm-btn xm-btn--primary xm-hidden" id="btnFinish">完成登录</button>
-    <button class="xm-btn xm-btn--quiet" id="btnWho">查看本 toy 标识</button>
   </div>
   <div class="xm-actions" style="margin-top:8px">
     <button class="xm-btn xm-btn--quiet xm-btn--sm" id="btnReset">清除凭证（本地 + 云端）</button>
@@ -66,20 +61,6 @@
 
   <p class="xm-small xm-mt" id="tip"></p>
   <p class="xm-small xm-mt xm-mono" id="diag" style="color:var(--xm-ink-3);word-break:break-all"></p>
-
-  <section class="xm-hidden xm-mt-lg" id="result">
-    <details class="xm-details">
-      <summary>开发者 · 查看 access_token / payload</summary>
-      <p class="xm-label">access_token</p>
-      <pre class="xm-pre" id="jwt"></pre>
-      <p class="xm-label xm-mt-lg">payload</p>
-      <pre class="xm-pre" id="claims"></pre>
-    </details>
-    <p class="xm-small xm-mt">
-      这里只是解码给人看，<b>没有验签</b>。真实接入必须把 JWT 交给你的服务端，
-      用 JWKS 公钥验签并校验 <span class="xm-mono">aud</span> 等于自己的 toy_id。
-    </p>
-  </section>
 
   <div class="xm-alert xm-alert--error xm-hidden xm-mt-lg" id="errBox"></div>
 
@@ -166,30 +147,7 @@ $('btnReset').addEventListener('click', async () => {
   paintDiag()
 })
 
-// ── 调试：看看我自己在这款 toy 里的 toyOpenId ──
-$('btnWho').addEventListener('click', async () => {
-  clearErr()
-  try {
-    if (!(await toy.isSupport('getUserProfile'))) {
-      throw new Error('当前环境不支持获取用户信息，请在 B站 App 内或电脑浏览器打开。')
-    }
-    const p = await toy.getUserProfile()
-    if (!p.toyOpenId) throw new Error('这款 toy 没开启 OpenID 模式，拿不到 toyOpenId。')
-    $('tip').textContent = '本 toy 内的 toyOpenId：' + p.toyOpenId +
-      '（昵称：' + (p.nickname || '—') + '）'
-  } catch (e) {
-    showErr(e.message || String(e))
-  }
-})
 
-
-function decodePayload(jwt) {
-  const b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return JSON.parse(new TextDecoder().decode(bytes))
-}
 
 // ── 剩余时间 ──
 // 用户自己选的时长，过期后要回中心 toy 再授权一次。把它显示出来，
@@ -290,10 +248,8 @@ let configured = false
 
 if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
   $('cfgWarn').classList.remove('xm-hidden')
-  $('vCid').textContent = '未配置'
   $('btnLogin').disabled = true
 } else {
-  $('vCid').textContent = CONFIG.clientId
   if (typeof XMETA === 'undefined') {
     // xmeta-client.js 是从中心服务器加载的，服务器挂了就拿不到 XMETA。
     // 此时联机功能不可用，但 toy 本身还能跑，别把整个页面搞崩。
@@ -318,9 +274,6 @@ if (configured) {
     $('vState').textContent = '已连接'
     $('vState').className = 'xm-live xm-live--on'
     if (s.uid) { $('vUid').textContent = s.uid; $('rowUid').classList.remove('xm-hidden') }
-    $('result').classList.remove('xm-hidden')
-    $('jwt').textContent = s.jwt
-    $('claims').textContent = JSON.stringify(decodePayload(s.jwt), null, 2)
     $('btnLogin').textContent = '重新获取'
     $('btnFinish').classList.add('xm-hidden')   // 已经连上了，那个按钮没用了
     $('tip').textContent = ''
