@@ -155,6 +155,7 @@ toy 页面本身跑在 https 上，调 http 接口会被浏览器按混合内容
   XMETA.configure({
     apiBase: 'https://your-api.example.com',
     centerToySlug: '<中心 toy slug>',
+    centerToyId: '<中心 toy 的 toy_id>',   // 可选，用来认「刚从中心 toy 回来」
     clientId: '<认领拿到的 client_id>'
   })
 
@@ -230,15 +231,28 @@ B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / PKCE / �
    | | |
    |---|---|
    | 键 | `xmeta:code` —— 全局单槽，所有 toy 共用 |
-   | 值 | `{ v, clientId, code, state, returnSlug, expiresAt, ts }` |
+   | 值 | `{ v, clientId, code, state, verifier, returnSlug, expiresAt, ts }` |
    | 时效 | 到 `expiresAt` 为止（= 授权码的 60 秒有效期） |
    | 读方 | **只读**。只在「兑换成功 / 判定过期 / 用户取消」三种终态才允许删 |
 
    `clientId` 不能省 —— 单槽是所有 toy 共用的，它是「这枚码不是给我的」
    唯一判据。leg 1 的 `xmeta:req`（发起方写、中心 toy 读）不在这个契约里。
 
-   ⚠️ 注意这份共享是**双向**的：PKCE verifier 和暂存的会话也在同一个源下，
-   同源的别的 toy 都读得到。凭证的暴露面见下面「几个必须知道的坑」。
+   `verifier` 是这枚码配套的 PKCE verifier。**这一枚就够了：读它的那边
+   不需要自己再记着什么。** 这条是踩出来的 —— 用户可能在中心 toy 那边
+   挑半天时长，这段时间里发起方写在 localStorage 里的记录会被平台回收，
+   于是带着一枚好端端的码回来却什么都换不了（本地判据对不上，而且**不报错**）。
+   所以这一轮需要的东西一律由中心 toy 在用户点「返回游戏」那一刻写进这里。
+
+   判定「这一跳是不是刚从中心 toy 回来」有两条路：Web 端 SDK 自己把 `code`
+   拼在 URL 上；App 端原生拼的是 `from_spmid=toy.toy-detail.<中心 toy 的
+   toy_id>.0`（这就是 `centerToyId` 的用处）。`xmeta-client.js` 两种都认，
+   外加「槽里躺着一枚新鲜的、写给我的码」兜底 —— 三个判据全在槽自己身上，
+   不依赖本地任何历史记录。
+
+   ⚠️ 注意这份共享是**双向**的：契约里带着 PKCE verifier，暂存的会话也在
+   同一个源下，**同源的别的 toy 都读得到**。凭证的暴露面见下面「几个必须
+   知道的坑」。
 
 3. **`getUserProfile()` 在外部手机浏览器里不支持**，只在 B站 App 内和桌面 Web 可用。
 4. **`toy.navigate` 必须在用户手势里「同步」调用，不能跨 `await`。**

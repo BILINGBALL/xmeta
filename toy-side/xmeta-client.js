@@ -8,6 +8,7 @@
  *     XMETA.configure({
  *       apiBase: 'https://your-api.example.com',
  *       centerToySlug: '<中心 toy 的 slug>',
+ *       centerToyId: '<中心 toy 的 toy_id>',   // 可选，用来认「刚从中心 toy 回来」
  *       clientId: '<认领后拿到的 client_id>'
  *     })
  *
@@ -28,10 +29,26 @@
  *     XMETA.getRemainingMs()
  *   </script>
  *
- * 关于 centerToySlug —— 这是**中心 toy**的 slug，不是你自己 toy 的。
- * 你不需要告诉 SDK 自己是谁：client_id 已经唯一标识了你的 toy，
- * 服务端由它反查出你的 slug 和 toy_id，回跳目标也由服务端给出。
+ * 关于 centerToySlug / centerToyId —— 这是**中心 toy** 的 slug 和 toy_id，
+ * 不是你自己 toy 的。你不需要告诉 SDK 自己是谁：client_id 已经唯一标识了
+ * 你的 toy，服务端由它反查出你的 slug 和 toy_id，回跳目标也由服务端给出。
  * 客户端指定不了回跳地址，这样就堵掉了开放重定向。
+ *
+ * centerToyId 用来认「这一跳是不是刚从中心 toy 跳回来的」。App 内
+ * toy.navigate 不透传 extra，但原生会在目标地址上拼
+ * from_spmid=toy.toy-detail.<来源 toy 的 toy_id>.0。不配也能跑（退化成
+ * 「从任意 toy 跳过来都算」），配了更准。
+ *
+ * 关于「回来之后凭什么认那枚码」—— 只认两件事：**这一跳是从中心 toy
+ * 来的**，以及**共享槽里那枚码是写给我的（clientId / returnSlug 对得上、
+ * 还没过期）**。
+ *
+ * 曾经这里还要校验「槽里的 state == 本地记的 state」。那条路依赖第三方
+ * toy 自己写在 localStorage 里的记录，而**你在中心 toy 那边挑时长的这段
+ * 时间里，这份记录可能已经被平台回收了** —— 表现是带着一枚好端端的码
+ * 回来，却悄无声息地什么都不发生。所以这一轮需要的东西（包括 PKCE 的
+ * verifier）一律由中心 toy 在用户点「返回游戏」那一刻写进共享槽，第三方
+ * toy 只读、不依赖自己的任何历史记录。
  *
  * 关于「为什么要用户再点一次」—— 过桥是「跳走再跳回来」，而跳走时
  * 那个页面实例并没有消失，只是看不见了。如果兑换是自动的，看不见的
@@ -65,12 +82,11 @@
 (function (global) {
   'use strict'
 
-  var CFG = { apiBase: '', centerToySlug: '', clientId: '' }
+  var CFG = { apiBase: '', centerToySlug: '', centerToyId: '', clientId: '' }
   var SESSION = null            // { jwt, uid, expiresAt, raw? }
   var listeners = []
   var VERIFIER_KEY = ''
   var SESSION_KEY = ''
-  var pollTimer = null
   var sessionWatchTimer = null   // 等另一个页面实例把会话交出来
   var prepared = null            // 预生成的 PKCE 对，login() 时同步取用
   var exchanging = false         // completeLogin 页面内互斥，防止手快连点打出两次 POST
@@ -89,18 +105,20 @@
    * 两边都走：URL 参数优先（Web 端能用），拿不到再读 localStorage。
    * 只在同一台设备上有效，但过桥本来就是同设备跳过去再跳回来。
    */
-  var REQ_KEY = 'xmeta:req'          // 发起方写：{ cid, cc, st, ts, claimed }
+  var REQ_KEY = 'xmeta:req'          // 发起方写：{ cid, cc, st, verifier, ts, claimed }
   /**
    * 中心 toy 写下的「待兑换授权码」槽。**这是一份公开契约**，
    * 键名、值结构、TTL 都写在 README 里，第三方 toy 可以只读它。
    *
    * 键是全局单槽（所有 toy 共用一个），所以值里的 clientId 不能省 ——
    * 它是「这枚码不是给我的」的唯一判据。
+   *
+   * 值里带 verifier：第三方 toy **只读这一份**就能把码换成 JWT，不依赖
+   * 自己写在别处的任何记录（那些记录可能在你走开期间被平台回收）。
    */
   var CODE_KEY = 'xmeta:code'
   /** 旧版本的槽（键名不同、无 expiresAt）。过渡期清一清，见 bridge.html。 */
   var LEGACY_RES_KEY = 'xmeta:res'
-  var SHARED_TTL_MS = 3 * 60 * 1000
   /** 没检测到 code 时，等另一个页面实例把会话写出来的最长时间 */
   var SESSION_WATCH_MS = 10 * 1000
   /** 槽里没有 expiresAt 时的兜底有效期（URL 那条路用它，量的是「页面加载至今」） */
@@ -122,6 +140,20 @@
   function mySlug() {
     var m = /^\/toy\/([^/]+)\//.exec(global.location.pathname)
     return m ? m[1] : null
+  }
+
+  /**
+   * 这一跳是不是「刚从中心 toy 跳回来」。
+   *
+   * App 内 toy.navigate 不透传 extra，但原生会在目标地址上拼
+   * from_spmid=toy.toy-detail.<来源 toy 的 toy_id>.0 —— 中心 toy 的 toy_id
+   * 是固定的，配了 centerToyId 就按它精确匹配；没配就退化成「从任意 toy
+   * 跳过来都算」（后面读槽时还会校验 clientId，误判无害）。
+   */
+  function isFromCenterToy(spmid) {
+    if (!spmid || spmid.indexOf('toy.toy-detail.') !== 0) return false
+    if (!CFG.centerToyId) return true
+    return spmid.indexOf('toy.toy-detail.' + CFG.centerToyId + '.') === 0
   }
 
   function b64url(bytes) {
@@ -294,6 +326,11 @@
   /**
    * 槽里那枚 code 是不是「此刻、本实例、该兑换的那一枚」。**纯读**。
    * 不满足就返回 null —— 除了「已过期」，其它情况一律**不清槽**。
+   *
+   * 判据只有三条，全都写在槽自己身上（clientId / returnSlug / 有效期），
+   * **不依赖本地的任何历史记录** —— 你在中心 toy 那边待着的这段时间里，
+   * 本地记录可能已经被平台回收，拿它当判据就会出现「带着一枚好端端的码
+   * 回来却什么都不发生」。
    */
   function detectPending() {
     var p = readPending()
@@ -314,19 +351,16 @@
       return null
     }
 
-    // 必须对得上「当前正在进行的这一轮」。
-    //
-    // 注意是 `!expect ||` 而不是 `expect &&` —— 没有进行中的一轮时一定要
-    // 拒绝。那说明这是一条残留：上一轮的结果没被消费掉（页面没重载且轮询
-    // 超时），而它的 verifier 早就没了。放行就会拿着一条无主的 code 去换，
-    // 报「找不到本次登录的 PKCE 记录」。
-    var expect = currentState()
-    if (!expect || !p.state || p.state !== expect) return null
-
     // 已经连上了就别再冒一个「完成登录」的按钮
     if (SESSION && getRemainingMs() > 0) return null
 
-    return { code: p.code, state: p.state, returnSlug: p.returnSlug || null }
+    return {
+      code: p.code,
+      state: p.state,
+      // 兑换要用的 PKCE verifier，由中心 toy 连同 code 一起写下来
+      verifier: p.verifier || null,
+      returnSlug: p.returnSlug || null
+    }
   }
 
   /**
@@ -414,12 +448,17 @@
     // App 内 navigate 不透传 extra，所以参数另写一份到共享的 localStorage。
     // URL 那份照样带着 —— Web 端能生效，且这样两端的排查方式一致。
     //
+    // verifier 也放进来：中心 toy 拿到它之后，会在用户点「返回游戏」那一刻
+    // 把这枚 verifier 连同 code 一起写进共享槽。于是回来时**只读槽就够**，
+    // 不需要本地这条记录还活着（它可能已经被平台回收了）。
+    //
     // claimed 表示「中心 toy 已经接手过这个请求」。不标记的话，用户在这之后
     // 直接打开中心 toy，会被一个还"新鲜"的旧请求弹到过桥页，而不是首页。
     writeShared(REQ_KEY, {
       cid: CFG.clientId,
       cc: pair.challenge,
       st: state,
+      verifier: pair.verifier,
       ts: Date.now(),
       claimed: false
     })
@@ -430,13 +469,10 @@
       extra: { cid: CFG.clientId, cc: pair.challenge, st: state }
     })
 
-    // 回来时页面要是没有重新加载，handleRedirect 就不会再跑，
-    // 所以这里起个轮询盯着共享存储，等中心 toy 把结果写进来。
-    startPolling()
-  }
-
-  function stopPolling() {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+    // 回来时会是一次新的页面加载（App 内实测如此，URL 上还带着原生拼的
+    // from_spmid），加载时 handleRedirect 就会跑；页面切回前台时也补一次。
+    // 所以这里**不再需要轮询盯梢** —— 那个 3 分钟的窗口正是「呆久了就
+    // 悄无声息地连不上」的来源。
   }
 
   /**
@@ -465,27 +501,12 @@
   }
 
   /**
-   * 盯着共享槽，等中心 toy 把 code 写进来 —— 覆盖「App 里跳回来但页面
-   * 没重载」的情况（这种情况下 handleRedirect 不会再跑）。
-   *
-   * **只检测、只通知，不兑换。** 兑换交给用户点按钮。
-   */
-  function startPolling() {
-    // 先清掉可能还在跑的旧轮询：它的截止时间是按上一轮算的
-    stopPolling()
-
-    var deadline = Date.now() + SHARED_TTL_MS
-    pollTimer = setInterval(function () {
-      if (Date.now() > deadline) {
-        stopPolling()
-        return
-      }
-      if (probe()) stopPolling()   // 通知过了就收工，后面用户自己会点
-    }, 1000)
-  }
-
-  /**
    * 处理「从中心 toy 跳回来」。**只检测、只通知，不兑换。**
+   *
+   * 判定「回来了」看三样，命中一样就算：
+   *   1. URL 上有 ?code=（Web 端 SDK 自己拼的地址，码直接在 URL 上）
+   *   2. URL 的 from_spmid 指向中心 toy（App 端原生拼的回跳特征）
+   *   3. 共享槽里躺着一枚新鲜的、写给我的码（前两样都没留下痕迹时兜底）
    *
    * 兑换要用户点按钮（completeLogin），这样只有用户看得见、点得到的
    * 那个页面会去消费那枚一次性 code，后台实例拿它没办法。
@@ -498,6 +519,12 @@
     if (SESSION && getRemainingMs() > 0) return null
     restoreSession()
     if (SESSION) return null
+
+    var qs = new URLSearchParams(global.location.search)
+    var back = !!qs.get('code') ||
+      isFromCenterToy(qs.get('from_spmid') || '') ||
+      !!detectPending()
+    if (!back) return null
 
     return probe()
   }
@@ -567,19 +594,19 @@
     if (exchanging) return null
     exchanging = true
 
-    var verifier = null
-    var expectState = null
-    try {
-      verifier = localStorage.getItem(VERIFIER_KEY)
-      expectState = localStorage.getItem(VERIFIER_KEY + ':st')
-    } catch (e) { /* 忽略 */ }
+    // PKCE verifier **优先用槽里那枚**（中心 toy 连同 code 一起写下来的），
+    // 本地记录只当兜底 —— 本地那份在过桥期间可能已经被平台回收了。
+    var verifier = pending.verifier
+    if (!verifier) {
+      try { verifier = localStorage.getItem(VERIFIER_KEY) } catch (e) { /* 忽略 */ }
+    }
 
-    if (!verifier || !expectState || pending.state !== expectState) {
-      // 本地没有对应的 PKCE 记录 / state 对不上 = 这轮没得换。
-      // 用户什么都没做错，但也没法在这点上成功，清掉残留让他重新发起。
+    if (!verifier) {
+      // 槽里没带、本地也没有 = 这枚码换不了。用户什么都没做错，
+      // 清掉残留让他重新发起。
       clearAttempt()
       exchanging = false
-      var stale = new Error('本地找不到本次登录的 PKCE 记录，请点「开启联机」重新授权一次')
+      var stale = new Error('找不到本次登录的 PKCE 记录，请点「开启联机」重新授权一次')
       stale.code = 'no_pkce_record'
       throw stale
     }
@@ -698,7 +725,6 @@
     clearPending()
     notifiedCode = null
     clearStoredSession()
-    stopPolling()
     stopWatching()
     SESSION = null
     emit()
@@ -786,17 +812,19 @@
   }
 
   /**
-   * 页面切到后台就停掉轮询，回到前台立刻补一次检测。
+   * 页面切回前台时补一次检测。
    *
-   * 兑换不再自动发生，所以后台实例的轮询已经没有破坏性了 —— 这里停掉
-   * 纯粹是省点无用功。回到前台立刻检测一次，是为了「同一个实例回去、
-   * 页面没重载」时不用再等一个轮询周期，按钮能马上出来。
+   * 正常情形下回来是一次新的页面加载，`autoHandle` 那边已经处理了；这里
+   * 覆盖「同一个实例被切回来、页面没重载」的情况。事件驱动，不是轮询 ——
+   * 那种「盯到第 3 分钟就收工」的窗口正是「呆久了悄无声息地连不上」的来源。
    */
   if (typeof document !== 'undefined' && document.addEventListener) {
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden) { stopPolling(); return }
-      if (probe()) { stopPolling(); return }
+      if (document.hidden) return
+      // 先接手别的实例可能刚写下的会话，再去看有没有待兑换的码 ——
+      // 反过来的话，那枚「已被兑换走」的码会把这一步挡掉。
       restoreSession()
+      probe()
     })
   }
 

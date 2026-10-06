@@ -44,10 +44,11 @@ function loadClient(existingStore?: Map<string, string>): Record<string, any> {
     URLSearchParams,
     URL,
     // 换取 token 走这个。记录调用，便于断言「该不该发请求」
-    fetch: async (url: string) => {
+    fetch: async (url: string, init?: any) => {
       fetched.push(url);
-      // 测试可以塞一个替身进来，模拟断网 / 服务端报错
-      if (sandbox.__fetchImpl) return sandbox.__fetchImpl(url);
+      // 测试可以塞一个替身进来，模拟断网 / 服务端报错；init 一并传出，
+      // 好断言请求体（比如 code_verifier 是不是槽里那一枚）
+      if (sandbox.__fetchImpl) return sandbox.__fetchImpl(url, init);
       const payload = Buffer.from(JSON.stringify({ sub: '42' })).toString('base64url');
       return {
         ok: true,
@@ -113,6 +114,8 @@ function loadClient(existingStore?: Map<string, string>): Record<string, any> {
 const CFG = { apiBase: 'https://api.example.com', centerToySlug: 'xmeta', clientId: 'xmeta_t' };
 /** mySlug() 从 CLIENT_PATH 解出来就是它 */
 const MY_SLUG = 'abc123';
+/** 中心 toy 的 toy_id —— App 端原生拼的回跳特征里带的是它 */
+const CENTER_TOY_ID = '39945062320128';
 
 /**
  * 往共享槽里放一枚待兑换的授权码 —— 中心 toy 的 bridge.html 就是这么写的。
@@ -235,32 +238,49 @@ test('同一枚 code 只通知一次（去重标记只在内存里）', () => {
   assert.equal(n, 1);
 });
 
-test('上一轮的残留不触发通知，也**不清槽**', () => {
+test('本地没有「进行中的一轮」也认 —— 那份记录可能已经被平台回收了', () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  // 槽还在，但本地没有「正在进行的一轮」—— PKCE 记录早被清掉了
-  seedCode(sb, { code: 'stale', state: 'stale-state', returnSlug: MY_SLUG });
+  // 槽里有码，本地什么都没有。这正是线上那个 bug 的现场：人在中心 toy
+  // 那边挑时长，这段时间里第三方 toy 自己的记录被回收了，回来只读槽。
+  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
 
-  let n = 0;
-  sb.XMETA.onCodeReady(() => { n++; });
+  let got: any = null;
+  sb.XMETA.onCodeReady((p: any) => { got = p; });
 
-  assert.equal(sb.XMETA.handleRedirect(), null);
-  assert.equal(n, 0, '没有进行中的一轮就一定不能放行');
-  assert.ok(sb.__store.has('xmeta:code'), '看一眼不许删 —— 别的实例可能还要用');
+  const pending = sb.XMETA.handleRedirect();
+
+  assert.ok(pending, '只读槽就该认 —— 判据全在槽自己身上');
+  assert.equal(got.code, 'C');
+  assert.ok(sb.__store.has('xmeta:code'), '槽要留着，等用户点兑换');
 });
 
-test('state 对不上本轮的，不触发也不清槽', () => {
+test('槽里的 state 和本地对不上也认（本地那份可能是残留）', () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
   seedAttempt(sb, 'current-state');
-  seedCode(sb, { code: 'old', state: 'a-different-state', returnSlug: MY_SLUG });
+  seedCode(sb, { code: 'C', state: 'a-different-state', returnSlug: MY_SLUG });
 
   let n = 0;
   sb.XMETA.onCodeReady(() => { n++; });
 
-  assert.equal(sb.XMETA.handleRedirect(), null);
-  assert.equal(n, 0);
+  assert.ok(sb.XMETA.handleRedirect(), 'state 不再是判据了');
+  assert.equal(n, 1);
   assert.ok(sb.__store.has('xmeta:code'));
+});
+
+test('App 里回来：URL 带中心 toy 的回跳特征、槽里有码 → 检测到', () => {
+  const sb = loadClient();
+  sb.XMETA.configure({ ...CFG, centerToyId: CENTER_TOY_ID });
+  // App 内 toy.navigate 不透传 extra，落回来那页的 URL 上只有原生拼的这一串
+  sb.location.search = '?from_spmid=toy.toy-detail.' + CENTER_TOY_ID + '.0';
+  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+
+  let got: any = null;
+  sb.XMETA.onCodeReady((p: any) => { got = p; });
+
+  assert.ok(sb.XMETA.handleRedirect(), '应该认这是「回来了」');
+  assert.equal(got.code, 'C');
 });
 
 test('发给别的 toy 的 code 不认（槽是全局单槽，靠值里的 clientId 分辨）', () => {
@@ -316,6 +336,33 @@ test('completeLogin：用户点了才发请求，成功后才清槽', async () =
   assert.equal(sb.__store.has('xmeta:code'), false, '成功是终态，清槽');
   assert.equal(sb.__store.has('xmeta:pkce:xmeta_t'), false, 'PKCE 记录也一并清掉');
   assert.ok(sb.__store.has('xmeta:sess:xmeta_t'), '会话要落到本地');
+});
+
+test('兑换用槽里带的 verifier —— 本地记录被回收了也换得成', async () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+  // 故意不 seedAttempt：本地那份 PKCE 记录当作已经被平台清掉了
+  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG, verifier: 'V-from-slot' });
+
+  let sent: any = null;
+  sb.__fetchImpl = async (_url: string, init: any) => {
+    sent = JSON.parse(init.body);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        access_token: `h.${Buffer.from(JSON.stringify({ sub: '42' })).toString('base64url')}.s`,
+        token_type: 'Bearer',
+        expires_in: 3600,
+      }),
+    };
+  };
+
+  const session = await sb.XMETA.completeLogin();
+
+  assert.ok(session, '应该换到 session');
+  assert.equal(sent.code_verifier, 'V-from-slot', 'verifier 应该来自槽里那枚');
+  assert.equal(sb.__store.has('xmeta:code'), false, '成功是终态，清槽');
 });
 
 test('completeLogin：没有待兑换的码时抛错，且带机器可读的 code', async () => {

@@ -156,6 +156,10 @@ const REQ_KEY = 'xmeta:req'
 /**
  * 待兑换的授权码槽。**这是一份公开契约**，键名 / 值结构 / TTL 写在 README 里，
  * 第三方 toy 只读它。下面的 RES_KEY 是旧格式，过渡期双写用，下个周期可删。
+ *
+ * 值里必须带 verifier：发起方**只读这一份**就能把码换成 JWT，不依赖它自己
+ * 写在别处的记录 —— 用户在中心 toy 这边挑时长的这段时间里，那份记录可能
+ * 已经被平台回收了。
  */
 const CODE_KEY = 'xmeta:code'
 const RES_KEY = 'xmeta:res'
@@ -178,8 +182,14 @@ function writeShared(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch (e) { /* 忽略 */ }
 }
 
+// 本轮的请求。verifier 就写在里面 —— 用户点「返回游戏」时要连同 code 一起
+// 交还给发起方。这里趁页面刚起来、请求还新鲜的时候把它读进来放进内存，
+// 之后就算本地被清也不影响（返回那一刻我们写的是内存里这份）。
+const bootReq = readShared(REQ_KEY)
+let VERIFIER = (bootReq && bootReq.verifier) || null
+
 if (!CID) {
-  const req = readShared(REQ_KEY)
+  const req = bootReq
   if (req && req.cid) {
     CID = req.cid
     CC  = req.cc
@@ -200,7 +210,7 @@ if (!CID) {
 // 启动时写一个标记，第三方 toy 的诊断行里就能看到，一眼确认。
 //
 // 改了这一页就把它 +1。
-const BRIDGE_VERSION = 2
+const BRIDGE_VERSION = 3
 try {
   localStorage.setItem('xmeta:bridge', JSON.stringify({ v: BRIDGE_VERSION, ts: Date.now() }))
 } catch (e) { /* 忽略 */ }
@@ -456,7 +466,7 @@ function returnWithCode() {
   //
   // 这里不再需要「必须真跳转前才写」那种时序讲究了 —— 第三方检测只读
   // 不消费，写早了也没人能把它抢走。
-  writeShared(CODE_KEY, {
+  const slot = {
     v: 1,
     clientId: CID,
     code: pendingReturn.code,
@@ -466,7 +476,11 @@ function returnWithCode() {
     // 把「完成登录」的按钮撤掉，而不是留一个点了必然失败的按钮。
     expiresAt: Date.now() + (pendingReturn.expiresIn || 60) * 1000,
     ts: Date.now()
-  })
+  }
+  // PKCE 的 verifier 一起给。发起方兑换时要用它，而它自己那份本地记录
+  // 在这段时间里可能已经被平台回收了 —— 所以这一份必须由我们写下。
+  if (VERIFIER) slot.verifier = VERIFIER
+  writeShared(CODE_KEY, slot)
 
   // 过渡期双写旧格式：已经打开的页面可能还装着旧版 SDK，只写新键会让
   // 它们静默地连不上。下一个发布周期后可以删掉这一段。
