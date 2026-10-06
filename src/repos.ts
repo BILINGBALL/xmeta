@@ -66,7 +66,38 @@ export async function upsertUser(input: {
   nickname?: string | null;
   avatar?: string | null;
 }): Promise<AppUser> {
-  const row = await queryOne<AppUser>(
+  const params = [
+    config.MY_TOY_ID,
+    input.toyOpenId,
+    input.nickname ?? null,
+    input.avatar ?? null,
+  ];
+
+  // 先试 UPDATE。
+  //
+  // ⚠️ 别图省事改回 `insert ... on conflict (…) do update` —— 那句看着像 upsert，
+  // 实际**每次都把 app_user_id_seq 的 nextval 执行掉**：PG 先按 INSERT 准备这一行
+  // （默认值在这一步求值），之后才检测到撞了唯一约束、转去走 UPDATE。于是老用户
+  // 每授权一次就白吃一个号，id 一路飞涨，看着像 bug。
+  // （实测：同一个人的第二次 upsert 也让序列 +1；连 `do nothing` 都照样 +1。）
+  //
+  // 先 UPDATE 就没这问题：老用户一个号都不花，只有真人第一次出现才占号。
+  // 代价只有一个：新用户多一次往返（老用户仍是一次）—— 几乎没有代价。
+  const updated = await queryOne<AppUser>(
+    `update app_user
+        set nickname     = coalesce($3, nickname),
+            avatar       = coalesce($4, avatar),
+            last_seen_at = now()
+      where home_toy_id = $1 and toy_open_id = $2
+      returning id, home_toy_id, toy_open_id, nickname, avatar`,
+    params,
+  );
+  if (updated) return updated;
+
+  // 真没见过的人才插。并发下同一个新人被插两次时，输的那边仍会吃掉一个号 ——
+  // 想要绝对无洞就得把这一步串行化，不值当；空洞本身无害（id 只是主键，
+  // 不表示「第几个用户」，要数量看 count(*)）。
+  const inserted = await queryOne<AppUser>(
     `insert into app_user (home_toy_id, toy_open_id, nickname, avatar, last_seen_at)
      values ($1, $2, $3, $4, now())
      on conflict (home_toy_id, toy_open_id) do update
@@ -74,10 +105,10 @@ export async function upsertUser(input: {
             avatar       = coalesce(excluded.avatar, app_user.avatar),
             last_seen_at = now()
      returning id, home_toy_id, toy_open_id, nickname, avatar`,
-    [config.MY_TOY_ID, input.toyOpenId, input.nickname ?? null, input.avatar ?? null],
+    params,
   );
-  // upsert + returning 一定有条记录
-  return row!;
+  // insert ... returning 一定有条记录
+  return inserted!;
 }
 
 export async function getOwnedToys(uid: string): Promise<Toy[]> {
