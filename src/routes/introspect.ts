@@ -7,8 +7,8 @@ import { rateLimit } from '../lib/ratelimit.js';
 /**
  * 查一枚 token 还有效吗。纯查询，不改状态。
  *
- * JWT 是自包含的，本地验签只能验出「签名对、没过期」。
- * 这个端点让接入方在服务端再确认一次，拿到 uid / aud / 剩余时长。
+ * JWT 是自包含的。这个端点让**收数据那边**在服务端再确认一次，
+ * 拿到 uid / aud / 剩余时长 —— 前端不需要调它。
  */
 export async function introspectRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/oauth/introspect', async (req) => {

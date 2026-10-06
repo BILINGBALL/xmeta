@@ -74,7 +74,7 @@ TRUST_PROXY=true
 
 **① `PUBLIC_BASE_URL` 必须和真实访问地址逐字符一致。**
 它会写进 JWT 的 `iss`，也是 `/.well-known/xmeta-configuration` 发布的 issuer。
-写成 `http://` 或内网地址，接入方验签会全部失败。
+写成 `http://` 或内网地址，收数据那边验签会全部失败。
 
 **② `DATABASE_URL` 用 RDS 内网地址，并且不要加 `sslmode`。**
 这台 RDS **不支持 SSL**（实测 `sslmode=require` 直接报
@@ -245,7 +245,7 @@ curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
 | 认领报 `upstream_fetch_failed` | 服务器访问不了 `bilibili.com`，检查出网和 DNS |
 | 限流报 429 | 限流是单实例内存态。多实例部署要换 Redis，见 README「还没做」 |
 | `connect ETIMEDOUT` 连数据库 | RDS 白名单没加服务器 IP |
-| 接入方验签失败 | `PUBLIC_BASE_URL` 和实际访问地址不一致 |
+| 收数据那边验签失败 | `PUBLIC_BASE_URL` 和实际访问地址不一致 |
 
 ---
 

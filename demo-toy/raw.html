@@ -197,7 +197,7 @@ $('btnFinish').addEventListener('click', async () => {
   try {
     const jwt = await connect()
     $('btnFinish').hidden = true
-    $('out').textContent = '已连接。access_token 在下面 —— 请交给你的服务端验签。'
+    $('out').textContent = '已连接。access_token 在下面 —— 拿它去访问你的数据服务。'
     $('jwt').textContent = jwt
   } catch (e) {
     $('out').textContent = '连接失败：' + (e.message || e)

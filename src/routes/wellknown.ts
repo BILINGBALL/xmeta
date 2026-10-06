@@ -3,7 +3,7 @@ import { ALLOWED_TOKEN_TTL_HOURS, config, DEFAULT_TOKEN_TTL_HOURS } from '../con
 import { listPublicJwks } from '../lib/jwt.js';
 
 export async function wellKnownRoutes(app: FastifyInstance): Promise<void> {
-  /** 接入方用这个验签。只发公钥。 */
+  /** 收数据那边用这个验签。只发公钥 —— 前端不需要它。 */
   app.get('/.well-known/jwks.json', async (_req, reply) => {
     const keys = await listPublicJwks();
     reply.header('Cache-Control', 'public, max-age=300');

@@ -56,8 +56,8 @@
  *                            的那份），有效返回 true、无效/过期返回 false
  *   XMETA.logout()           主动清掉本地会话
  *
- * 本地验签只能验出「签名对、没过期」。需要服务端再确认一次就打
- * POST /api/oauth/introspect。
+ * token 是拿去向数据服务读写数据的凭证 —— 前端不用验签，客户端自己知道
+ * 自己是谁。需要再确认一次有效性就打 POST /api/oauth/introspect。
  *
  * 注意：localStorage 在 www.bilibilitoy.com 下是所有 toy 共享的，
  * 所以 key 都带上 clientId 前缀，避免互相踩。
@@ -585,9 +585,9 @@
    * （按「登录用户 + toy」隔离、跨设备），换台设备打开时读回来装进去，
    * 就等于已连接，不用再过一次桥。
    *
-   * 有效性只看 payload 里的 exp —— 这里不验签（客户端验不了），
-   * 真正的校验在接入方的服务端。返回 false 表示这枚 token 解不开或已过期，
-   * 调用方应当按「未连接」处理，引导用户重新授权。
+   * 有效性只看 payload 里的 exp —— 前端不验签，要不要验是收数据那边的
+   * 责任。返回 false 表示这枚 token 解不开或已过期，调用方应当按
+   * 「未连接」处理，引导用户重新授权。
    */
   function setSession(jwt) {
     if (typeof jwt !== 'string' || !jwt) return false
@@ -664,7 +664,7 @@
     emit()
   }
 
-  /** 只解析 payload，不验签。验签必须在服务端做。 */
+  /** 只解析 payload。前端不验签 —— 验不验是收数据那边的事。 */
   function decodeClaims(jwt) {
     try {
       var b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
