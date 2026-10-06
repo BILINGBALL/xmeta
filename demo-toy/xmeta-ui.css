@@ -393,6 +393,12 @@ body.xm--with-nav .xm-page {
   box-shadow: 0 0 0 3px var(--xm-ok-wash);
   animation: xm-pulse 2s ease-in-out infinite;
 }
+
+/* 中间态：授权码拿到了，但还没兑换成 JWT —— 等用户点一下 */
+.xm-live--ready::before {
+  background: var(--xm-pink);
+  box-shadow: 0 0 0 3px var(--xm-pink-wash);
+}
 @keyframes xm-pulse {
   0%, 100% { box-shadow: 0 0 0 3px var(--xm-ok-wash); }
   50% { box-shadow: 0 0 0 6px transparent; }
@@ -544,6 +550,14 @@ body.xm--with-nav .xm-page {
   box-shadow: var(--xm-lift-1);
 }
 .xm-btn--ghost:hover:not(:disabled) { background: var(--xm-sunken); }
+
+/* 空心主色按钮：红框白底红字。用于「还不能点，但告诉你下一步干嘛」那一半 */
+.xm-btn--outline {
+  background: var(--xm-surface);
+  color: var(--xm-pink);
+  border-color: var(--xm-pink);
+}
+.xm-btn--outline:hover:not(:disabled) { background: var(--xm-pink-wash); }
 
 .xm-btn--quiet {
   background: transparent; color: var(--xm-ink-3);

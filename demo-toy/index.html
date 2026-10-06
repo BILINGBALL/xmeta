@@ -55,12 +55,16 @@
     </div>
   </div>
 
-  <div class="xm-actions xm-mt-lg">
-    <button class="xm-btn xm-btn--primary" id="btnLogin">开启联机</button>
-    <button class="xm-btn xm-btn--primary xm-hidden" id="btnFinish">完成登录</button>
-    <button class="xm-btn xm-btn--quiet" id="btnWho">查看本 toy 标识</button>
+  <!-- 两个主按钮并排：左边 2/3 负责「去申请」，右边 1/3 把结果接回来。
+       右边那个的文案和样式都跟着「有没有 code」变 —— 没 code 时它是个
+       指向左边的提示（红框白底红字、不可点），有 code 时才变成动作（红底白字）。 -->
+  <div class="xm-actions xm-mt-lg" style="flex-direction:row;align-items:stretch">
+    <button class="xm-btn xm-btn--primary" id="btnLogin" style="flex:2 1 0">申请联机凭证</button>
+    <button class="xm-btn xm-btn--outline" id="btnFinish"
+            style="flex:1 1 0;padding-left:6px;padding-right:6px;font-size:14px">👈去申请</button>
   </div>
   <div class="xm-actions" style="margin-top:8px">
+    <button class="xm-btn xm-btn--quiet xm-btn--sm" id="btnWho">查看本 toy 标识</button>
     <button class="xm-btn xm-btn--quiet xm-btn--sm" id="btnReset">清除凭证（本地 + 云端）</button>
   </div>
 
@@ -103,7 +107,7 @@ const $ = (id) => document.getElementById(id)
 function showErr(msg) { $('errBox').textContent = msg; $('errBox').classList.remove('xm-hidden') }
 function clearErr() { $('errBox').classList.add('xm-hidden') }
 
-// ── 开启联机（必须在用户手势里调用，toy.navigate 需要手势）──
+// ── 申请联机凭证（必须在用户手势里调用，toy.navigate 需要手势）──
 $('btnLogin').addEventListener('click', async () => {
   clearErr()
   $('btnLogin').disabled = true
@@ -111,33 +115,29 @@ $('btnLogin').addEventListener('click', async () => {
     await XMETA.login()
     // 成功的话页面就被跳走了，这行不会执行到
   } catch (e) {
-    showErr('开启失败：' + (e.message || e))
+    showErr('申请失败：' + (e.message || e))
     $('btnLogin').disabled = false
   }
 })
 
-// ── 完成登录（从中心 toy 跳回来之后）──
+// ── 连接：把中心 toy 带回来的 code 换成 JWT ──
 //
-// SDK 不会自动兑换授权码 —— 原因见 xmeta-client.js 头部：过桥是「跳走再
-// 跳回来」，跳走时那个页面实例还在后台跑，自动兑换会让它抢在用户看得见的
-// 这个页面之前把一次性 code 消费掉，表现就是「第一次回来显示未连接」。
+// SDK 不会自动兑换 —— 原因见 xmeta-client.js 头部：过桥是「跳走再跳回来」，
+// 跳走时那个页面实例还在后台跑，自动兑换会让它抢在用户看得见的这个页面
+// 之前把一次性 code 消费掉，表现就是「第一次回来显示未连接」。
 //
 // 所以兑换绑在用户手势上：只有用户点得到的页面能触发它。
-const TERMINAL_ERRORS = ['code_expired', 'code_used', 'invalid_code', 'no_pending_code', 'no_pkce_record']
-
 $('btnFinish').addEventListener('click', async () => {
   clearErr()
-  const btn = $('btnFinish')
-  btn.disabled = true
+  $('btnFinish').disabled = true
   try {
     await XMETA.completeLogin()
   } catch (e) {
-    showErr('完成登录失败：' + (e.message || e))
-    // 这枚码已经确定没用了，把按钮收起来，别让人反复点一个必然失败的按钮。
-    // 网络抖动之类的可重试错误则留着按钮 —— 授权码还在槽里。
-    if (TERMINAL_ERRORS.indexOf(e.code) >= 0) btn.classList.add('xm-hidden')
+    showErr('连接失败：' + (e.message || e))
   } finally {
-    btn.disabled = false
+    // 成没成、码还在不在，都交给 render 重新判：它会切回该有的形态，
+    // 可重试的失败（网络抖动）还会保持「连接🌐」可点。
+    render()
   }
 })
 
@@ -194,8 +194,6 @@ function decodePayload(jwt) {
 // ── 剩余时间 ──
 // 用户自己选的时长，过期后要回中心 toy 再授权一次。把它显示出来，
 // 别让人玩到一半突然掉线还不知道为什么。
-let countdown = null
-
 function fmtLeft(ms) {
   const s = Math.floor(ms / 1000)
   const h = Math.floor(s / 3600)
@@ -205,36 +203,62 @@ function fmtLeft(ms) {
   return (s % 60) + ' 秒'
 }
 
+// ── 状态渲染 ────────────────────────────────────────────────────
+//
+// 指示灯三态，判据一条链：
+//   有 session → 已连接 ／ 有没兑换的 code → 可连接 ／ 都没有 → 未连接
+//
+// 左边那个大按钮（2/3 宽）永远是「去申请」，已连接时叫「重新申请凭证」。
+// 右边那个小按钮（1/3 宽）跟着「有没有 code」在两种形态间切：
+//   没 code  → 「👈去申请」空心（红框白底红字），不可点 —— 它就是个指路牌
+//   有 code  → 「连接🌐」实心（红底白字），点了就把 code 换成 JWT
+let pending = null   // SDK 检测到的、还没兑换的 code
+
 /**
- * 未连接。两种来路：手上压根没有凭证，或者凭证已经过期 ——
- * 都得回中心 toy 重新申请一次，没有静默续期的路子。
- * btnText 区分这两者，文案上更好懂一点。
+ * 现在有没有「可以连接」的码。
+ *
+ * 「是不是我的、能不能用」交给 SDK 判（onCodeReady 通知过来的就是）；
+ * 这里只补一件事：它还新不新鲜 —— 槽被清掉或过期了就不算数。
  */
-function paintDisconnected(btnText) {
-  if (countdown) { clearInterval(countdown); countdown = null }
-  $('vState').textContent = '未连接'
-  $('vState').className = 'xm-live'
-  $('rowUid').classList.add('xm-hidden')
-  $('rowLeft').classList.add('xm-hidden')
-  $('btnFinish').classList.add('xm-hidden')
-  $('btnLogin').textContent = btnText || '开启联机'
+function pendingCode() {
+  if (!pending) return null
+  try {
+    const p = JSON.parse(localStorage.getItem('xmeta:code') || 'null')
+    if (!p || p.code !== pending.code) { pending = null; return null }
+    if (p.expiresAt && Date.now() > p.expiresAt) { pending = null; return null }
+  } catch (e) { pending = null; return null }
+  return pending
 }
 
-function startCountdown() {
-  if (countdown) clearInterval(countdown)
-  $('rowLeft').classList.remove('xm-hidden')
-  const tick = () => {
-    const ms = XMETA.getRemainingMs()
-    if (ms <= 0) {
-      // 有效期为 0 就等于没身份了，回到未连接，让玩家重新申请
-      paintDisconnected('重新获取')
-      return
-    }
-    $('vLeft').textContent = '还剩 ' + fmtLeft(ms)
+function render() {
+  if (typeof XMETA === 'undefined') return
+  const s = XMETA.getSession()
+  const ready = !s && !!pendingCode()
+
+  // 指示灯
+  $('vState').textContent = s ? '已连接' : (ready ? '可连接' : '未连接')
+  $('vState').className = 'xm-live' + (s ? ' xm-live--on' : ready ? ' xm-live--ready' : '')
+
+  // 身份 / 有效期
+  $('rowUid').classList.toggle('xm-hidden', !s)
+  $('rowLeft').classList.toggle('xm-hidden', !s)
+  if (s) {
+    $('vUid').textContent = s.uid || '—'
+    $('vLeft').textContent = '还剩 ' + fmtLeft(XMETA.getRemainingMs())
   }
-  tick()
-  countdown = setInterval(tick, 1000)
+
+  // 左：永远是「去申请」；已经连上了就是「重新申请」
+  $('btnLogin').textContent = s ? '重新申请凭证' : '申请联机凭证'
+
+  // 右：跟着有没有 code 切形态
+  $('btnFinish').textContent = ready ? '连接🌐' : '👈去申请'
+  $('btnFinish').className = 'xm-btn ' + (ready ? 'xm-btn--primary' : 'xm-btn--outline')
+  $('btnFinish').disabled = !ready
 }
+
+// 每秒重画一次：有效期倒计时本来就每秒在变，顺带把状态也刷新了
+// （code 过期 → 可连接退回未连接；token 过期 → 已连接退回未连接）
+setInterval(render, 1000)
 
 // ── 联机状态 = 本 toy 云存储里那枚 access_token ──
 //
@@ -303,7 +327,7 @@ if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
     try {
       XMETA.configure(CONFIG)
       configured = true
-      $('tip').textContent = '点「开启联机」跳到中心 toy 完成一次授权；跳回来之后再点一次「完成登录」。'
+      $('tip').textContent = '点「申请联机凭证」跳到中心 toy 授权；跳回来后右边那颗会变成「连接🌐」，点它完成。'
     } catch (e) {
       showErr('初始化失败：' + e.message)
       $('btnLogin').disabled = true
@@ -312,19 +336,15 @@ if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
 }
 
 if (configured) {
-  // 回跳之后 xmeta-client.js 会自动用 code 换 JWT，换好了通知这里
+  // 状态一变就重画。每秒那趟心跳兜底，这里只是为了不用等到下一秒。
   XMETA.onSession((s) => {
-    if (!s) return paintDisconnected('开启联机')   // 被 logout() 或彻底失效
-    $('vState').textContent = '已连接'
-    $('vState').className = 'xm-live xm-live--on'
-    if (s.uid) { $('vUid').textContent = s.uid; $('rowUid').classList.remove('xm-hidden') }
+    render()
+    if (!s) return                       // 被 logout() 或彻底失效
+    clearErr()
     $('result').classList.remove('xm-hidden')
     $('jwt').textContent = s.jwt
     $('claims').textContent = JSON.stringify(decodePayload(s.jwt), null, 2)
-    $('btnLogin').textContent = '重新获取'
-    $('btnFinish').classList.add('xm-hidden')   // 已经连上了，那个按钮没用了
     $('tip').textContent = ''
-    startCountdown()
     // 拿到（或从本机恢复出）身份后，把 token 写进本 toy 的云存储 ——
     // 那才是「联机状态」的落点。不 await：写失败不该影响玩。
     syncCloudToken(s.jwt)
@@ -333,17 +353,18 @@ if (configured) {
   // 检测到待兑换的授权码 —— SDK 只负责通知，兑换等用户点。
   //
   // 先确认 SDK 是新版：它是从中心服务器分发的，改了仓库没重启服务端的话
-  // 这里拿到的是旧脚本。旧脚本没有 onCodeReady，按钮永远不会出现 ——
-  // 而且如果不拦一下，下面那行会抛 TypeError，把后面的注册全带走，
-  // 界面上什么都不显示，极难排查。
+  // 这里拿到的是旧脚本。旧脚本没有 onCodeReady，右边那个按钮永远停在
+  // 「👈去申请」—— 而且如果不拦一下，下面那行会抛 TypeError，把后面的
+  // 注册全带走，界面上什么都不显示，极难排查。
   if (typeof XMETA.onCodeReady !== 'function') {
     showErr('xmeta-client.js 还是旧版本（没有 onCodeReady）。' +
       '需要先部署服务端并重启，或强制刷新页面。')
     $('btnLogin').disabled = true
   } else {
-    XMETA.onCodeReady(() => {
-      $('btnFinish').classList.remove('xm-hidden')
-      $('tip').textContent = '授权已返回，点「完成登录」就好。'
+    XMETA.onCodeReady((p) => {
+      pending = p        // 有 code 了 → 右边那个按钮变成「连接🌐」
+      $('tip').textContent = ''
+      render()
       paintDiag()
     })
   }
@@ -412,6 +433,8 @@ function paintDiag() {
 
 // 页面刚加载、兑换刚结束、以及等会话等超时，各采一次
 ;[2500, 6000, 13000].forEach((t) => setTimeout(paintDiag, t))
+
+render()   // 别等第一次心跳，进来就先画一遍
 </script>
 </body>
 </html>
