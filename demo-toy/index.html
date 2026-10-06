@@ -76,17 +76,6 @@
 
   <div class="xm-alert xm-alert--error xm-hidden xm-mt-lg" id="errBox"></div>
 
-  <!-- 临时诊断：看清「从中心 toy 跳回来」那一刻有没有重载 / URL 上有没有特征。
-       查完连同脚本里的 DIAG 段一起删。 -->
-  <details class="xm-card xm-mt-lg" style="margin-top:24px">
-    <summary class="xm-small" style="cursor:pointer;color:var(--xm-ink-3)">
-      诊断（临时）· <span id="diagKey">—</span>
-    </summary>
-    <pre id="diagLog" class="xm-mono"
-         style="max-height:240px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;margin:12px 0 8px"></pre>
-    <button class="xm-linkbtn" id="diagClear">清空诊断</button>
-  </details>
-
   <div class="xm-foot">
     <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span>
   </div>
@@ -99,8 +88,8 @@
 const CONFIG = {
   apiBase:       'https://www.oxth.com:8443',
   centerToySlug: 'xmeta',
-  // 中心 toy 的 toy_id（写死的）。诊断用：App 内 toy→toy 跳转会native 拼一个
-  // from_spmid=toy.toy-detail.<来源 toy 的 toy_id>.0，靠它认「刚从中心 toy 跳回来」。
+  // 中心 toy 的 toy_id。SDK 用它认「这一跳是不是刚从中心 toy 跳回来的」——
+  // App 内 toy→toy 跳转，原生会在地址上拼 from_spmid=toy.toy-detail.<它>.0。
   centerToyId:   '39945062320128',
   clientId:      'xmeta_v8lTN7_zee7Kv11TxkN7BQ'
 }
@@ -109,115 +98,6 @@ const $ = (id) => document.getElementById(id)
 
 function showErr(msg) { $('errBox').textContent = msg; $('errBox').classList.remove('xm-hidden') }
 function clearErr() { $('errBox').classList.add('xm-hidden') }
-
-// ─────────────────────────────────────────────────────────────
-// 临时诊断 —— 只为看清「从中心 toy 跳回来」那一刻到底发生了什么：
-//   · 回来的 URL 上有没有原生拼的 from_spmid=toy.toy-detail.<中心toy id>.0
-//   · 页面是重载了（load / pageshow），还是只切回了前台（visibility / focus）
-//   · 那一刻共享槽 xmeta:req / xmeta:code 是什么状态
-//
-// 记录写在 localStorage（xmeta:diag），刷新、重开 App 都还在。
-// 纯观测，不改任何行为。查完整段删掉即可（HTML 里那个 #diagBox 一起删）。
-// ─────────────────────────────────────────────────────────────
-const DIAG_KEY = 'xmeta:diag'
-const DIAG_MAX = 80
-
-function diagSnapshot() {
-  const spmid = new URLSearchParams(location.search).get('from_spmid') || ''
-  const snap = {
-    url: location.search || '(无参数)',
-    spmid: spmid || '(无)',
-    hit: spmid.indexOf('toy.toy-detail.' + CONFIG.centerToyId + '.') === 0
-  }
-  try {
-    const req = JSON.parse(localStorage.getItem('xmeta:req') || 'null')
-    if (req && req.cid) {
-      snap.req = '有(发起于' + Math.round((Date.now() - req.ts) / 1000) +
-        '秒前,claimed=' + req.claimed + ')'
-    }
-  } catch (e) { /* 忽略 */ }
-  try {
-    const p = JSON.parse(localStorage.getItem('xmeta:code') || 'null')
-    if (p && p.code) {
-      snap.slot = '有码(clientId匹配=' + (p.clientId === CONFIG.clientId) +
-        ',剩' + Math.round(((p.expiresAt || 0) - Date.now()) / 1000) + '秒)'
-    }
-  } catch (e) { /* 忽略 */ }
-  // 本地到底还有哪些 xmeta 键 —— 「键被清掉」还是「键名不对」，只有这一招能分辨
-  try {
-    const keys = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (k && k.indexOf('xmeta') === 0) keys.push(k)
-    }
-    snap.keys = keys.length ? keys.join(' ') : '(无)'
-  } catch (e) { /* 忽略 */ }
-  // bridge.html 每次加载都会盖一个戳：它在不在、多久之前盖的
-  try {
-    const b = JSON.parse(localStorage.getItem('xmeta:bridge') || 'null')
-    snap.bridge = b ? ('v' + b.v + ' @' + Math.round((Date.now() - b.ts) / 1000) + '秒前') : '无'
-  } catch (e) { /* 忽略 */ }
-  return snap
-}
-
-function diagLog(ev, extra) {
-  const entry = Object.assign({ t: new Date().toTimeString().slice(0, 8), ev }, diagSnapshot())
-  if (extra) entry.extra = extra
-  let log = []
-  try { log = JSON.parse(localStorage.getItem(DIAG_KEY) || '[]') } catch (e) { log = [] }
-  // 写之前日志里有几条。回来那一条要是 before=0（不是第一次跑），说明
-  // 连这段日志本身都被清过 —— 那就是整个 localStorage 被回收了。
-  entry.before = log.length
-  log.push(entry)
-  if (log.length > DIAG_MAX) log = log.slice(-DIAG_MAX)
-  try { localStorage.setItem(DIAG_KEY, JSON.stringify(log)) } catch (e) { /* 忽略 */ }
-  diagPaint()
-}
-
-function diagPaint() {
-  let log = []
-  try { log = JSON.parse(localStorage.getItem(DIAG_KEY) || '[]') } catch (e) { log = [] }
-  const last = log[log.length - 1]
-  $('diagKey').textContent = last
-    ? (last.hit ? '✓ 带回跳特征' : '✗ 无回跳特征') + ' · ' + last.url
-    : '暂无记录'
-  $('diagLog').textContent = log.map((e) =>
-    e.t + ' ' + e.ev + ' (此前' + e.before + '条)' +
-    ' | spmid=' + e.spmid +
-    ' | req=' + (e.req || '无') +
-    ' | slot=' + (e.slot || '空') +
-    (e.extra ? ' | ' + e.extra : '') +
-    '\n     keys=' + (e.keys || '?') +
-    ' | bridge=' + (e.bridge || '?')
-  ).join('\n')
-}
-
-const navEntry = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]) || null
-diagLog('load', 'nav=' + ((navEntry && navEntry.type) || '?') + ' ref=' + (document.referrer || '无'))
-
-addEventListener('pageshow', (e) => diagLog('pageshow', 'persisted=' + e.persisted + ' hidden=' + document.hidden))
-addEventListener('pagehide', (e) => diagLog('pagehide', 'persisted=' + e.persisted))
-addEventListener('beforeunload', () => diagLog('beforeunload'))
-addEventListener('focus', () => diagLog('focus'))
-addEventListener('blur', () => diagLog('blur'))
-document.addEventListener('visibilitychange', () => diagLog('visibility', 'hidden=' + document.hidden))
-$('diagClear').addEventListener('click', () => {
-  try { localStorage.removeItem(DIAG_KEY) } catch (e) { /* 忽略 */ }
-  diagPaint()
-})
-
-// 把 SDK 的入口包一层：谁在什么时候动了本地状态，日志里就会留下痕迹。
-// （`logout()` 会把 xmeta:req 和待兑换的槽一起清掉，重点盯它。）
-if (typeof XMETA !== 'undefined') {
-  ;['login', 'completeLogin', 'logout', 'setSession'].forEach((name) => {
-    const orig = XMETA[name]
-    if (typeof orig !== 'function') return
-    XMETA[name] = function () {
-      diagLog('→ 调用 XMETA.' + name + '()')
-      return orig.apply(this, arguments)
-    }
-  })
-}
 
 // ── 申请联机凭证（必须在用户手势里调用，toy.navigate 需要手势）──
 //
@@ -233,7 +113,6 @@ $('btnLogin').addEventListener('click', async () => {
   lastApplyAt = now
 
   clearErr()
-  diagLog('点了申请联机凭证')
   try {
     await XMETA.login()
     // 成功的话页面就被跳走了，这行不会执行到
@@ -258,7 +137,6 @@ async function redeem() {
   } catch (e) {
     // 槽里的 code 还在（网络抖动这类可重试的失败不会清槽），刷新页面
     // 就会重新检测、重新兑换。
-    diagLog('兑换失败', 'msg=' + (e.message || e))
     showErr('兑换凭证失败：' + (e.message || e) + '（刷新页面可重试）')
   }
 }
@@ -355,7 +233,6 @@ if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
 if (configured) {
   // 状态一变就重画。每秒那趟心跳兜底，这里只是为了不用等到下一秒。
   XMETA.onSession(() => {
-    diagLog('已连接（onSession）')
     render()
     clearErr()
   })
@@ -371,10 +248,7 @@ if (configured) {
       '需要先部署服务端并重启，或强制刷新页面。')
     $('btnLogin').disabled = true
   } else {
-    XMETA.onCodeReady((p) => {
-      diagLog('onCodeReady', 'code=' + String(p && p.code).slice(0, 8) + '…')
-      redeem()
-    })
+    XMETA.onCodeReady(redeem)
   }
 }
 
