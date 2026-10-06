@@ -264,9 +264,11 @@
       return null
     }
 
-    // 已经连上了就别再冒一个「完成登录」的按钮
-    if (SESSION && getRemainingMs() > 0) return null
-
+    // 注意：这里**不能**因为「已经有 session」就把这枚码拒掉。
+    // 用户点「重新申请凭证」就是为了换掉手上那枚（比如 3 小时换成 24 小时），
+    // 而这里一旦 return null，新码回来就没人认，旧凭证会一直被用下去 ——
+    // 表现就是「重新申请了，但有效期没变」。槽里那枚码自带 60 秒有效期，
+    // 足够区分「刚回来的一枚」和「陈年残留」。
     return { code: p.code, returnSlug: p.returnSlug || null }
   }
 
@@ -287,7 +289,7 @@
     if (!code) return null
 
     if (Date.now() - loadedAt > FALLBACK_CODE_TTL_MS) return null
-    if (SESSION && getRemainingMs() > 0) return null
+    // 同上：已有 session 不代表这枚新码该被丢掉（见 detectPending 的注释）
 
     return { code: code, returnSlug: null }
   }
@@ -391,14 +393,18 @@
    * 兑换要用户点按钮（completeLogin），这样只有用户看得见、点得到的
    * 那个页面会去消费那枚一次性 code，后台实例拿它没办法。
    *
+   * 手上已经有有效凭证也照样检测：用户可能刚点过「重新申请」，
+   * 那枚新码就是用来换掉旧凭证的。
+   *
    * 返回待兑换的 code 信息或 null；同时会触发 onCodeReady。
    */
   function handleRedirect() {
-    // 已经有有效 session 就直接用 —— 可能是另一个窗口刚兑换完写进来的，
-    // 也可能是本页 restoreSession 时还没写完、现在补一次。
-    if (SESSION && getRemainingMs() > 0) return null
+    // 先补读一次本地会话 —— 可能是另一个窗口刚兑换完写进来的，也可能是本页
+    // restoreSession 时还没写完。
+    //
+    // 但**不因为「已经有 session」就收工**：用户可能刚点过「重新申请」，
+    // 那枚新码就等在槽里。见 detectPending 里那段注释。
     restoreSession()
-    if (SESSION) return null
 
     var qs = new URLSearchParams(global.location.search)
     var back = !!qs.get('code') ||
@@ -454,7 +460,11 @@
    * 成功返回 session；失败抛错，接入方应该接住并显示给用户。
    */
   async function completeLogin() {
-    if (SESSION && getRemainingMs() > 0) return SESSION
+    // 这里**不早退**。手上已有 session 也要先看看有没有新码：用户点
+    // 「重新申请」之后，就是用新码把那枚旧的换掉。槽里没有码时，下面那句
+    // 会照旧返回已有的 session（所以重复调用仍然是幂等的）。
+    // 曾经这里第一行就是 `if (SESSION && ...) return SESSION`，于是重新申请
+    // 拿到的新凭证永远换不上，一直是旧的在用。
 
     // 兑换前重新检测一次：可能已经过期了，也可能已经没得换了
     var pending = detectCode()

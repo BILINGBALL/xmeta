@@ -342,6 +342,47 @@ test('兑换只要 code —— 本地什么都不记也换得成', async () => {
   assert.equal(sb.__store.has('xmeta:code'), false, '成功是终态，清槽');
 });
 
+test('已连接时点「重新申请」：新码照样认，把旧凭证换掉', async () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+  // 手上已经有一枚还能用的凭证
+  sb.__store.set('xmeta:sess:xmeta_t', JSON.stringify({
+    jwt: 'old.jwt', uid: '42', expiresAt: Date.now() + 3600_000,
+  }));
+  sb.XMETA.configure(CFG); // 再 configure 一次，让会话恢复进来
+  assert.ok(sb.XMETA.getSession(), '先确认确实已经连上了');
+
+  // 用户点了「重新申请」，从中心 toy 带着新码回来
+  seedCode(sb, { code: 'NEW', returnSlug: MY_SLUG });
+
+  let got: any = null;
+  sb.XMETA.onCodeReady((p: any) => { got = p; });
+
+  assert.ok(sb.XMETA.handleRedirect(), '已连接也必须认出这枚新码');
+  assert.equal(got.code, 'NEW');
+
+  const session = await sb.XMETA.completeLogin();
+
+  assert.equal(sb.__fetched.length, 1, '必须真去兑换，而不是直接返回旧会话');
+  assert.notEqual(session.jwt, 'old.jwt', '拿到的应该是新凭证');
+  assert.equal(sb.__store.has('xmeta:code'), false, '成功是终态，清槽');
+});
+
+test('已连接但槽里没码：completeLogin 仍然幂等地返回已有会话', async () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+  sb.__store.set('xmeta:sess:xmeta_t', JSON.stringify({
+    jwt: 'old.jwt', uid: '42', expiresAt: Date.now() + 3600_000,
+  }));
+  sb.XMETA.configure(CFG);
+
+  const session = await sb.XMETA.completeLogin();
+
+  assert.ok(session, '不该抛错');
+  assert.equal(session.jwt, 'old.jwt');
+  assert.deepEqual(sb.__fetched, [], '没有码就不该发请求');
+});
+
 test('completeLogin：没有待兑换的码时抛错，且带机器可读的 code', async () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
