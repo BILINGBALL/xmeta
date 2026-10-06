@@ -149,6 +149,7 @@ test('XMETA 暴露的接口齐全', () => {
     'login',
     'handleRedirect',
     'onCodeReady',
+    'pendingCode',
     'completeLogin',
     'onSession',
     'getSession',
@@ -297,6 +298,27 @@ test('码过期了：不触发，并且清掉（过期是终态）', () => {
 // 这是整条链路上唯一消费那枚一次性 code 的地方，绑在用户手势上 ——
 // 只有用户看得见的页面能被点到，后台实例想抢也抢不了。
 // ─────────────────────────────────────────────────────────────
+
+test('pendingCode：有 code 时返回它，纯读不消耗', () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+  seedAttempt(sb);
+  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+
+  const p = sb.XMETA.pendingCode();
+
+  assert.ok(p, '应该返回待兑换的 code');
+  assert.equal(p.code, 'C');
+  assert.ok(sb.__store.has('xmeta:code'), '纯读，不许删');
+  assert.deepEqual(sb.__fetched, [], '更不该发请求');
+  assert.equal(sb.XMETA.getSession(), null, '它只是「可兑换」，不是「已连接」');
+});
+
+test('pendingCode：没有待兑换的 code 就是 null', () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+  assert.equal(sb.XMETA.pendingCode(), null);
+});
 
 test('completeLogin：用户点了才发请求，成功后才清槽', async () => {
   const sb = loadClient();

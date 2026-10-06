@@ -54,6 +54,7 @@
  *   XMETA.onSession(fn)      有身份时触发（包括从本地恢复），fn 收到 session
  *   XMETA.setSession(jwt)    装上一枚已有的 token（例如你存在自己云存储里
  *                            的那份），有效返回 true、无效/过期返回 false
+ *   XMETA.pendingCode()      有没有「已检测到、还没兑换」的授权码（纯读）
  *   XMETA.logout()           主动清掉本地会话
  *
  * token 是拿去向数据服务读写数据的凭证 —— 前端不用验签，客户端自己知道
@@ -501,6 +502,17 @@
   }
 
   /**
+   * 当前有没有「已检测到、还没兑换」的授权码。**纯读，不消耗。**
+   *
+   * 接入方拿它渲染自己的状态：有 code 就是「可连接」，没有就是「未连接」，
+   * 有 session 就是「已连接」。三个状态一条链，别自己再拼一套判断。
+   * 返回 { code, state, returnSlug } 或 null。
+   */
+  function pendingCode() {
+    return detectCode()
+  }
+
+  /**
    * 兑换待处理的授权码，建立会话。**必须在用户手势里调用。**
    *
    * 这是整条链路上**唯一**会消费那枚一次性 code 的地方。绑在用户手势上，
@@ -716,6 +728,11 @@
     handleRedirect: handleRedirect,
     /** 订阅「检测到待兑换的授权码」。据此渲染按钮，让用户点。 */
     onCodeReady: onCodeReady,
+    /**
+     * 当前有没有待兑换的授权码。**纯读**。
+     * 三个状态一条链：有 session = 已连接 / 有 code = 可连接 / 都没有 = 未连接。
+     */
+    pendingCode: pendingCode,
     /**
      * 兑换待处理的授权码，建立会话。**必须在用户手势里调用。**
      * 成功返回 session，失败抛错（接住它并显示给用户）。
