@@ -39,16 +39,18 @@
  * from_spmid=toy.toy-detail.<来源 toy 的 toy_id>.0。不配也能跑（退化成
  * 「从任意 toy 跳过来都算」），配了更准。
  *
- * 关于「回来之后凭什么认那枚码」—— 只认两件事：**这一跳是从中心 toy
- * 来的**，以及**共享槽里那枚码是写给我的（clientId / returnSlug 对得上、
- * 还没过期）**。
+ * 整条链路就三步，没有别的：
+ *   ① 点「开启联机」→ 跳去中心 toy，顺手把 client_id 写进共享存储
+ *      （App 内 toy.navigate 不透传 extra，只能靠这个带过去）
+ *   ② 用户在中心 toy 选时长、点允许，中心 toy 把 { clientId, code,
+ *      returnSlug, expiresAt } 写进共享槽，然后跳回来
+ *   ③ 回来时 SDK 认出「这一跳是从中心 toy 来的」，读槽、拿 code 换 JWT
  *
- * 曾经这里还要校验「槽里的 state == 本地记的 state」。那条路依赖第三方
- * toy 自己写在 localStorage 里的记录，而**你在中心 toy 那边挑时长的这段
- * 时间里，这份记录可能已经被平台回收了** —— 表现是带着一枚好端端的码
- * 回来，却悄无声息地什么都不发生。所以这一轮需要的东西（包括 PKCE 的
- * verifier）一律由中心 toy 在用户点「返回游戏」那一刻写进共享槽，第三方
- * toy 只读、不依赖自己的任何历史记录。
+ * **没有 PKCE，也不需要你在本地记着任何东西。** 认那枚码的判据全在槽
+ * 自己身上：clientId 是我的、returnSlug 是我的、还没过期。这一点是踩
+ * 出来的 —— 以前的方案还要求「槽里的 state == 本地记的 state」，而用户
+ * 在中心 toy 那边挑时长的这段时间里，本地那份记录会被平台回收，表现
+ * 就是带着一枚好端端的码回来、却一声不响地什么都不发生。
  *
  * 关于「为什么要用户再点一次」—— 过桥是「跳走再跳回来」，而跳走时
  * 那个页面实例并没有消失，只是看不见了。如果兑换是自动的，看不见的
@@ -85,17 +87,15 @@
   var CFG = { apiBase: '', centerToySlug: '', centerToyId: '', clientId: '' }
   var SESSION = null            // { jwt, uid, expiresAt, raw? }
   var listeners = []
-  var VERIFIER_KEY = ''
   var SESSION_KEY = ''
   var sessionWatchTimer = null   // 等另一个页面实例把会话交出来
-  var prepared = null            // 预生成的 PKCE 对，login() 时同步取用
   var exchanging = false         // completeLogin 页面内互斥，防止手快连点打出两次 POST
 
   /**
    * toy 之间跳转用的传参通道。
    *
    * B站 App 里 toy.navigate 走的是原生 JSB，实测 **不会透传 extra**：
-   * 传 {cid,cc,st} 过去，目标页的 location.search 里只有原生自己加的
+   * 传 {cid} 过去，目标页的 location.search 里只有原生自己加的
    * from_spmid=toy.toy-detail.<来源id>.0。Web 端则正常（SDK 自己拼 URL）。
    *
    * 好在所有 toy 的内层 iframe 都在 www.bilibilitoy.com 这一个源下
@@ -105,7 +105,7 @@
    * 两边都走：URL 参数优先（Web 端能用），拿不到再读 localStorage。
    * 只在同一台设备上有效，但过桥本来就是同设备跳过去再跳回来。
    */
-  var REQ_KEY = 'xmeta:req'          // 发起方写：{ cid, cc, st, verifier, ts, claimed }
+  var REQ_KEY = 'xmeta:req'          // 发起方写：{ cid, ts, claimed }
   /**
    * 中心 toy 写下的「待兑换授权码」槽。**这是一份公开契约**，
    * 键名、值结构、TTL 都写在 README 里，第三方 toy 可以只读它。
@@ -113,8 +113,8 @@
    * 键是全局单槽（所有 toy 共用一个），所以值里的 clientId 不能省 ——
    * 它是「这枚码不是给我的」的唯一判据。
    *
-   * 值里带 verifier：第三方 toy **只读这一份**就能把码换成 JWT，不依赖
-   * 自己写在别处的任何记录（那些记录可能在你走开期间被平台回收）。
+   * 这一份是第三方 toy 换 JWT 的**唯一**依据：不依赖它自己写在别处的
+   * 任何记录（那些记录可能在用户走开期间被平台回收）。
    */
   var CODE_KEY = 'xmeta:code'
   /** 旧版本的槽（键名不同、无 expiresAt）。过渡期清一清，见 bridge.html。 */
@@ -154,79 +154,6 @@
     if (!spmid || spmid.indexOf('toy.toy-detail.') !== 0) return false
     if (!CFG.centerToyId) return true
     return spmid.indexOf('toy.toy-detail.' + CFG.centerToyId + '.') === 0
-  }
-
-  function b64url(bytes) {
-    var s = ''
-    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
-    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-  }
-
-  function randomString(n) {
-    var a = new Uint8Array(n)
-    crypto.getRandomValues(a)
-    return b64url(a)
-  }
-
-  /**
-   * 同步 SHA-256，返回 base64url。
-   *
-   * crypto.subtle.digest 是 async 的，login() fallback 里 await 它会让
-   * navigator.userActivation.isActive 立即变 false，紧跟着的 toy.navigate
-   * 检测到手势失效就抛错 —— 冷启动后第一次点「申请联机凭证」稳定失败。
-   * 写成同步后全程不需要 await，toy.navigate 始终在用户手势内执行。
-   */
-  function s256(input) {
-    var bytes = new TextEncoder().encode(input)
-    var K = [
-      0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
-      0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
-      0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
-      0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
-      0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
-      0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
-      0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
-      0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
-    ]
-    var H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]
-    function rotr(x,n){return((x>>>n)|(x<<(32-n)))>>>0}
-    var ml=bytes.length, bl=ml*8, pl=Math.ceil((ml+9)/64)*64
-    var pd=new Uint8Array(pl); pd.set(bytes); pd[ml]=0x80
-    var dv=new DataView(pd.buffer)
-    dv.setUint32(pl-4,bl>>>0,false); dv.setUint32(pl-8,Math.floor(bl/0x100000000),false)
-    for(var off=0;off<pl;off+=64){
-      var W=[]; for(var i=0;i<16;i++) W[i]=dv.getUint32(off+i*4,false)
-      for(var i=16;i<64;i++){
-        var s0=rotr(W[i-15],7)^rotr(W[i-15],18)^(W[i-15]>>>3)
-        var s1=rotr(W[i-2],17)^rotr(W[i-2],19)^(W[i-2]>>>10)
-        W[i]=(W[i-16]+s0+W[i-7]+s1)>>>0
-      }
-      var a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7]
-      for(var i=0;i<64;i++){
-        var S1=rotr(e,6)^rotr(e,11)^rotr(e,25), ch=(e&f)^(~e&g)
-        var t1=(h+S1+ch+K[i]+W[i])>>>0
-        var S0=rotr(a,2)^rotr(a,13)^rotr(a,22), maj=(a&b)^(a&c)^(b&c)
-        var t2=(S0+maj)>>>0
-        h=g;g=f;f=e;e=(d+t1)>>>0;d=c;c=b;b=a;a=(t1+t2)>>>0
-      }
-      H[0]=(H[0]+a)>>>0;H[1]=(H[1]+b)>>>0;H[2]=(H[2]+c)>>>0;H[3]=(H[3]+d)>>>0
-      H[4]=(H[4]+e)>>>0;H[5]=(H[5]+f)>>>0;H[6]=(H[6]+g)>>>0;H[7]=(H[7]+h)>>>0
-    }
-    var out=''
-    for(var i=0;i<8;i++) out+=String.fromCharCode((H[i]>>>24)&0xff,(H[i]>>>16)&0xff,(H[i]>>>8)&0xff,H[i]&0xff)
-    return btoa(out).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')
-  }
-
-  /**
-   * 预生成一对 PKCE（verifier + challenge）。
-   *
-   * challenge 要过 crypto.subtle.digest，那是 async 的；而 toy.navigate 前
-   * 不能跨 await（需要瞬时用户手势）。所以在页面加载时就先算好，login()
-   * 里同步取走。用完即弃，马上再预生成一对给下一次。
-   */
-  function preparePkce() {
-    var verifier = randomString(32)
-    prepared = { verifier: verifier, challenge: s256(verifier) }
   }
 
   async function post(path, body) {
@@ -275,7 +202,6 @@
     if (global.location.protocol === 'https:' && /^http:\/\//.test(CFG.apiBase)) {
       console.warn('[xmeta] apiBase 是 http 而页面是 https，请求会被浏览器按混合内容拦截。')
     }
-    VERIFIER_KEY = 'xmeta:pkce:' + CFG.clientId
     SESSION_KEY = 'xmeta:sess:' + CFG.clientId
 
     // 上次拿到的身份还在有效期内就直接恢复：用户刷新页面、重开 App
@@ -283,27 +209,14 @@
     restoreSession()
   }
 
-  /** 当前这一轮尝试的 state（login 时写入） */
-  function currentState() {
-    try { return localStorage.getItem(VERIFIER_KEY + ':st') } catch (e) { return null }
-  }
-
-  /** 丢掉本轮尝试的 PKCE 记录 */
-  function clearAttempt() {
-    try {
-      localStorage.removeItem(VERIFIER_KEY)
-      localStorage.removeItem(VERIFIER_KEY + ':st')
-    } catch (e) { /* 忽略 */ }
-  }
-
   // ── 检测待兑换的 code ────────────────────────────────────────────
   //
   //      ★ 不变式：槽只在三种**终态**被删 —— 兑换成功 / 判定过期 / 用户取消。
   //        任何「看一眼」都不许删。
   //
-  //      以前这里是 takeSharedResult()：先 clearShared() 再校验 state。
-  //      于是一个**没有 verifier 的实例**读一眼也能把结果毁掉，让真正能
-  //      兑换的实例扑空 —— 两败俱伤。这和「后台实例先醒」是并列的两个杀手，
+  //      以前这里是 takeSharedResult()：先 clearShared() 再校验。于是一个
+  //      **没打算兑换的实例**读一眼也能把结果毁掉，让真正能兑换的实例扑空 ——
+  //      两败俱伤。这和「后台实例先醒」是并列的两个杀手，
   //      只把兑换改成手动、不动这里，等于留了个洞。
   // ────────────────────────────────────────────────────────────────
 
@@ -354,13 +267,7 @@
     // 已经连上了就别再冒一个「完成登录」的按钮
     if (SESSION && getRemainingMs() > 0) return null
 
-    return {
-      code: p.code,
-      state: p.state,
-      // 兑换要用的 PKCE verifier，由中心 toy 连同 code 一起写下来
-      verifier: p.verifier || null,
-      returnSlug: p.returnSlug || null
-    }
+    return { code: p.code, returnSlug: p.returnSlug || null }
   }
 
   /**
@@ -380,19 +287,15 @@
     if (!code) return null
 
     if (Date.now() - loadedAt > FALLBACK_CODE_TTL_MS) return null
-
-    var expect = currentState()
-    var state = qs.get('st')
-    if (!expect || !state || state !== expect) return null
     if (SESSION && getRemainingMs() > 0) return null
 
-    return { code: code, state: state, returnSlug: null }
+    return { code: code, returnSlug: null }
   }
 
   var codeReadyListeners = []
 
   /**
-   * 订阅「检测到待兑换的授权码」。回调收 { code, state, returnSlug }。
+   * 订阅「检测到待兑换的授权码」。回调收 { code, returnSlug }。
    *
    * 只读、幂等：同一枚 code 在一个页面实例里只通知一次，多个实例同时
    * 检测也互不影响。接入方应该据此渲染一个按钮，由用户点它去兑换。
@@ -428,37 +331,14 @@
     clearPending()
     notifiedCode = null
 
-    // 取预生成好的 PKCE。极小概率还没就绪（脚本刚加载就点），兜底现场算一次。
-    var pair = prepared
-    if (!pair) {
-      // s256 同步，不需要 await，不会丢用户手势
-      var v = randomString(32)
-      pair = { verifier: v, challenge: s256(v) }
-    }
-    prepared = null
-    preparePkce()
-
-    var state = randomString(16)
-
-    try {
-      localStorage.setItem(VERIFIER_KEY, pair.verifier)
-      localStorage.setItem(VERIFIER_KEY + ':st', state)
-    } catch (e) { /* 隐私模式下写不进去，下面换 code 会失败并提示 */ }
-
-    // App 内 navigate 不透传 extra，所以参数另写一份到共享的 localStorage。
-    // URL 那份照样带着 —— Web 端能生效，且这样两端的排查方式一致。
-    //
-    // verifier 也放进来：中心 toy 拿到它之后，会在用户点「返回游戏」那一刻
-    // 把这枚 verifier 连同 code 一起写进共享槽。于是回来时**只读槽就够**，
-    // 不需要本地这条记录还活着（它可能已经被平台回收了）。
+    // 要带过去的就一个 client_id。App 内 navigate 不透传 extra，所以另写
+    // 一份到共享的 localStorage；URL 那份照样带着 —— Web 端能生效，两端
+    // 排查方式也一致。
     //
     // claimed 表示「中心 toy 已经接手过这个请求」。不标记的话，用户在这之后
     // 直接打开中心 toy，会被一个还"新鲜"的旧请求弹到过桥页，而不是首页。
     writeShared(REQ_KEY, {
       cid: CFG.clientId,
-      cc: pair.challenge,
-      st: state,
-      verifier: pair.verifier,
       ts: Date.now(),
       claimed: false
     })
@@ -466,7 +346,7 @@
     await toy.navigate({
       type: 'toy',
       id: CFG.centerToySlug,
-      extra: { cid: CFG.clientId, cc: pair.challenge, st: state }
+      extra: { cid: CFG.clientId }
     })
 
     // 回来时会是一次新的页面加载（App 内实测如此，URL 上还带着原生拼的
@@ -549,7 +429,6 @@
       restoreSession()
       if (SESSION && getRemainingMs() > 0) {
         clearPending()
-        clearAttempt()
         stripCodeFromUrl()
         return SESSION
       }
@@ -560,7 +439,6 @@
     // 「没有待兑换的授权码」—— 明明按钮还在，莫名其妙。
     if (code === 'code_used' || code === 'code_expired' || code === 'invalid_code') {
       clearPending()
-      clearAttempt()
       stripCodeFromUrl()
     }
 
@@ -594,33 +472,14 @@
     if (exchanging) return null
     exchanging = true
 
-    // PKCE verifier **优先用槽里那枚**（中心 toy 连同 code 一起写下来的），
-    // 本地记录只当兜底 —— 本地那份在过桥期间可能已经被平台回收了。
-    var verifier = pending.verifier
-    if (!verifier) {
-      try { verifier = localStorage.getItem(VERIFIER_KEY) } catch (e) { /* 忽略 */ }
-    }
-
-    if (!verifier) {
-      // 槽里没带、本地也没有 = 这枚码换不了。用户什么都没做错，
-      // 清掉残留让他重新发起。
-      clearAttempt()
-      exchanging = false
-      var stale = new Error('找不到本次登录的 PKCE 记录，请点「开启联机」重新授权一次')
-      stale.code = 'no_pkce_record'
-      throw stale
-    }
-
     try {
       var res = await post('/api/oauth/token', {
         grant_type: 'authorization_code',
         code: pending.code,
-        client_id: CFG.clientId,
-        code_verifier: verifier
+        client_id: CFG.clientId
       })
-      // 成功是终态：清槽 + 清 PKCE 记录 + 抹掉 URL 上的 code
+      // 成功是终态：清槽 + 抹掉 URL 上的 code
       clearPending()
-      clearAttempt()
       stripCodeFromUrl()
       return applyTokens(res)
     } catch (e) {
@@ -720,7 +579,6 @@
 
   /** 清掉本地会话，以及所有躺着的中间状态。下次要用得重新过桥。 */
   function logout() {
-    clearAttempt()
     clearShared(REQ_KEY)
     clearPending()
     notifiedCode = null
@@ -796,9 +654,6 @@
     /** 主动清掉本地会话 */
     logout: logout
   }
-
-  // 页面加载时就预生成好 PKCE 对，login() 里同步取用（toy.navigate 前不能 await）
-  preparePkce()
 
   // 自动处理回跳。必须等 load —— 调用方的 XMETA.configure() 在
   // 本文件之后的 inline script 里执行，那时配置才就绪。

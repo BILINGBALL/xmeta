@@ -47,7 +47,7 @@ function loadClient(existingStore?: Map<string, string>): Record<string, any> {
     fetch: async (url: string, init?: any) => {
       fetched.push(url);
       // 测试可以塞一个替身进来，模拟断网 / 服务端报错；init 一并传出，
-      // 好断言请求体（比如 code_verifier 是不是槽里那一枚）
+      // 好断言请求体
       if (sandbox.__fetchImpl) return sandbox.__fetchImpl(url, init);
       const payload = Buffer.from(JSON.stringify({ sub: '42' })).toString('base64url');
       return {
@@ -131,12 +131,6 @@ function seedCode(sandbox: Record<string, any>, slot: Record<string, unknown>) {
   }));
 }
 
-/** 造一轮「正在进行中」的尝试 —— login() 写的就是这两个键 */
-function seedAttempt(sandbox: Record<string, any>, state = 'S') {
-  sandbox.__store.set('xmeta:pkce:xmeta_t', 'v');
-  sandbox.__store.set('xmeta:pkce:xmeta_t:st', state);
-}
-
 test('接入脚本能加载，并把 XMETA 挂到 window 上', () => {
   const sandbox = loadClient();
   assert.ok(
@@ -198,16 +192,15 @@ test('configure 缺参数时给出可读的报错', () => {
 //   槽只在三种终态被删 —— 兑换成功 / 判定过期 / 用户取消。
 //   任何「看一眼」都不许删。
 //
-// 来历：以前的 takeSharedResult() 是先 clearShared() 再校验 state，于是一个
-// **没有 verifier 的实例**读一眼也能把结果毁掉，让真正能兑换的实例扑空。
+// 来历：以前的 takeSharedResult() 是先 clearShared() 再校验，于是一个
+// **没打算兑换的实例**读一眼也能把结果毁掉，让真正能兑换的实例扑空。
 // 这和「后台实例先醒来抢 code」是并列的两个杀手。
 // ─────────────────────────────────────────────────────────────
 
 test('检测到待兑换的 code 就通知 onCodeReady，但不兑换也不清槽', () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  seedAttempt(sb);
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG });
 
   let got: any = null;
   sb.XMETA.onCodeReady((p: any) => { got = p; });
@@ -225,8 +218,7 @@ test('检测到待兑换的 code 就通知 onCodeReady，但不兑换也不清�
 test('同一枚 code 只通知一次（去重标记只在内存里）', () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  seedAttempt(sb);
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG });
 
   let n = 0;
   sb.XMETA.onCodeReady(() => { n++; });
@@ -243,7 +235,7 @@ test('本地没有「进行中的一轮」也认 —— 那份记录可能已经
   sb.XMETA.configure(CFG);
   // 槽里有码，本地什么都没有。这正是线上那个 bug 的现场：人在中心 toy
   // 那边挑时长，这段时间里第三方 toy 自己的记录被回收了，回来只读槽。
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG });
 
   let got: any = null;
   sb.XMETA.onCodeReady((p: any) => { got = p; });
@@ -255,26 +247,12 @@ test('本地没有「进行中的一轮」也认 —— 那份记录可能已经
   assert.ok(sb.__store.has('xmeta:code'), '槽要留着，等用户点兑换');
 });
 
-test('槽里的 state 和本地对不上也认（本地那份可能是残留）', () => {
-  const sb = loadClient();
-  sb.XMETA.configure(CFG);
-  seedAttempt(sb, 'current-state');
-  seedCode(sb, { code: 'C', state: 'a-different-state', returnSlug: MY_SLUG });
-
-  let n = 0;
-  sb.XMETA.onCodeReady(() => { n++; });
-
-  assert.ok(sb.XMETA.handleRedirect(), 'state 不再是判据了');
-  assert.equal(n, 1);
-  assert.ok(sb.__store.has('xmeta:code'));
-});
-
 test('App 里回来：URL 带中心 toy 的回跳特征、槽里有码 → 检测到', () => {
   const sb = loadClient();
   sb.XMETA.configure({ ...CFG, centerToyId: CENTER_TOY_ID });
   // App 内 toy.navigate 不透传 extra，落回来那页的 URL 上只有原生拼的这一串
   sb.location.search = '?from_spmid=toy.toy-detail.' + CENTER_TOY_ID + '.0';
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG });
 
   let got: any = null;
   sb.XMETA.onCodeReady((p: any) => { got = p; });
@@ -286,8 +264,7 @@ test('App 里回来：URL 带中心 toy 的回跳特征、槽里有码 → 检�
 test('发给别的 toy 的 code 不认（槽是全局单槽，靠值里的 clientId 分辨）', () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  seedAttempt(sb);
-  seedCode(sb, { clientId: 'xmeta_someone_else', code: 'C', state: 'S', returnSlug: MY_SLUG });
+  seedCode(sb, { clientId: 'xmeta_someone_else', code: 'C', returnSlug: MY_SLUG });
 
   let n = 0;
   sb.XMETA.onCodeReady(() => { n++; });
@@ -300,8 +277,7 @@ test('发给别的 toy 的 code 不认（槽是全局单槽，靠值里的 clien
 test('码过期了：不触发，并且清掉（过期是终态）', () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  seedAttempt(sb);
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG, expiresAt: Date.now() - 1 });
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG, expiresAt: Date.now() - 1 });
 
   let n = 0;
   sb.XMETA.onCodeReady(() => { n++; });
@@ -321,8 +297,7 @@ test('码过期了：不触发，并且清掉（过期是终态）', () => {
 test('completeLogin：用户点了才发请求，成功后才清槽', async () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  seedAttempt(sb);
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG });
 
   sb.XMETA.handleRedirect();               // 检测阶段
   assert.deepEqual(sb.__fetched, [], '检测阶段不该发请求');
@@ -334,15 +309,14 @@ test('completeLogin：用户点了才发请求，成功后才清槽', async () =
   assert.equal(session.uid, '42');
   assert.equal(sb.__fetched.length, 1);
   assert.equal(sb.__store.has('xmeta:code'), false, '成功是终态，清槽');
-  assert.equal(sb.__store.has('xmeta:pkce:xmeta_t'), false, 'PKCE 记录也一并清掉');
   assert.ok(sb.__store.has('xmeta:sess:xmeta_t'), '会话要落到本地');
 });
 
-test('兑换用槽里带的 verifier —— 本地记录被回收了也换得成', async () => {
+test('兑换只要 code —— 本地什么都不记也换得成', async () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  // 故意不 seedAttempt：本地那份 PKCE 记录当作已经被平台清掉了
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG, verifier: 'V-from-slot' });
+  // 本地一个字节都没写（模拟平台把该清的都清了）
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG });
 
   let sent: any = null;
   sb.__fetchImpl = async (_url: string, init: any) => {
@@ -361,7 +335,10 @@ test('兑换用槽里带的 verifier —— 本地记录被回收了也换得成
   const session = await sb.XMETA.completeLogin();
 
   assert.ok(session, '应该换到 session');
-  assert.equal(sent.code_verifier, 'V-from-slot', 'verifier 应该来自槽里那枚');
+  assert.equal(sent.code, 'C');
+  assert.equal(sent.client_id, CFG.clientId);
+  assert.deepEqual(Object.keys(sent).sort(), ['client_id', 'code', 'grant_type'],
+    '请求体就这三样，没有 verifier 之类的东西');
   assert.equal(sb.__store.has('xmeta:code'), false, '成功是终态，清槽');
 });
 
@@ -374,22 +351,10 @@ test('completeLogin：没有待兑换的码时抛错，且带机器可读的 cod
   );
 });
 
-test('completeLogin：没有 PKCE 记录时抛错', async () => {
-  const sb = loadClient();
-  sb.XMETA.configure(CFG);
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });   // 有码，但没有 attempt
-
-  await assert.rejects(
-    () => sb.XMETA.completeLogin(),
-    (e: any) => e.code === 'no_pending_code' || e.code === 'no_pkce_record',
-  );
-});
-
 test('completeLogin：传输失败不清槽，用户还能再点一次', async () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  seedAttempt(sb);
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG });
 
   sb.__fetchImpl = async () => ({
     ok: false, status: 503,
@@ -398,14 +363,12 @@ test('completeLogin：传输失败不清槽，用户还能再点一次', async (
 
   await assert.rejects(() => sb.XMETA.completeLogin());
   assert.ok(sb.__store.has('xmeta:code'), '可重试的失败必须留着槽');
-  assert.ok(sb.__store.has('xmeta:pkce:xmeta_t'), 'PKCE 记录也要留着');
 });
 
 test('completeLogin：另一个 tab 抢先兑换了，就采纳它写下的会话', async () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  seedAttempt(sb);
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG });
 
   sb.__fetchImpl = async () => ({
     ok: false, status: 409,
@@ -433,11 +396,10 @@ test('completeLogin：另一个 tab 抢先兑换了，就采纳它写下的会�
 test('回到前台立刻检测一次，把待兑换的码通知出来（页面没重载的情形）', () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  seedAttempt(sb);
 
   sb.__setHidden(true);
   // 用户去中心 toy 授权，这段期间结果被写进槽
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG });
 
   let got: any = null;
   sb.XMETA.onCodeReady((p: any) => { got = p; });
@@ -453,7 +415,7 @@ test('回到前台立刻检测一次，把待兑换的码通知出来（页面�
 test('回到前台时码已被别的实例兑换走，就接手它写下的会话', () => {
   const sb = loadClient();
   sb.XMETA.configure(CFG);
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
+  seedCode(sb, { code: 'C', returnSlug: MY_SLUG });
   // 别的实例兑换完写进本地的那份（同源共享）
   sb.__store.set('xmeta:sess:xmeta_t', JSON.stringify({
     jwt: 'a.b.c', uid: '42', expiresAt: Date.now() + 3600_000,

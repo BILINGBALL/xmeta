@@ -10,13 +10,15 @@ import { getClient, getToyById, insertAuthCode, upsertUser } from '../repos.js';
 /**
  * Phase 1 —— 用户过桥。
  *
- * 第三方 toy 带着自己的 client_id + PKCE challenge 把用户送到我的 toy；
+ * 第三方 toy 带着自己的 client_id 把用户送到我的 toy；
  * 用户在这里同意授权后，我发一个一次性 code，用户带着 code 回到原 toy。
  *
  * 关键点：
  *  - 回跳的目标 slug 一律从库里按 client_id 查，绝不取 URL 里的参数（防开放重定向）。
  *  - code 而不是 JWT 进 URL。B站 shell 会把 query 原样转发给内层 iframe，
  *    query 会进日志和浏览器历史，不能放长期凭证。
+ *  - **没有 PKCE**：code 60 秒命、一次性、只对签发它的 toy 有效。
+ *    这么点体量的玩具不值得让接入方去理解 verifier/challenge。
  */
 
 export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
@@ -72,7 +74,6 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
     });
 
     const code = randomToken(32);
-    const challenge = body.cc;
     // 用户选的授权时长。没选（比如老版本前端）就按默认值走。
     const ttlHours = body.ttl ?? DEFAULT_TOKEN_TTL_HOURS;
 
@@ -80,9 +81,6 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       code,
       uid: user.id,
       clientId: client.client_id,
-      codeChallenge: challenge,
-      codeChallengeMethod: 'S256',
-      state: body.st ?? null,
       codeTtlSeconds: config.AUTH_CODE_TTL_SECONDS,
       tokenTtlSeconds: ttlHours * 3600,
     });
@@ -92,7 +90,6 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       /** 回跳目标由服务端决定，前端拿它去 toy.navigate */
       returnSlug: toy.slug,
       returnToyTitle: toy.title,
-      state: body.st ?? null,
       expiresIn: config.AUTH_CODE_TTL_SECONDS,
       /** 这枚 code 换出来的 token 能活多久 */
       tokenTtlSeconds: ttlHours * 3600,

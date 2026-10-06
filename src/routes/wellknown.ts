@@ -19,7 +19,6 @@ export async function wellKnownRoutes(app: FastifyInstance): Promise<void> {
     token_endpoint: `${config.PUBLIC_BASE_URL}/api/oauth/token`,
     token_endpoint_auth_methods_supported: ['none'],
     grant_types_supported: ['authorization_code'],
-    code_challenge_methods_supported: ['S256'],
     id_token_signing_alg_values_supported: ['ES256'],
     /** 用户在授权时可选的 token 有效期（小时） */
     token_ttl_hours_options: ALLOWED_TOKEN_TTL_HOURS,

@@ -157,9 +157,8 @@ const REQ_KEY = 'xmeta:req'
  * 待兑换的授权码槽。**这是一份公开契约**，键名 / 值结构 / TTL 写在 README 里，
  * 第三方 toy 只读它。下面的 RES_KEY 是旧格式，过渡期双写用，下个周期可删。
  *
- * 值里必须带 verifier：发起方**只读这一份**就能把码换成 JWT，不依赖它自己
- * 写在别处的记录 —— 用户在中心 toy 这边挑时长的这段时间里，那份记录可能
- * 已经被平台回收了。
+ * 这一份就是发起方换 JWT 的**唯一**依据：它自己不需要在本地记着任何东西 ——
+ * 用户在中心 toy 这边挑时长的这段时间里，写在那边的记录可能已经被平台回收了。
  */
 const CODE_KEY = 'xmeta:code'
 const RES_KEY = 'xmeta:res'
@@ -167,8 +166,6 @@ const SHARED_TTL_MS = 3 * 60 * 1000
 
 const qs = new URLSearchParams(location.search)
 let CID = qs.get('cid')
-let CC  = qs.get('cc')
-let ST  = qs.get('st')
 
 function readShared(key) {
   try {
@@ -182,18 +179,10 @@ function writeShared(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch (e) { /* 忽略 */ }
 }
 
-// 本轮的请求。verifier 就写在里面 —— 用户点「返回游戏」时要连同 code 一起
-// 交还给发起方。这里趁页面刚起来、请求还新鲜的时候把它读进来放进内存，
-// 之后就算本地被清也不影响（返回那一刻我们写的是内存里这份）。
-const bootReq = readShared(REQ_KEY)
-let VERIFIER = (bootReq && bootReq.verifier) || null
-
 if (!CID) {
-  const req = bootReq
+  const req = readShared(REQ_KEY)
   if (req && req.cid) {
     CID = req.cid
-    CC  = req.cc
-    ST  = req.st
     // 标记「已接手」。index.html 看到 claimed 就不再转发 ——
     // 否则用户在这之后直接打开中心 toy，会被这个旧请求弹回过桥页。
     // 数据留着，这样刷新本页仍然可用。
@@ -210,7 +199,7 @@ if (!CID) {
 // 启动时写一个标记，第三方 toy 的诊断行里就能看到，一眼确认。
 //
 // 改了这一页就把它 +1。
-const BRIDGE_VERSION = 3
+const BRIDGE_VERSION = 4
 try {
   localStorage.setItem('xmeta:bridge', JSON.stringify({ v: BRIDGE_VERSION, ts: Date.now() }))
 } catch (e) { /* 忽略 */ }
@@ -339,8 +328,6 @@ $('btnAllow').addEventListener('click', async () => {
     $('workingText').textContent = '正在签发身份…'
     pendingReturn = await post('/api/bridge/authorize', {
       cid: CID,
-      cc: CC,
-      st: ST,
       ttl: selectedTtl(),
       toyOpenId: profile.toyOpenId,
       nickname: profile.nickname,
@@ -364,9 +351,8 @@ function showInline(id, msg) {
 /**
  * 丢掉 null / undefined 的参数。
  *
- * URLSearchParams 会把 null 序列化成字符串 "null"，而 st 可能是 null ——
- * 那样跳过去的页面会拿到 state="null"，跟本地记的对不上，检测谓词永远
- * 不命中，界面上就是一个永远不出现的按钮。宁可这个参数干脆不带。
+ * URLSearchParams 会把 null 序列化成字符串 "null" —— 那样跳过去的页面会
+ * 拿到一个看着像参数、其实是字面量 "null" 的值。宁可这个参数干脆不带。
  */
 function extraParams(extra) {
   const out = {}
@@ -470,29 +456,24 @@ function returnWithCode() {
     v: 1,
     clientId: CID,
     code: pendingReturn.code,
-    state: ST,
     returnSlug: pendingReturn.returnSlug,
     // 授权码在服务端只有 60 秒。写绝对时刻，第三方才能在码死掉之后
     // 把「完成登录」的按钮撤掉，而不是留一个点了必然失败的按钮。
     expiresAt: Date.now() + (pendingReturn.expiresIn || 60) * 1000,
     ts: Date.now()
   }
-  // PKCE 的 verifier 一起给。发起方兑换时要用它，而它自己那份本地记录
-  // 在这段时间里可能已经被平台回收了 —— 所以这一份必须由我们写下。
-  if (VERIFIER) slot.verifier = VERIFIER
   writeShared(CODE_KEY, slot)
 
   // 过渡期双写旧格式：已经打开的页面可能还装着旧版 SDK，只写新键会让
   // 它们静默地连不上。下一个发布周期后可以删掉这一段。
   writeShared(RES_KEY, {
     code: pendingReturn.code,
-    st: ST,
     returnSlug: pendingReturn.returnSlug,
     ts: Date.now()
   })
 
   navigateToToy(pendingReturn.returnSlug,
-    { code: pendingReturn.code, st: ST }, 'backHint')
+    { code: pendingReturn.code }, 'backHint')
 }
 
 // ── 返回游戏 ──

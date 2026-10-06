@@ -42,10 +42,6 @@ export const refreshToySchema = identitySchema.pick({ toyOpenId: true }).extend(
 
 export const bridgeAuthorizeSchema = identitySchema.extend({
   cid: z.string().min(1).max(128),
-  /** PKCE challenge（S256），必填。code 会进 URL，没它 code 就是裸奔的兑换券 */
-  cc: z.string().min(16).max(256),
-  /** 接入方自己的 state，原样回传 */
-  st: z.string().max(256).nullish(),
   /** 用户选的授权时长（小时），必须落在允许的档位里 */
   ttl: z
     .coerce.number()
@@ -64,5 +60,4 @@ export const tokenSchema = z.object({
   grant_type: z.literal('authorization_code'),
   code: z.string().min(1).max(256),
   client_id: z.string().min(1).max(128),
-  code_verifier: z.string().min(16).max(256),
 });

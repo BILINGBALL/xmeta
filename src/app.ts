@@ -17,7 +17,7 @@ export async function buildApp(deps: AppDeps = realDeps): Promise<FastifyInstanc
       level: process.env.LOG_LEVEL ?? 'info',
       // toyOpenId 是密钥级数据，绝不能进日志
       redact: {
-        paths: ['req.body.toyOpenId', 'req.body.code_verifier', 'req.body.code'],
+        paths: ['req.body.toyOpenId', 'req.body.code'],
         censor: '[redacted]',
       },
     },

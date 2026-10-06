@@ -3,7 +3,6 @@ import { DEFAULT_TOKEN_TTL_HOURS } from '../config.js';
 import { Errors } from '../errors.js';
 import { parse, tokenSchema } from '../http.js';
 import { issueToken } from '../lib/jwt.js';
-import { verifyChallenge } from '../lib/pkce.js';
 import { rateLimit } from '../lib/ratelimit.js';
 import {
   consumeAuthCode,
@@ -14,7 +13,12 @@ import {
 } from '../repos.js';
 
 /**
- * 用一次性 code + PKCE 换 JWT。
+ * 用一次性 code 换 JWT。
+ *
+ * **没有 PKCE**：接入方是纯静态 toy，拿不到 client_secret；而 code 只有
+ * 60 秒命、一次性、且只对签发它的那个 toy 有效（aud 也绑死），换出来的
+ * JWT 也就是同一档时长。这个体量下够用了 —— 想接的 toy 抄十几行就能跑通，
+ * 不用理解 verifier/challenge 那一套。
  *
  * token 的有效期由**用户在授权时自己选**（3/6/12/24 小时），存在
  * 授权码上带过来。所以这里是「按用户选的时长签发」，不是固定的
@@ -23,8 +27,8 @@ import {
  * 没有刷新机制：过期了就回中心 toy 重新授权一次。最长 24 小时，
  * 意味着每天都要回去一趟，这是刻意的节奏。
  *
- * 注意：code 是先被消费掉再校验 PKCE 的。这是故意的——
- * 校验失败就把 code 烧掉，避免拿它反复猜 code_verifier。
+ * 注意：code 是先被消费掉再校验的。取走即作废，后面任何一步失败都不会
+ * 把它放回去 —— 省得一次调用失败后被别人捡去重放。
  */
 export async function tokenRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/oauth/token', async (req) => {
@@ -43,13 +47,6 @@ export async function tokenRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if (row.client_id !== body.client_id) throw Errors.invalidCode();
-
-    // PKCE 必填。code 会进 URL（Web 端拼在 query 里），
-    // 没有 code_verifier 的 code 形同裸奔，谁看到 URL 都能换。
-    if (!row.code_challenge) throw Errors.invalidCode();
-    if (!verifyChallenge(body.code_verifier, row.code_challenge, row.code_challenge_method)) {
-      throw Errors.pkceMismatch();
-    }
 
     const client = await getClient(row.client_id);
     if (!client || client.revoked_at) throw Errors.clientNotFound();
@@ -82,7 +79,6 @@ export async function tokenRoutes(app: FastifyInstance): Promise<void> {
       /** 方便接入方自检：这个 token 只对下面这个 toy 有效 */
       audience: toy.toy_id,
       toy_slug: toy.slug,
-      state: row.state,
     };
   });
 }

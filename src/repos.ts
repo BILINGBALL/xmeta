@@ -49,9 +49,6 @@ export type AuthCodeRow = {
   code: string;
   uid: string;
   client_id: string;
-  code_challenge: string | null;
-  code_challenge_method: string | null;
-  state: string | null;
   /** 用户在授权时选的有效期（小时）。老数据可能是 null，按默认值处理。 */
   ttl_seconds: number | null;
   expires_at: Date;
@@ -338,28 +335,15 @@ export async function insertAuthCode(input: {
   code: string;
   uid: string;
   clientId: string;
-  codeChallenge: string | null;
-  codeChallengeMethod: string | null;
-  state: string | null;
   /** 授权码自己的寿命（秒），通常 60 */
   codeTtlSeconds: number;
   /** 用户在授权时选的 token 有效期（秒） */
   tokenTtlSeconds: number;
 }): Promise<void> {
   await query(
-    `insert into auth_code (code, uid, client_id, code_challenge,
-                            code_challenge_method, state, expires_at, ttl_seconds)
-     values ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7), $8)`,
-    [
-      input.code,
-      input.uid,
-      input.clientId,
-      input.codeChallenge,
-      input.codeChallengeMethod,
-      input.state,
-      input.codeTtlSeconds,
-      input.tokenTtlSeconds,
-    ],
+    `insert into auth_code (code, uid, client_id, expires_at, ttl_seconds)
+     values ($1, $2, $3, now() + make_interval(secs => $4), $5)`,
+    [input.code, input.uid, input.clientId, input.codeTtlSeconds, input.tokenTtlSeconds],
   );
 }
 
@@ -372,8 +356,7 @@ export async function consumeAuthCode(code: string): Promise<AuthCodeRow | null>
     `update auth_code
         set used_at = now()
       where code = $1 and used_at is null and expires_at > now()
-      returning code, uid, client_id, code_challenge, code_challenge_method,
-                state, ttl_seconds, expires_at, used_at`,
+      returning code, uid, client_id, ttl_seconds, expires_at, used_at`,
     [code],
   );
   return row;
@@ -382,8 +365,7 @@ export async function consumeAuthCode(code: string): Promise<AuthCodeRow | null>
 /** 用于给「已用过 / 已过期」给出准确报错 */
 export async function peekAuthCode(code: string): Promise<AuthCodeRow | null> {
   return queryOne<AuthCodeRow>(
-    `select code, uid, client_id, code_challenge, code_challenge_method,
-            state, ttl_seconds, expires_at, used_at
+    `select code, uid, client_id, ttl_seconds, expires_at, used_at
        from auth_code where code = $1`,
     [code],
   );

@@ -53,10 +53,8 @@
       <span class="xm-label" style="margin:0">联机状态</span>
       <span class="xm-live" id="vState">未连接</span>
     </div>
-    <div class="xm-kv">
-      <span class="xm-kv__k">client_id</span>
-      <span class="xm-kv__v xm-mono" id="vCid">—</span>
-    </div>
+    <!-- client_id 不给玩家看；这行占的是下面那条分隔线，别删 -->
+    <div class="xm-kv"></div>
     <div class="xm-kv xm-hidden" id="rowUid">
       <span class="xm-kv__k">身份 uid</span>
       <span class="xm-kv__v xm-mono" id="vUid">—</span>
@@ -138,19 +136,10 @@ function diagSnapshot() {
         '秒前,claimed=' + req.claimed + ')'
     }
   } catch (e) { /* 忽略 */ }
-  // 本轮 PKCE 记录。兑换要拿它和槽里的 state 对上号 —— 对不上就永远检测不到，
-  // 而且不报错，所以必须记下来。
-  let myState = null
-  try {
-    const verifier = localStorage.getItem('xmeta:pkce:' + CONFIG.clientId)
-    myState = localStorage.getItem('xmeta:pkce:' + CONFIG.clientId + ':st')
-    snap.pkce = verifier ? ('有,st=' + (myState ? myState.slice(0, 6) : '(无)')) : '无'
-  } catch (e) { /* 忽略 */ }
   try {
     const p = JSON.parse(localStorage.getItem('xmeta:code') || 'null')
     if (p && p.code) {
       snap.slot = '有码(clientId匹配=' + (p.clientId === CONFIG.clientId) +
-        ',state匹配=' + (!!myState && p.state === myState) +
         ',剩' + Math.round(((p.expiresAt || 0) - Date.now()) / 1000) + '秒)'
     }
   } catch (e) { /* 忽略 */ }
@@ -196,7 +185,6 @@ function diagPaint() {
     e.t + ' ' + e.ev + ' (此前' + e.before + '条)' +
     ' | spmid=' + e.spmid +
     ' | req=' + (e.req || '无') +
-    ' | pkce=' + (e.pkce || '无') +
     ' | slot=' + (e.slot || '空') +
     (e.extra ? ' | ' + e.extra : '') +
     '\n     keys=' + (e.keys || '?') +
@@ -219,7 +207,7 @@ $('diagClear').addEventListener('click', () => {
 })
 
 // 把 SDK 的入口包一层：谁在什么时候动了本地状态，日志里就会留下痕迹。
-// （`logout()` 是唯一会同时清掉 PKCE 记录和 xmeta:req 的地方，重点盯它。）
+// （`logout()` 会把 xmeta:req 和待兑换的槽一起清掉，重点盯它。）
 if (typeof XMETA !== 'undefined') {
   ;['login', 'completeLogin', 'logout', 'setSession'].forEach((name) => {
     const orig = XMETA[name]
@@ -277,7 +265,7 @@ async function redeem() {
 
 // ── 清除凭证（调试用）──
 //
-// 只清本地那一份：SDK 的 logout() 会把会话、PKCE 记录、待兑换的码
+// 只清本地那一份：SDK 的 logout() 会把会话、发起记录、待兑换的码
 // 一起清掉。云存储本来就没在用，没有第二份要清。
 $('btnReset').addEventListener('click', () => {
   clearErr()
@@ -346,10 +334,8 @@ let configured = false
 
 if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
   $('cfgWarn').classList.remove('xm-hidden')
-  $('vCid').textContent = '未配置'
   $('btnLogin').disabled = true
 } else {
-  $('vCid').textContent = CONFIG.clientId
   if (typeof XMETA === 'undefined') {
     // xmeta-client.js 是从中心服务器加载的，服务器挂了就拿不到 XMETA。
     // 此时联机功能不可用，但 toy 本身还能跑，别把整个页面搞崩。

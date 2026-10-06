@@ -19,12 +19,12 @@ B站 Toy 的 `toyOpenId` 是**每个 toy 各自独立**的假名，A toy 认不�
                               ──► 服务端抓真实源码校验 ──► 下发 client_id
 
   ② 过桥
-  第三方 toy ──toy.navigate(cid, PKCE challenge, state)──► 中心 toy
+  第三方 toy ──toy.navigate(cid)──► 中心 toy
   用户点授权 ──► toy.getUserProfile() ──► toyOpenId ──► 服务端
                               ──► 一次性 code ──toy.navigate──► 第三方 toy
 
   ③ 换 JWT
-  第三方 toy ──code + code_verifier──► /api/oauth/token ──► JWT(aud=该 toy)
+  第三方 toy ──code──► /api/oauth/token ──► JWT(aud=该 toy)
 ```
 
 ### 为什么归属验证用 nonce，而不是比对用户资料
@@ -104,9 +104,17 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 
 **`aud` 一定要校验。** 不校验的话，A toy 拿到的 token 能被 B toy 拿去冒充用户。
 
-**PKCE 是必填的。** `/api/bridge/authorize` 不带 `cc`（challenge）会直接 400，
-`/api/oauth/token` 不带 `code_verifier` 也会失败。`code` 会出现在 URL 里
-（Web 端拼在 query 上），没有 PKCE 的话，谁看到这条 URL 都能在过期前把它换掉。
+**没有 PKCE，code 是唯一的凭据。** 换 token 只要 `{ code, client_id }`，
+接入方不需要在本地存任何东西、也不需要理解 verifier/challenge。
+敢这么简化是因为 `code` 的暴露面已经被别的东西压住了：60 秒命、一次性、
+只对签发它的那个 toy 有效（`aud` 也绑死）。这是给一个玩具生态用的，
+不是给银行用的。
+
+> 代价说清楚：`code` 会出现在 URL 里（Web 端拼在 query 上），谁在这 60 秒内
+> 看到它、又抢在你前面兑换，谁就能顶掉你这一次登录。要回到 PKCE 的话，
+> `auth_code` 表那三列（`code_challenge` / `code_challenge_method` / `state`）
+> 还在，加回去、`/api/oauth/token` 补一道
+> `sha256(code_verifier) == code_challenge` 就行。
 
 ### 有效期
 
@@ -195,7 +203,7 @@ npm test        # 端到端：认领 → 过桥 → 换 JWT → 用 JWKS 验签
 npm run typecheck
 ```
 
-B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / PKCE / 签名都是真的。
+B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / 签名都是真的。
 测试会往 `xmeta` 库里写 `testtoy*` 前缀的临时数据，跑完自己清理。
 
 ---
@@ -212,7 +220,7 @@ B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / PKCE / �
    原生侧拼 URL 时没带上 `extra`。文档里 `extra` 写的是「透传给目标页面」，
    且 `type` 明确包含 `toy`——**App 端的行为与文档不符**。
 
-   所以本项目的过桥参数（leg 1 的 `cid/cc/st`、leg 2 的 `code`）都走**双通道**：
+   所以本项目的过桥参数（leg 1 的 `cid`、leg 2 的 `code`）都走**双通道**：
 
    - URL 参数优先（Web 端能生效）
    - 拿不到时回落到 **localStorage** —— B站 所有 toy 的内层 iframe 同在
@@ -231,28 +239,26 @@ B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / PKCE / �
    | | |
    |---|---|
    | 键 | `xmeta:code` —— 全局单槽，所有 toy 共用 |
-   | 值 | `{ v, clientId, code, state, verifier, returnSlug, expiresAt, ts }` |
+   | 值 | `{ v, clientId, code, returnSlug, expiresAt, ts }` |
    | 时效 | 到 `expiresAt` 为止（= 授权码的 60 秒有效期） |
    | 读方 | **只读**。只在「兑换成功 / 判定过期 / 用户取消」三种终态才允许删 |
 
    `clientId` 不能省 —— 单槽是所有 toy 共用的，它是「这枚码不是给我的」
    唯一判据。leg 1 的 `xmeta:req`（发起方写、中心 toy 读）不在这个契约里。
 
-   `verifier` 是这枚码配套的 PKCE verifier。**这一枚就够了：读它的那边
-   不需要自己再记着什么。** 这条是踩出来的 —— 用户可能在中心 toy 那边
-   挑半天时长，这段时间里发起方写在 localStorage 里的记录会被平台回收，
-   于是带着一枚好端端的码回来却什么都换不了（本地判据对不上，而且**不报错**）。
-   所以这一轮需要的东西一律由中心 toy 在用户点「返回游戏」那一刻写进这里。
+   这一份就是发起方换 JWT 的**全部依据**：加上 URL 上的 `code`，没有别的。
+   曾经还要求「槽里的 state == 本地记的 state」，那条路依赖第三方 toy 自己
+   写在 localStorage 里的记录 —— 而用户可能在中心 toy 那边挑好几分钟时长，
+   这段时间里那份记录会被平台回收，于是带着一枚好端端的码回来却什么都换
+   不了（本地判据对不上，而且**不报错**）。现在判据全在槽自己身上。
 
-   判定「这一跳是不是刚从中心 toy 回来」有两条路：Web 端 SDK 自己把 `code`
+   判定「这一跳是不是刚从中心 toy 回来」有三条路：Web 端 SDK 自己把 `code`
    拼在 URL 上；App 端原生拼的是 `from_spmid=toy.toy-detail.<中心 toy 的
-   toy_id>.0`（这就是 `centerToyId` 的用处）。`xmeta-client.js` 两种都认，
-   外加「槽里躺着一枚新鲜的、写给我的码」兜底 —— 三个判据全在槽自己身上，
-   不依赖本地任何历史记录。
+   toy_id>.0`（这就是 `centerToyId` 的用处）；外加「槽里躺着一枚新鲜的、
+   写给我的码」兜底。
 
-   ⚠️ 注意这份共享是**双向**的：契约里带着 PKCE verifier，暂存的会话也在
-   同一个源下，**同源的别的 toy 都读得到**。凭证的暴露面见下面「几个必须
-   知道的坑」。
+   ⚠️ 注意这份共享是**双向**的：暂存的会话也在同一个源下，
+   **同源的别的 toy 都读得到**。凭证的暴露面见下面「几个必须知道的坑」。
 
 3. **`getUserProfile()` 在外部手机浏览器里不支持**，只在 B站 App 内和桌面 Web 可用。
 4. **`toy.navigate` 必须在用户手势里「同步」调用，不能跨 `await`。**

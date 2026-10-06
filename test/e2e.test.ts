@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, randomBytes, randomInt } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import type { FastifyInstance } from 'fastify';
 import { importJWK, jwtVerify, type JWK } from 'jose';
@@ -14,7 +14,7 @@ import { runMigrations } from '../src/scripts/migrate.js';
  * 端到端跑通整条链：
  *   认领（start → verify）→ 过桥 authorize → 换 code 拿 JWT → 用 JWKS 验签
  *
- * B站的接口和外网抓取用桩替代，其余（DB、状态机、PKCE、签名）都是真的。
+ * B站的接口和外网抓取用桩替代，其余（DB、状态机、签名）都是真的。
  */
 
 const RUN = randomBytes(4).toString('hex');
@@ -59,12 +59,6 @@ async function post(url: string, body: unknown): Promise<{ status: number; json:
     headers: { 'content-type': 'application/json' },
   });
   return { status: res.statusCode, json: JSON.parse(res.body) };
-}
-
-function pkce(): { verifier: string; challenge: string } {
-  const verifier = randomBytes(32).toString('base64url');
-  const challenge = createHash('sha256').update(verifier).digest('base64url');
-  return { verifier, challenge };
 }
 
 before(async () => {
@@ -151,12 +145,10 @@ test('原作者可以查询自己认领了哪些 toy', async () => {
 });
 
 test('过桥：玩家的 toyOpenId 换到一次性 code', async () => {
-  const { challenge } = pkce();
   const { status, json } = await post('/api/bridge/authorize', {
     cid: clientId,
     toyOpenId: PLAYER_OPENID,
     nickname: '玩家',
-    cc: challenge,
   });
 
   assert.equal(status, 200);
@@ -165,56 +157,46 @@ test('过桥：玩家的 toyOpenId 换到一次性 code', async () => {
   assert.equal(json.returnSlug, SLUG);
 });
 
-test('PKCE 校验失败的 code 会被烧掉', async () => {
-  const { challenge } = pkce();
+test('client_id 对不上的兑换失败，而且 code 会被烧掉', async () => {
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
     toyOpenId: PLAYER_OPENID,
-    cc: challenge,
   });
 
-  const wrong = pkce();
   const { status, json } = await post('/api/oauth/token', {
     grant_type: 'authorization_code',
     code: auth.code,
-    client_id: clientId,
-    code_verifier: wrong.verifier,
+    client_id: 'xmeta_someone_else',
   });
 
   assert.equal(status, 400);
-  assert.equal(json.error.code, 'pkce_mismatch');
+  assert.equal(json.error.code, 'invalid_code');
 
-  // 再用正确的 verifier 也不行——code 已经作废
+  // code 取走即作废，再用对的 client_id 也不行
   const retry = await post('/api/oauth/token', {
     grant_type: 'authorization_code',
     code: auth.code,
     client_id: clientId,
-    code_verifier: wrong.verifier,
   });
   assert.equal(retry.json.error.code, 'code_used');
 });
 
 test('换 JWT：签名与 claims 都正确', async () => {
-  const { verifier, challenge } = pkce();
 
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
     toyOpenId: PLAYER_OPENID,
-    cc: challenge,
-    st: 'state-abc',
   });
 
   const { status, json } = await post('/api/oauth/token', {
     grant_type: 'authorization_code',
     code: auth.code,
     client_id: clientId,
-    code_verifier: verifier,
   });
 
   assert.equal(status, 200);
   assert.equal(json.token_type, 'Bearer');
   assert.equal(json.audience, TOY_ID);
-  assert.equal(json.state, 'state-abc', 'state 应该原样回传');
 
   // 用发布的 JWKS 验签
   const jwksRes = await app.inject({ method: 'GET', url: '/.well-known/jwks.json' });
@@ -240,29 +222,16 @@ test('换 JWT：签名与 claims 都正确', async () => {
   );
 });
 
-test('不带 PKCE challenge 的授权被拒绝', async () => {
-  const { status, json } = await post('/api/bridge/authorize', {
-    cid: clientId,
-    toyOpenId: PLAYER_OPENID,
-  });
-
-  assert.equal(status, 400);
-  assert.equal(json.error.code, 'invalid_param');
-});
-
 test('授权码是一次性的', async () => {
-  const { verifier, challenge } = pkce();
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
     toyOpenId: PLAYER_OPENID,
-    cc: challenge,
   });
 
   const first = await post('/api/oauth/token', {
     grant_type: 'authorization_code',
     code: auth.code,
     client_id: clientId,
-    code_verifier: verifier,
   });
   assert.equal(first.status, 200);
 
@@ -270,25 +239,21 @@ test('授权码是一次性的', async () => {
     grant_type: 'authorization_code',
     code: auth.code,
     client_id: clientId,
-    code_verifier: verifier,
   });
   assert.equal(second.status, 409);
   assert.equal(second.json.error.code, 'code_used');
 });
 /** 走一遍过桥，拿一枚 access token */
 async function bridgeOnce(ttlHours?: number): Promise<{ accessToken: string; expiresIn: number }> {
-  const { verifier, challenge } = pkce();
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
     toyOpenId: PLAYER_OPENID,
-    cc: challenge,
     ...(ttlHours ? { ttl: ttlHours } : {}),
   });
   const { json } = await post('/api/oauth/token', {
     grant_type: 'authorization_code',
     code: auth.code,
     client_id: clientId,
-    code_verifier: verifier,
   });
   return { accessToken: json.access_token, expiresIn: json.expires_in };
 }
@@ -304,11 +269,9 @@ test('用户没选时用默认的 6 小时', async () => {
 });
 
 test('不在档位里的时长会被服务端拒绝', async () => {
-  const { challenge } = pkce();
   const { status, json } = await post('/api/bridge/authorize', {
     cid: clientId,
     toyOpenId: PLAYER_OPENID,
-    cc: challenge,
     ttl: 5,
   });
   assert.equal(status, 400);
@@ -363,11 +326,9 @@ test('个人中心：没见过的身份返回空壳而不是报错', async () =>
 });
 
 test('未认领的 toy 不能过桥', async () => {
-  const { challenge } = pkce();
   const { status, json } = await post('/api/bridge/authorize', {
     cid: 'xmeta_does_not_exist',
     toyOpenId: PLAYER_OPENID,
-    cc: challenge,
   });
 
   assert.equal(status, 404);

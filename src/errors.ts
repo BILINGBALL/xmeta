@@ -64,8 +64,6 @@ export const Errors = {
 
   codeUsed: () => new AppError('code_used', '授权码已被使用', 409),
 
-  pkceMismatch: () => new AppError('pkce_mismatch', 'code_verifier 校验失败', 400),
-
   rateLimited: (retryAfter: number) =>
     new AppError('rate_limited', `请求过于频繁，请 ${retryAfter} 秒后再试`, 429, {
       retryAfter,
