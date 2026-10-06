@@ -19,7 +19,10 @@
     var req = JSON.parse(localStorage.getItem('xmeta:req') || 'null')
     // claimed 的不能再转发：那是中心 toy 已经接手过的旧请求。
     if (req && req.cid && !req.claimed && req.ts && Date.now() - req.ts < 3 * 60 * 1000) {
-      location.replace('bridge.html')
+      // 地址上原有的参数**必须一起带过去**。App 内没有 ?cid=，但原生会在地址上
+      // 拼 from_spmid=toy.toy-detail.<来源 toy 的 toy_id>.0 —— 授权页要靠它认
+      // 「这一跳是从哪个 toy 来的」。丢了它，授权页会以为这页是手敲打开的。
+      location.replace('bridge.html' + location.search)
     }
   } catch (e) { /* 忽略 */ }
 })()
