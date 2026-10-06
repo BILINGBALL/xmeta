@@ -108,15 +108,24 @@ function showErr(msg) { $('errBox').textContent = msg; $('errBox').classList.rem
 function clearErr() { $('errBox').classList.add('xm-hidden') }
 
 // ── 申请联机凭证（必须在用户手势里调用，toy.navigate 需要手势）──
+//
+// 防连点**不用 disabled**：disabled 一旦设上就得有人把它清掉，而跳走之后
+// 这段代码可能根本跑不到（用户手动返回、页面没重载），按钮就会一直灰着，
+// 只能刷新页面 —— 实测踩过。改成按时间判：1.5 秒内的重复点击忽略，
+// 时间一过自然放开，没有任何需要清理的状态。
+let lastApplyAt = 0
+
 $('btnLogin').addEventListener('click', async () => {
+  const now = Date.now()
+  if (now - lastApplyAt < 1500) return
+  lastApplyAt = now
+
   clearErr()
-  $('btnLogin').disabled = true
   try {
     await XMETA.login()
     // 成功的话页面就被跳走了，这行不会执行到
   } catch (e) {
     showErr('申请失败：' + (e.message || e))
-    $('btnLogin').disabled = false
   }
 })
 
@@ -208,10 +217,10 @@ function fmtLeft(ms) {
 // 指示灯三态，判据一条链：
 //   有 session → 已连接 ／ 有没兑换的 code → 可连接 ／ 都没有 → 未连接
 //
-// 左边那个大按钮（2/3 宽）永远是「去申请」，已连接时叫「重新申请凭证」。
-// 右边那个小按钮（1/3 宽）跟着「有没有 code」在两种形态间切：
-//   没 code  → 「👈去申请」空心（红框白底红字），不可点 —— 它就是个指路牌
-//   有 code  → 「连接🌐」实心（红底白字），点了就把 code 换成 JWT
+// 配色规则：**谁带红，谁就是「下一步」** —— 同一时刻只有一颗抢眼。
+//   没 code → 左边红框（该去申请），右边是白底灰字的指路牌（不可点）
+//   有 code → 左边退成白底（别抢），右边红底白字（该点它了）
+//   已连接 → 左边回到红框（唯一还能做的就是重新申请）
 let pending = null   // SDK 检测到的、还没兑换的 code
 
 /**
@@ -231,7 +240,7 @@ function pendingCode() {
 }
 
 function render() {
-  if (typeof XMETA === 'undefined') return
+  if (typeof XMETA === 'undefined' || !configured) return
   const s = XMETA.getSession()
   const ready = !s && !!pendingCode()
 
@@ -247,12 +256,14 @@ function render() {
     $('vLeft').textContent = '还剩 ' + fmtLeft(XMETA.getRemainingMs())
   }
 
-  // 左：永远是「去申请」；已经连上了就是「重新申请」
+  // 左：永远是「去申请」；已经连上了就是「重新申请」。
+  //     可连接时它退成白底 —— 把注意力让给右边那颗
   $('btnLogin').textContent = s ? '重新申请凭证' : '申请联机凭证'
+  $('btnLogin').className = 'xm-btn ' + (ready ? 'xm-btn--ghost' : 'xm-btn--outline')
 
   // 右：跟着有没有 code 切形态
   $('btnFinish').textContent = ready ? '连接🌐' : '👈去申请'
-  $('btnFinish').className = 'xm-btn ' + (ready ? 'xm-btn--primary' : 'xm-btn--outline')
+  $('btnFinish').className = 'xm-btn ' + (ready ? 'xm-btn--primary' : 'xm-btn--ghost')
   $('btnFinish').disabled = !ready
 }
 
