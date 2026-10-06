@@ -107,14 +107,6 @@ $('btnLogin').addEventListener('click', async () => {
   lastApplyAt = now
 
   clearErr()
-  // 先等云存储恢复——否则它会在 toy.navigate 跳走时截胡，
-  // 用户看到「已连接」却没走过桥授权，以为没走流程就连上了
-  await cloudReady
-  // 云存储恢复了有效 session 就不用再跳了
-  if (XMETA.getSession()) {
-    toast('已经连着了，不用重新申请')
-    return
-  }
   try {
     await XMETA.login()
     // 成功的话页面就被跳走了，这行不会执行到
@@ -293,37 +285,12 @@ let cloudToken = null
 /** 首次读取的落地信号：同步的落盘要先等它，才知道云端是不是已经有同一份 */
 let cloudReady = Promise.resolve()
 
-if (typeof toy !== 'undefined') {
-  cloudReady = toy.getCloudStorage([CLOUD_KEY])
-    .then((store) => { cloudToken = store[CLOUD_KEY] || null })
-    .catch((e) => {
-      // 没登录 / 限流 / 抖动都会走这里。读不到按「没有」处理，不打扰玩家
-      console.warn('[demo] 读取云存储失败：', e)
-      cloudToken = null
-    })
-}
+// 云存储暂时禁用——toy.getCloudStorage 是 async 的（1-2 秒），
+// 在 click handler 里 await 它会让 navigator.userActivation 失效，
+// 不 await 又会截胡 toy.navigate。SDK 用 localStorage 存 session 就够了。
 
-/** 新拿到的 token 落盘。失败不抛 —— 退化成「只有本机有」而已 */
-async function syncCloudToken(jwt) {
-  await cloudReady
-  if (jwt === cloudToken) return          // 云端就是这份，别再消耗额度
-  if (jwt.length > CLOUD_VALUE_MAX) {
-    console.warn('[demo] token 超过云存储单值上限，未写入')
-    return
-  }
-  try {
-    await toy.setCloudStorage({ [CLOUD_KEY]: jwt })
-    cloudToken = jwt
-    console.log('[demo] access_token 已写入本 toy 的云存储')
-  } catch (e) {
-    if (e && e.type === 'http_error' && e.code === 307044) {
-      // 额度是同一个 toy 的所有玩家共用的，人多就容易撞上
-      console.warn('[demo] 云存储被限流，稍后再试')
-    } else {
-      console.warn('[demo] 写入云存储失败：', e)
-    }
-  }
-}
+/** 云存储暂时禁用，token 只存 localStorage */
+async function syncCloudToken(jwt) { return }
 
 let configured = false
 
@@ -377,21 +344,6 @@ if (configured) {
     })
   }
 
-  // 云存储里那枚 token 就是联机状态本身：
-  //   有效 → 装进 XMETA，直接「已连接」，不用再过一次桥；
-  //   过期 / 解不开 → 清掉，维持「未连接」，等玩家重新申请一次。
-  //
-  // 换个设备打开走的也是这条路，所以云存储里的凭证才是跨设备的那个真身，
-  // localStorage 只是这台设备上的快取。
-  cloudReady.then(() => {
-    if (!cloudToken) return
-    if (XMETA.setSession(cloudToken)) {
-      toast('已用本 toy 云存储里的凭证恢复联机，不用重新授权。')
-    } else {
-      cloudToken = null
-      toy.removeCloudStorage([CLOUD_KEY]).catch(() => { /* 清不掉也没关系 */ })
-    }
-  })
 }
 
 render()   // 别等第一次心跳，进来就先画一遍
