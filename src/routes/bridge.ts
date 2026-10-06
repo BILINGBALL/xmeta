@@ -67,6 +67,17 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
     if (!toy) throw Errors.clientNotFound();
     if (toy.state !== 'verified') throw Errors.toyNotVerified();
 
+    // 来源必须是这枚 client_id 自己的 toy。
+    //
+    // client_id 本来就不保密（它会出现在跳转链接里），所以抄走别人包体的人
+    // 照样能把流程跑起来。他唯一改不了的是：平台在跳转时会在地址上盖章
+    // 「这一跳来自哪个 toy」—— App 内是原生的 from_spmid，Web 端是 SDK 用
+    // 当前玩具 id 拼的 spm_id_from。授权页把那个 id 原样报上来，这里一比就知道
+    // 「他在替谁要凭证」和「他自己是谁」对不上。
+    //
+    // 抄的人连原 toy 的 id 都不知道（更别说伪造），所以这道能把他挡在门外。
+    if (body.fromToyId !== toy.toy_id) throw Errors.sourceToyMismatch();
+
     const user = await upsertUser({
       toyOpenId: body.toyOpenId,
       nickname: body.nickname ?? null,

@@ -147,6 +147,7 @@ test('原作者可以查询自己认领了哪些 toy', async () => {
 test('过桥：玩家的 toyOpenId 换到一次性 code', async () => {
   const { status, json } = await post('/api/bridge/authorize', {
     cid: clientId,
+    fromToyId: TOY_ID,
     toyOpenId: PLAYER_OPENID,
     nickname: '玩家',
   });
@@ -160,6 +161,7 @@ test('过桥：玩家的 toyOpenId 换到一次性 code', async () => {
 test('client_id 对不上的兑换失败，而且 code 会被烧掉', async () => {
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
+    fromToyId: TOY_ID,
     toyOpenId: PLAYER_OPENID,
   });
 
@@ -185,6 +187,7 @@ test('换 JWT：签名与 claims 都正确', async () => {
 
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
+    fromToyId: TOY_ID,
     toyOpenId: PLAYER_OPENID,
   });
 
@@ -225,6 +228,7 @@ test('换 JWT：签名与 claims 都正确', async () => {
 test('授权码是一次性的', async () => {
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
+    fromToyId: TOY_ID,
     toyOpenId: PLAYER_OPENID,
   });
 
@@ -247,6 +251,7 @@ test('授权码是一次性的', async () => {
 async function bridgeOnce(ttlHours?: number): Promise<{ accessToken: string; expiresIn: number }> {
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
+    fromToyId: TOY_ID,
     toyOpenId: PLAYER_OPENID,
     ...(ttlHours ? { ttl: ttlHours } : {}),
   });
@@ -271,6 +276,7 @@ test('用户没选时用默认的 6 小时', async () => {
 test('不在档位里的时长会被服务端拒绝', async () => {
   const { status, json } = await post('/api/bridge/authorize', {
     cid: clientId,
+    fromToyId: TOY_ID,
     toyOpenId: PLAYER_OPENID,
     ttl: 5,
   });
@@ -328,6 +334,7 @@ test('个人中心：没见过的身份返回空壳而不是报错', async () =>
 test('未认领的 toy 不能过桥', async () => {
   const { status, json } = await post('/api/bridge/authorize', {
     cid: 'xmeta_does_not_exist',
+    fromToyId: TOY_ID,
     toyOpenId: PLAYER_OPENID,
   });
 
@@ -362,4 +369,33 @@ test('统计接口：五个数都在，且随发放增长', async () => {
   assert.ok(stats.toyServices >= 1, '至少一对「用户 × toy」');
   assert.ok(stats.tokens >= 1, '至少发过一次凭证');
   assert.ok(stats.guardSeconds >= 3 * 3600, '至少发过一张 3 小时的凭证');
+});
+
+test('来源 toy 和 client_id 对不上：拒签，且不透露原 toy 的 id', async () => {
+  const { status, json } = await post('/api/bridge/authorize', {
+    cid: clientId,
+    fromToyId: '123456789012',   // 别人的 toy
+    toyOpenId: PLAYER_OPENID,
+  });
+
+  assert.equal(status, 403);
+  assert.equal(json.error.code, 'source_toy_mismatch');
+  // 提示里不能回带原 toy 的 id —— 那等于告诉抄包体的人该伪造什么
+  assert.ok(!String(json.error.message).includes(TOY_ID), '不该透露原 toy 的 id');
+});
+
+test('fromToyId 缺失或不是数字：参数校验挡下', async () => {
+  const missing = await post('/api/bridge/authorize', {
+    cid: clientId,
+    toyOpenId: PLAYER_OPENID,
+  });
+  assert.equal(missing.status, 400);
+  assert.equal(missing.json.error.code, 'invalid_param');
+
+  const notNumber = await post('/api/bridge/authorize', {
+    cid: clientId,
+    fromToyId: 'abc',
+    toyOpenId: PLAYER_OPENID,
+  });
+  assert.equal(notNumber.status, 400);
 });

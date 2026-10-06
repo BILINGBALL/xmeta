@@ -64,6 +64,19 @@ export const Errors = {
 
   codeUsed: () => new AppError('code_used', '授权码已被使用', 409),
 
+  /**
+   * 请求来源的 toy 和 client_id 不属于同一个 toy。
+   *
+   * 故意**不回带两个 id** —— 那等于把原 toy 的 id 白送给抄包体的人，他就知道
+   * 该把 fromToyId 伪造成什么了。要排查，看授权页写下的 xmeta:bridge 版本戳。
+   */
+  sourceToyMismatch: () =>
+    new AppError(
+      'source_toy_mismatch',
+      '这个 toy 用的不是它自己的 client_id，授权被拒了',
+      403,
+    ),
+
   rateLimited: (retryAfter: number) =>
     new AppError('rate_limited', `请求过于频繁，请 ${retryAfter} 秒后再试`, 429, {
       retryAfter,

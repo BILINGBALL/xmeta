@@ -42,6 +42,12 @@ export const refreshToySchema = identitySchema.pick({ toyOpenId: true }).extend(
 
 export const bridgeAuthorizeSchema = identitySchema.extend({
   cid: z.string().min(1).max(128),
+  /**
+   * 这一跳的来源 toy_id —— 中心 toy 的授权页从地址上读出来的
+   * （App 原生拼的 from_spmid / Web 端 SDK 拼的 spm_id_from）。
+   * 必须和 cid 对应的 toy 一致，见 bridge.ts。
+   */
+  fromToyId: z.string().regex(/^\d+$/, '来源 toy_id 只能是数字'),
   /** 用户选的授权时长（小时），必须落在允许的档位里 */
   ttl: z
     .coerce.number()
