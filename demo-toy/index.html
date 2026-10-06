@@ -64,26 +64,12 @@
             style="flex:1 1 0;padding-left:6px;padding-right:6px;font-size:14px">👈去申请</button>
   </div>
   <div class="xm-actions" style="margin-top:8px">
-    <button class="xm-btn xm-btn--quiet xm-btn--sm" id="btnWho">查看本 toy 标识</button>
     <button class="xm-btn xm-btn--quiet xm-btn--sm" id="btnReset">清除凭证（本地 + 云端）</button>
   </div>
 
-  <p class="xm-small xm-mt" id="tip"></p>
-  <p class="xm-small xm-mt xm-mono" id="diag" style="color:var(--xm-ink-3);word-break:break-all"></p>
-
-  <section class="xm-hidden xm-mt-lg" id="result">
-    <details class="xm-details">
-      <summary>开发者 · 查看 access_token / payload</summary>
-      <p class="xm-label">access_token</p>
-      <pre class="xm-pre" id="jwt"></pre>
-      <p class="xm-label xm-mt-lg">payload</p>
-      <pre class="xm-pre" id="claims"></pre>
-    </details>
-    <p class="xm-small xm-mt">
-      这里只是解码给人看，<b>没有验签</b>。真实接入必须把 JWT 交给你的服务端，
-      用 JWKS 公钥验签并校验 <span class="xm-mono">aud</span> 等于自己的 toy_id。
-    </p>
-  </section>
+  <!-- 一句话反馈上一步发生了什么，3 秒后自己淡出 -->
+  <p class="xm-small xm-mt" id="diag"
+     style="min-height:1.4em;transition:opacity .6s ease"></p>
 
   <div class="xm-alert xm-alert--error xm-hidden xm-mt-lg" id="errBox"></div>
 
@@ -158,7 +144,7 @@ $('btnFinish').addEventListener('click', async () => {
 //                             下次进来又被恢复成「已连接」
 $('btnReset').addEventListener('click', async () => {
   clearErr()
-  $('tip').textContent = ''
+  toast('')
 
   if (typeof XMETA !== 'undefined') XMETA.logout()
   else console.warn('[demo] XMETA 没加载，只清云端')
@@ -166,39 +152,13 @@ $('btnReset').addEventListener('click', async () => {
   cloudToken = null
   try {
     await toy.removeCloudStorage([CLOUD_KEY])
-    $('tip').textContent = '本地和云端的凭证都已清除，可以重新走一遍了。'
+    toast('本地和云端的凭证都已清除，可以重新走一遍了。')
   } catch (e) {
     // 没登录 / 限流 / 抖动都会走这里。本地那份已经清了，说清楚就行。
     console.warn('[demo] 清除云存储失败：', e)
     showErr('本地已清除，但云端那份没清掉：' + (e.message || e))
   }
-  paintDiag()
 })
-
-// ── 调试：看看我自己在这款 toy 里的 toyOpenId ──
-$('btnWho').addEventListener('click', async () => {
-  clearErr()
-  try {
-    if (!(await toy.isSupport('getUserProfile'))) {
-      throw new Error('当前环境不支持获取用户信息，请在 B站 App 内或电脑浏览器打开。')
-    }
-    const p = await toy.getUserProfile()
-    if (!p.toyOpenId) throw new Error('这款 toy 没开启 OpenID 模式，拿不到 toyOpenId。')
-    $('tip').textContent = '本 toy 内的 toyOpenId：' + p.toyOpenId +
-      '（昵称：' + (p.nickname || '—') + '）'
-  } catch (e) {
-    showErr(e.message || String(e))
-  }
-})
-
-
-function decodePayload(jwt) {
-  const b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return JSON.parse(new TextDecoder().decode(bytes))
-}
 
 // ── 剩余时间 ──
 // 用户自己选的时长，过期后要回中心 toy 再授权一次。把它显示出来，
@@ -239,14 +199,50 @@ function pendingCode() {
   return pending
 }
 
+// ── 一句话反馈 ──────────────────────────────────────────────────
+//
+// 只报「上一步发生了什么」，3 秒后自己淡出。不做常驻的状态面板 ——
+// 常驻的话用户得一直盯着看，而且一旦卡住就会怀疑页面坏了。
+let toastTimer = null
+
+function toast(msg) {
+  const el = $('diag')
+  clearTimeout(toastTimer)
+  if (!msg) { el.style.opacity = '0'; return }
+  el.textContent = msg
+  el.style.opacity = '1'
+  toastTimer = setTimeout(() => { el.style.opacity = '0' }, 3000)
+}
+
+const STATE_TEXT = { idle: '未连接', ready: '可连接', online: '已连接' }
+const STATE_CLS = {
+  idle: 'xm-live',
+  ready: 'xm-live xm-live--ready',
+  online: 'xm-live xm-live--on'
+}
+const STATE_MSG = {
+  idle: '未连接 —— 点「申请联机凭证」去中心 toy 授权',
+  ready: '已拿到授权码 —— 点「连接」完成',
+  online: '已连接'
+}
+
+let lastState = null   // 只在状态真的变了时才吭声
+
 function render() {
   if (typeof XMETA === 'undefined' || !configured) return
   const s = XMETA.getSession()
   const ready = !s && !!pendingCode()
+  const st = s ? 'online' : (ready ? 'ready' : 'idle')
+
+  // 状态真的变了才报一句；首次进页面不吵
+  if (st !== lastState) {
+    if (lastState !== null) toast(STATE_MSG[st])
+    lastState = st
+  }
 
   // 指示灯
-  $('vState').textContent = s ? '已连接' : (ready ? '可连接' : '未连接')
-  $('vState').className = 'xm-live' + (s ? ' xm-live--on' : ready ? ' xm-live--ready' : '')
+  $('vState').textContent = STATE_TEXT[st]
+  $('vState').className = STATE_CLS[st]
 
   // 身份 / 有效期
   $('rowUid').classList.toggle('xm-hidden', !s)
@@ -338,7 +334,6 @@ if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
     try {
       XMETA.configure(CONFIG)
       configured = true
-      $('tip').textContent = '点「申请联机凭证」跳到中心 toy 授权；跳回来后右边那颗会变成「连接🌐」，点它完成。'
     } catch (e) {
       showErr('初始化失败：' + e.message)
       $('btnLogin').disabled = true
@@ -352,10 +347,6 @@ if (configured) {
     render()
     if (!s) return                       // 被 logout() 或彻底失效
     clearErr()
-    $('result').classList.remove('xm-hidden')
-    $('jwt').textContent = s.jwt
-    $('claims').textContent = JSON.stringify(decodePayload(s.jwt), null, 2)
-    $('tip').textContent = ''
     // 拿到（或从本机恢复出）身份后，把 token 写进本 toy 的云存储 ——
     // 那才是「联机状态」的落点。不 await：写失败不该影响玩。
     syncCloudToken(s.jwt)
@@ -374,15 +365,9 @@ if (configured) {
   } else {
     XMETA.onCodeReady((p) => {
       pending = p        // 有 code 了 → 右边那个按钮变成「连接🌐」
-      $('tip').textContent = ''
       render()
-      paintDiag()
     })
   }
-
-  // 成功时把错误清掉。否则前面某条路失败留下的报错会一直挂在那里，
-  // 用户明明已经拿到身份了，界面上却还有个红字 —— 看起来像坏了。
-  XMETA.onSession(() => { clearErr(); paintDiag() })
 
   // 云存储里那枚 token 就是联机状态本身：
   //   有效 → 装进 XMETA，直接「已连接」，不用再过一次桥；
@@ -393,57 +378,13 @@ if (configured) {
   cloudReady.then(() => {
     if (!cloudToken) return
     if (XMETA.setSession(cloudToken)) {
-      $('tip').textContent = '已用本 toy 云存储里的凭证恢复联机，不用重新授权。'
+      toast('已用本 toy 云存储里的凭证恢复联机，不用重新授权。')
     } else {
       cloudToken = null
       toy.removeCloudStorage([CLOUD_KEY]).catch(() => { /* 清不掉也没关系 */ })
     }
   })
 }
-
-// ── 诊断：没连上时把现场摊开 ──
-//
-// 这条链路里好几处失败是**静默**的 —— SDK 只 console.warn，界面上就一句
-// 「未连接」。不摊开的话，出了问题只能靠猜（或者让人去翻控制台）。
-// 只在未连接时显示，连上了自动消失。
-const DIAG_KEYS = [
-  // 中心 toy 自己写的版本号。它在上传的 HTML 里、不是服务端分发的，
-  // 「上传生效没有」没法用 curl 查 —— 看这个数字最快。
-  ['bridge', 'xmeta:bridge'],
-  ['req', 'xmeta:req'],                          // 本次请求（claimed 才是被中心 toy 接手过）
-  ['code', 'xmeta:code'],                        // 中心 toy 写下的待兑换授权码
-  // 旧格式的槽。中心 toy 过渡期会双写它 —— 所以 "legacy=有 而 code=无"
-  // 就说明线上跑的 bridge.html 还是旧版（没写新键）。
-  ['legacy', 'xmeta:res'],
-  ['pkce', 'xmeta:pkce:' + CONFIG.clientId],     // 本地 PKCE 记录，兑换全靠它
-  ['sess', 'xmeta:sess:' + CONFIG.clientId]      // 已保存的会话
-]
-
-function paintDiag() {
-  const el = $('diag')
-  if (!el) return
-  if (typeof XMETA !== 'undefined' && XMETA.getSession()) { el.textContent = ''; return }
-
-  const parts = DIAG_KEYS.map(([name, key]) => {
-    let v = '?'
-    try { v = localStorage.getItem(key) ? '有' : '无' } catch (e) { /* 隐私模式 */ }
-    try {
-      if (name === 'req') {
-        const req = JSON.parse(localStorage.getItem(key) || 'null')
-        if (req) v += req.claimed ? '(claimed)' : '(new)'
-      }
-      if (name === 'bridge') {
-        const b = JSON.parse(localStorage.getItem(key) || 'null')
-        v = b ? 'v' + b.v : '无'
-      }
-    } catch (e) { /* 忽略 */ }
-    return name + '=' + v
-  })
-  el.textContent = '诊断：' + parts.join(' · ')
-}
-
-// 页面刚加载、兑换刚结束、以及等会话等超时，各采一次
-;[2500, 6000, 13000].forEach((t) => setTimeout(paintDiag, t))
 
 render()   // 别等第一次心跳，进来就先画一遍
 </script>
