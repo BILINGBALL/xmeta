@@ -107,6 +107,14 @@ $('btnLogin').addEventListener('click', async () => {
   lastApplyAt = now
 
   clearErr()
+  // 先等云存储恢复——否则它会在 toy.navigate 跳走时截胡，
+  // 用户看到「已连接」却没走过桥授权，以为没走流程就连上了
+  await cloudReady
+  // 云存储恢复了有效 session 就不用再跳了
+  if (XMETA.getSession()) {
+    toast('已经连着了，不用重新申请')
+    return
+  }
   try {
     await XMETA.login()
     // 成功的话页面就被跳走了，这行不会执行到
