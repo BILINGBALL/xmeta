@@ -295,8 +295,9 @@ if (configured) {
   // 这里拿到的是旧脚本。旧脚本没有 onCodeReady / pendingCode，状态机跑不起来 ——
   // 而且如果不拦一下，下面那行会抛 TypeError，把后面的注册全带走，
   // 界面上什么都不显示，极难排查。
-  if (typeof XMETA.onCodeReady !== 'function' || typeof XMETA.pendingCode !== 'function') {
-    showErr('xmeta-client.js 还是旧版本（没有 onCodeReady / pendingCode）。' +
+  if (typeof XMETA.onCodeReady !== 'function' || typeof XMETA.pendingCode !== 'function' ||
+      typeof XMETA.diagnose !== 'function') {
+    showErr('xmeta-client.js 还是旧版本（没有 onCodeReady / pendingCode / diagnose）。' +
       '需要先部署服务端并重启，或强制刷新页面。')
     $('btnLogin').disabled = true
   } else {
@@ -364,7 +365,25 @@ function paintDiag() {
     } catch (e) { /* 忽略 */ }
     return name + '=' + v
   })
-  el.textContent = '诊断：' + parts.join(' · ')
+  el.textContent = '诊断：' + parts.join(' · ') +
+    ' · 判定=' + verdict()
+}
+
+/**
+ * 为什么现在不是「可连接」。SDK 里那条判据有七八个出口（没有槽 / 是别人的码 /
+ * 过期 / 本地没有进行中的一轮 / state 对不上 / 其实已经连上），
+ * 全不通过时外面看到的都是同一个「没有」。把它们带出来，排查才不用猜。
+ */
+function verdict() {
+  if (typeof XMETA === 'undefined') return 'XMETA 没加载'
+  if (typeof XMETA.diagnose !== 'function') return 'SDK 太旧（没有 diagnose）'
+  try {
+    const d = XMETA.diagnose()
+    if (d.connected) return '已连接'
+    return d.pending.reason
+  } catch (e) {
+    return '取不到：' + (e.message || e)
+  }
 }
 
 render()   // 别等第一次心跳，进来就先画一遍

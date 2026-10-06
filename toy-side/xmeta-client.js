@@ -55,6 +55,7 @@
  *   XMETA.setSession(jwt)    装上一枚已有的 token（例如你存在自己云存储里
  *                            的那份），有效返回 true、无效/过期返回 false
  *   XMETA.pendingCode()      有没有「已检测到、还没兑换」的授权码（纯读）
+ *   XMETA.diagnose()         为什么现在不是「可连接」（纯读，调试用）
  *   XMETA.logout()           主动清掉本地会话
  *
  * token 是拿去向数据服务读写数据的凭证 —— 前端不用验签，客户端自己知道
@@ -255,17 +256,24 @@
 
   /**
    * 槽里那枚 code 是不是「此刻、本实例、该兑换的那一枚」。**纯读**。
-   * 不满足就返回 null —— 除了「已过期」，其它情况一律**不清槽**。
+   *
+   * 不管过不过，都返回**原因**。判据有七八条，全都不通过时外面看到的
+   * 都是同一个「没有」—— 不把原因带出来，排查就只能靠猜（这是这个项目
+   * 反复踩的坑：症状一样，原因每次不同）。
    */
-  function detectPending() {
+  function inspectPending() {
     var p = readPending()
-    if (!p) return null
+    if (!p) return { ok: false, reason: 'no_slot' }
 
     // 单槽是所有 toy 共用的，这枚码可能根本不是发给我的
-    if (p.clientId !== CFG.clientId) return null
+    if (p.clientId !== CFG.clientId) {
+      return { ok: false, reason: 'other_client', slot: p }
+    }
 
     var mine = mySlug()
-    if (p.returnSlug && mine && p.returnSlug !== mine) return null
+    if (p.returnSlug && mine && p.returnSlug !== mine) {
+      return { ok: false, reason: 'other_toy', slot: p }
+    }
 
     // 过期是终态：清掉它，免得每次进页面都拿一枚死码来问
     var expiresAt = typeof p.expiresAt === 'number'
@@ -273,22 +281,57 @@
       : (typeof p.ts === 'number' ? p.ts + FALLBACK_CODE_TTL_MS : 0)
     if (!expiresAt || Date.now() > expiresAt) {
       clearPending()
-      return null
+      return { ok: false, reason: 'expired' }
     }
 
     // 必须对得上「当前正在进行的这一轮」。
     //
     // 注意是 `!expect ||` 而不是 `expect &&` —— 没有进行中的一轮时一定要
-    // 拒绝。那说明这是一条残留：上一轮的结果没被消费掉（页面没重载且轮询
-    // 超时），而它的 verifier 早就没了。放行就会拿着一条无主的 code 去换，
-    // 报「找不到本次登录的 PKCE 记录」。
+    // 拒绝。那说明这是一条残留：上一轮的结果没被消费掉，而它的 verifier
+    // 早就没了。放行就会拿着一条无主的 code 去换。
     var expect = currentState()
-    if (!expect || !p.state || p.state !== expect) return null
+    if (!expect) return { ok: false, reason: 'no_attempt' }
+    if (!p.state || p.state !== expect) {
+      return { ok: false, reason: 'state_mismatch', slot: p }
+    }
 
-    // 已经连上了就别再冒一个「完成登录」的按钮
-    if (SESSION && getRemainingMs() > 0) return null
+    // 已经连上了就别再冒一个「完成连接」的按钮
+    if (SESSION && getRemainingMs() > 0) {
+      return { ok: false, reason: 'already_connected' }
+    }
 
-    return { code: p.code, state: p.state, returnSlug: p.returnSlug || null }
+    return {
+      ok: true,
+      reason: 'ok',
+      pending: { code: p.code, state: p.state, returnSlug: p.returnSlug || null }
+    }
+  }
+
+  function detectPending() {
+    var r = inspectPending()
+    return r.ok ? r.pending : null
+  }
+
+  /**
+   * 把「现在为什么不是可连接」摊开。**纯读**，给接入方的调试面板用。
+   *
+   * 上面那七八条判据全都不通过时，调用方从 pendingCode() 看到的都是 null；
+   * 这个函数把「卡在哪一条」直接说出来，省得靠猜。
+   */
+  function diagnose() {
+    return {
+      connected: !!(SESSION && getRemainingMs() > 0),
+      /** 判据逐条走下来的结果：{ ok, reason, slot? } */
+      pending: inspectPending(),
+      /** 槽里的原始内容，没有就是 null */
+      slot: readPending(),
+      /** 本地「进行中的一轮」的 state，没有就是 null */
+      attemptState: currentState(),
+      /** 本地有没有 PKCE verifier */
+      hasVerifier: (function () {
+        try { return !!localStorage.getItem(VERIFIER_KEY) } catch (e) { return false }
+      })()
+    }
   }
 
   /**
@@ -733,6 +776,11 @@
      * 三个状态一条链：有 session = 已连接 / 有 code = 可连接 / 都没有 = 未连接。
      */
     pendingCode: pendingCode,
+    /**
+     * 调试用：把「现在为什么不是可连接」摊开 —— 判据没过的**具体是哪一条**。
+     * 纯读，不消耗。接入方的调试面板拿它显示原因，不用再猜。
+     */
+    diagnose: diagnose,
     /**
      * 兑换待处理的授权码，建立会话。**必须在用户手势里调用。**
      * 成功返回 session，失败抛错（接住它并显示给用户）。
