@@ -725,3 +725,80 @@ body.xm--with-nav .xm-page {
   .xm-rise { animation: none; }
   .xm-step { transition: none; }
 }
+
+/* ================================================================ xmeta 介绍弹窗 */
+/* 和中心 toy 那边的 xmeta-ui.css 是同一套，demo 这份精简版只留了用得上的这几块 */
+
+.xm-brand-link {
+  color: var(--xm-pink);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.xm-brand-link:hover {
+  background: var(--xm-pink-light);
+  color: var(--xm-pink-dark);
+}
+
+.xm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.xm-modal__mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .5);
+  backdrop-filter: blur(2px);
+}
+.xm-modal__card {
+  position: relative;
+  background: var(--xm-surface);
+  border-radius: var(--xm-r-lg);
+  padding: 24px 20px 20px;
+  max-width: 360px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
+  animation: xm-rise .25s cubic-bezier(.2, .7, .3, 1) both;
+}
+.xm-modal__close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--xm-ink-3);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.xm-modal__close:hover { background: var(--xm-sunken); color: var(--xm-ink); }
+.xm-modal__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--xm-pink);
+  margin-bottom: 12px;
+}
+.xm-modal__title {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--xm-ink);
+}
+.xm-modal__body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--xm-ink-2);
+  margin: 0 0 10px;
+}
+.xm-modal__body b { color: var(--xm-ink); font-weight: 600; }

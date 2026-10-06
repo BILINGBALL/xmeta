@@ -77,7 +77,34 @@
   <div class="xm-alert xm-alert--error xm-hidden xm-mt-lg" id="errBox"></div>
 
   <div class="xm-foot">
-    <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span>
+    <span class="xm-brand"><span class="xm-brand__dot"></span>由
+      <span class="xm-brand-link" id="xmetaLink">XMETA</span> 提供身份服务</span>
+    <p style="margin:10px 0 0">
+      xmeta 属自发电项目，暂无服务质量和稳定性承诺，感谢理解~ 让我们一起建设美好未来！
+    </p>
+    <p style="margin:6px 0 0;opacity:.75">© 南通异元科技有限公司</p>
+  </div>
+
+  <!-- xmeta 介绍弹窗 -->
+  <div id="xmetaModal" class="xm-modal xm-hidden">
+    <div class="xm-modal__mask" data-close-xmeta></div>
+    <div class="xm-modal__card">
+      <button class="xm-modal__close" data-close-xmeta aria-label="关闭">×</button>
+      <div class="xm-modal__brand"><span class="xm-brand__dot"></span>xmeta</div>
+      <p class="xm-modal__title">什么是 xmeta？</p>
+      <p class="xm-modal__body">
+        xmeta 是一个独立的<b>联机身份服务 toy</b>。
+        你在 xmeta 里的 toyOpenId 会作为你的匿名身份 —— 它和你在其它 toy 里的
+        toyOpenId 没有关系，xmeta 也看不到它们。
+      </p>
+      <p class="xm-modal__body">
+        你授权给某个 toy 时，xmeta 给它签发一张<b>只对这个 toy 有效</b>的凭证；
+        不同 toy 拿到的凭证互不通用，A toy 的凭证访问不了 B toy 的数据。
+      </p>
+      <p class="xm-modal__body">xmeta 完全免费，不收集任何个人信息。</p>
+      <button class="xm-btn xm-btn--primary" data-close-xmeta style="width:100%;margin-top:8px">知道了</button>
+      <button class="xm-btn xm-btn--ghost" id="btnGoXmeta" style="width:100%;margin-top:8px">跳转到 xmeta</button>
+    </div>
   </div>
 </div>
 
@@ -152,6 +179,45 @@ $('btnReset').addEventListener('click', () => {
     return
   }
   XMETA.logout()   // 会话没了 → 下一次心跳把状态刷回未连接
+})
+
+// ── xmeta 介绍弹窗 ──
+//
+// 页脚那个粉色的 XMETA 点开就是它。这里只是介绍 xmeta 是什么，
+// 和授权流程没有关系 —— 所以放在最后，不掺进上面那条链路。
+const xmetaModal = $('xmetaModal')
+
+function openXmetaModal() { xmetaModal.classList.remove('xm-hidden') }
+function closeXmetaModal() { xmetaModal.classList.add('xm-hidden') }
+
+$('xmetaLink').addEventListener('click', openXmetaModal)
+xmetaModal.querySelectorAll('[data-close-xmeta]').forEach((el) => {
+  el.addEventListener('click', closeXmetaModal)
+})
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !xmetaModal.classList.contains('xm-hidden')) closeXmetaModal()
+})
+
+// 「跳转到 xmeta」：去看中心 toy 本身，不是过桥（没带 cid，落点是它的首页）。
+//
+// navigate 必须在用户手势里「同步」发出 —— 这里紧贴点击，中间不跨 await。
+// 它内部会检查瞬时手势，实机上出现过「明明是用户点的、检查却是 false」，
+// 而它自己的 window.open 兜底在那个检查之后就永远走不到，所以自己再兜一次。
+$('btnGoXmeta').addEventListener('click', () => {
+  closeXmetaModal()
+
+  const go = (typeof toy !== 'undefined' && toy.navigate)
+    ? toy.navigate({ type: 'toy', id: CONFIG.centerToySlug, extra: {} })
+    : Promise.reject(new Error('toy SDK 没加载'))
+
+  go.catch((e) => {
+    const url = location.protocol + '//www.bilibili.com/toy/' +
+      encodeURIComponent(CONFIG.centerToySlug) + '/index.html'
+    let opened = null
+    try { opened = window.open(url, '_blank') } catch (err) { /* 忽略 */ }
+    if (opened) return // 兜底成功了
+    showErr('跳转没有成功（' + (e.message || e) + '）。请再点一次。')
+  })
 })
 
 // ── 剩余时间 ──
