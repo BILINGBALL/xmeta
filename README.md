@@ -78,6 +78,7 @@ npm run dev               # http://127.0.0.1:8787
 | POST | `/api/bridge/authorize` | 用 toyOpenId 换一次性 code |
 | POST | `/api/oauth/token` | 用 code 换 JWT |
 | POST | `/api/oauth/introspect` | 查一枚 token 还有效吗 |
+| GET | `/api/stats` | 服务统计（公开只读，全是聚合数） |
 | GET | `/.well-known/jwks.json` | 公钥，接入方拿来验签 |
 | GET | `/.well-known/xmeta-configuration` | 接入方元信息 |
 | GET | `/xmeta-client.js` | 接入脚本，第三方 toy 直接 `<script src>` 引入 |
@@ -85,6 +86,33 @@ npm run dev               # http://127.0.0.1:8787
 
 > 所有带 `toyOpenId` 的调用都必须是 POST。它是密钥级数据，
 > 进 URL 就会漏进日志和浏览器历史。
+
+### 统计
+
+`GET /api/stats`，公开只读 —— 返回的全是聚合数字，没有任何用户信息。
+
+```json
+{
+  "toys": 12,           // 已接入的 toy 数（认领通过的那些）
+  "users": 345,         // 中心 toy 上的用户总数
+  "toyServices": 890,   // 服务对数：一行 = 一个「用户 × toy」。
+                        // 一人玩 10 款 toy 记 10，另一人玩 5 款记 5，合计 15
+  "tokens": 2345,       // 凭证分发总次数
+  "guardSeconds": 42000000  // 守护时长：每次签发的有效期之和（秒）
+}
+```
+
+口径全落在 `identity_usage` 这张表上（`sql/002`）：**一行 = 一个用户 × 一款
+toy**，行数就是 `toyServices`，`sum(uses)` 是 `tokens`，`sum(seconds)` 是
+`guardSeconds`。所以它必须长期保留 —— `auth_code` 是短命凭证，清掉之后就
+再也回溯不出这些数了。`users` / `toys` 顺手从 `app_user` / `toy` 数。
+
+> `guardSeconds` 是「所有分发时长直接相加」，不是墙上时钟 —— 同一个人同时在
+> 玩三款 toy，那 6 小时会被算三遍。它衡量「一共守护了多少份、每份多久」，
+> 不是「服务覆盖了多长时间段」。
+>
+> 这一列从 `sql/005` 开始累计，之前的历史补不回来（那时的 `auth_code` 早被
+> 清理了），所以它起步时会比 `tokens` 显得少。
 
 ### JWT
 

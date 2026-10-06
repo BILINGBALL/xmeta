@@ -58,10 +58,11 @@ export async function tokenRoutes(app: FastifyInstance): Promise<void> {
     // 老数据（这次改动之前签发的 code）没有 ttl_seconds，按默认值处理
     const ttlSeconds = row.ttl_seconds ?? DEFAULT_TOKEN_TTL_HOURS * 3600;
 
-    // 记一次使用记录。这是统计，不该因为它写失败就把已经签好的
-    // token 吞掉 —— 用户那边是无感的，这里退化成少记一次。
+    // 记一次使用记录（含这次签发的时长，统计要用）。这是统计，不该因为它
+    // 写失败就把已经签好的 token 吞掉 —— 用户那边是无感的，这里退化成
+    // 少记一次。
     try {
-      await recordUsage(row.uid, toy.toy_id);
+      await recordUsage(row.uid, toy.toy_id, ttlSeconds);
     } catch (err) {
       req.log.error({ err }, 'recordUsage 失败');
     }

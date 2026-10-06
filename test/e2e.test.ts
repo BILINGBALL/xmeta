@@ -334,3 +334,32 @@ test('未认领的 toy 不能过桥', async () => {
   assert.equal(status, 404);
   assert.equal(json.error.code, 'client_not_found');
 });
+
+test('统计接口：五个数都在，且随发放增长', async () => {
+  const res = await app.inject({ method: 'GET', url: '/api/stats' });
+  assert.equal(res.statusCode, 200);
+
+  const stats = JSON.parse(res.body) as {
+    toys: number;
+    users: number;
+    toyServices: number;
+    tokens: number;
+    guardSeconds: number;
+  };
+  assert.deepEqual(
+    Object.keys(stats).sort(),
+    ['guardSeconds', 'tokens', 'toyServices', 'toys', 'users'],
+  );
+  for (const [k, v] of Object.entries(stats)) {
+    assert.equal(typeof v, 'number', `${k} 应该是数字，不是字符串`);
+    assert.ok(v >= 0, `${k} 不该是负数`);
+  }
+
+  // 库里有真实数据，所以只能断言「至少」：这一轮 e2e 至少造了一个 toy、
+  // 两个用户（作者 + 玩家），发放过带时长的凭证
+  assert.ok(stats.toys >= 1, '至少这一个测试 toy');
+  assert.ok(stats.users >= 2, '至少作者和玩家两个用户');
+  assert.ok(stats.toyServices >= 1, '至少一对「用户 × toy」');
+  assert.ok(stats.tokens >= 1, '至少发过一次凭证');
+  assert.ok(stats.guardSeconds >= 3 * 3600, '至少发过一张 3 小时的凭证');
+});

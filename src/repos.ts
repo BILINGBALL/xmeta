@@ -377,14 +377,64 @@ export async function peekAuthCode(code: string): Promise<AuthCodeRow | null> {
  * 单独一张表而不是从 auth_code 聚合：auth_code 是短命凭证，过期就清，
  * 拿它当历史数据源会让统计随清理缩水。
  */
-export async function recordUsage(uid: string, toyId: string): Promise<void> {
+export async function recordUsage(
+  uid: string,
+  toyId: string,
+  /** 这次签发的凭证能活多久（秒）。累加成「守护时长」，见 getStats */
+  ttlSeconds: number,
+): Promise<void> {
   await query(
-    `insert into identity_usage (uid, toy_id) values ($1, $2)
+    `insert into identity_usage (uid, toy_id, uses, seconds) values ($1, $2, 1, $3)
      on conflict (uid, toy_id) do update
         set uses = identity_usage.uses + 1,
+            seconds = identity_usage.seconds + excluded.seconds,
             last_used_at = now()`,
-    [uid, toyId],
+    [uid, toyId, ttlSeconds],
   );
+}
+
+/**
+ * 服务统计。全是聚合数字，没有任何用户信息，所以接口是公开只读的。
+ *
+ * 注意 pg 会把 count(*) / sum() 当字符串返回（bigint、numeric 的精度
+ * 不是 JS number 能装的），这里统一转成数字。
+ */
+export type Stats = {
+  /** 已接入的 toy 数（认领通过的） */
+  toys: number;
+  /** 中心 toy 上的用户总数 */
+  users: number;
+  /** 服务对数：一行 = 一个「用户 × toy」。一人玩 10 款记 10，另一人玩 5 款记 5 */
+  toyServices: number;
+  /** 凭证分发总次数 */
+  tokens: number;
+  /** 守护时长：每次签发的有效期之和（秒） */
+  guardSeconds: number;
+};
+
+export async function getStats(): Promise<Stats> {
+  const row = await queryOne<{
+    toys: string;
+    users: string;
+    toy_services: string;
+    tokens: string;
+    guard_seconds: string;
+  }>(
+    `select
+       (select count(*) from toy where state = 'verified')  as toys,
+       (select count(*) from app_user)                      as users,
+       (select count(*) from identity_usage)                as toy_services,
+       (select coalesce(sum(uses), 0) from identity_usage)  as tokens,
+       (select coalesce(sum(seconds), 0) from identity_usage) as guard_seconds`,
+  );
+
+  return {
+    toys: Number(row?.toys ?? 0),
+    users: Number(row?.users ?? 0),
+    toyServices: Number(row?.toy_services ?? 0),
+    tokens: Number(row?.tokens ?? 0),
+    guardSeconds: Number(row?.guard_seconds ?? 0),
+  };
 }
 
 /** 清掉过期数据，交给定时任务调用即可 */
