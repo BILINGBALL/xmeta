@@ -99,6 +99,10 @@
     <div class="xm-actions">
       <button class="xm-btn xm-btn--ghost" id="btnRetry">重试</button>
     </div>
+    <!-- 只有「用的不是自己的 client_id」那类错误才放出来：给作者一条正路 -->
+    <div class="xm-actions xm-hidden" id="claimHint" style="margin-top:8px">
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" id="btnGoHome">认领 toy</button>
+    </div>
   </section>
 
   <!-- 配置错误时出现（仅开发者会看到） -->
@@ -207,7 +211,7 @@ if (!CID) {
 // 启动时写一个标记，第三方 toy 的诊断行里就能看到，一眼确认。
 //
 // 改了这一页就把它 +1。
-const BRIDGE_VERSION = 7
+const BRIDGE_VERSION = 8
 try {
   const qs0 = new URLSearchParams(location.search)
   localStorage.setItem('xmeta:bridge', JSON.stringify({
@@ -234,8 +238,13 @@ function fail(message, detail) {
   $('errBox').innerHTML =
     escapeHtml(message) +
     (detail ? '<br><br><span class="xm-mono">' + escapeHtml(detail) + '</span>' : '')
+  // 每次出错先收起来；确实属于「用的不是自己的 client_id」时再放出来
+  $('claimHint').classList.add('xm-hidden')
   show('s-error')
 }
+
+/** 给「用的不是自己的 client_id」那类错误放一条去认领的路 */
+function showClaimHint() { $('claimHint').classList.remove('xm-hidden') }
 
 /** 图标放进圆环；没有图标就用标题首字顶上 */
 function paintRing(el, title, iconUrl) {
@@ -291,7 +300,12 @@ async function request(path, options) {
     throw new Error('连不上 ' + API_BASE + '（' + (e.message || e) + '）。请检查网络后重试。')
   }
   const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((json && json.error && json.error.message) || ('HTTP ' + res.status))
+  if (!res.ok) {
+    const err = new Error((json && json.error && json.error.message) || ('HTTP ' + res.status))
+    // 带上服务端的错误码 —— 调用方要靠它分辨「这枚码是不是发给我的」
+    err.code = json && json.error && json.error.code
+    throw err
+  }
   return json
 }
 
@@ -339,6 +353,7 @@ async function boot() {
   if (srcToyId !== String(ctx.toyId)) {
     fail('这个 toy 用的不是它自己的 client_id，授权被拒了。' +
       '如果你是作者，去中心 toy 的「认领 toy」页认领自己的 toy；如果你是玩家，请联系该 toy 的作者。')
+    showClaimHint()
     return
   }
 
@@ -381,6 +396,8 @@ $('btnAllow').addEventListener('click', async () => {
     show('s-done')
   } catch (e) {
     fail('授权没有完成。', e.message || String(e))
+    // 服务端在签发那一步也会拦这一类 —— 同样给作者指条路
+    if (e.code === 'source_toy_mismatch') showClaimHint()
     $('btnAllow').disabled = false
   }
 })
@@ -546,6 +563,14 @@ $('btnBack').addEventListener('click', () => {
 })
 
 $('btnRetry').addEventListener('click', () => boot())
+
+// 「认领 toy」：回中心 toy 的首页，从那儿走认领流程，拿到属于自己的 client_id。
+//
+// 同 toy 内的跳转，直接换地址就行 —— 不带 query 的话 index.html 不做转发，
+// 就是首页。不用 toy.navigate，也就没有手势那一串讲究。
+$('btnGoHome').addEventListener('click', () => {
+  location.replace('index.html')
+})
 
 boot()
 </script>
