@@ -73,6 +73,7 @@ npm run dev               # http://127.0.0.1:8787
 | POST | `/api/claim/start` | 发起认领，返回 nonce |
 | POST | `/api/claim/verify` | 抓源码校验 nonce，通过则下发 client_id |
 | POST | `/api/toy/mine` | 查询自己认领了哪些 toy |
+| POST | `/api/toy/refresh` | 作者手动刷新自己 toy 的元数据（图标、作者名/头像） |
 | POST | `/api/me` | 个人中心：身份 + 认领的 toy + 使用记录 |
 | GET | `/api/bridge/context?cid=` | 过桥页加载时确认 client_id 有效 |
 | POST | `/api/bridge/authorize` | 用 toyOpenId 换一次性 code |
@@ -162,21 +163,26 @@ ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 
 ## toy 端
 
-`toy-side/` 下的文件：
+`toy-side/` 是跑在**中心 toy** 上的页面，`demo-toy/` 是一个最小的**第三方 toy**示例
+（两边各带一份自己的 `xmeta-ui.css`：中心 toy 那份是全的，demo 这份是精简过的）：
 
 | 文件 | 放哪 |
 |---|---|
-| `index.html` | 中心 toy 的入口。带 `?cid=` 时自动转发给 `bridge.html`，否则是导航页 |
-| `claim.html` | 上传到**中心 toy**，作者用来认领 |
-| `bridge.html` | 上传到**中心 toy**，用户过桥时落到这里 |
-| `me.html` | 上传到**中心 toy**，个人中心：看自己的身份和被哪些 toy 用过 |
+| `toy-side/index.html` | 中心 toy 的入口。带 `?cid=` 时自动转发给 `bridge.html`，否则是导航页 |
+| `toy-side/claim.html` | 上传到**中心 toy**，作者用来认领 |
+| `toy-side/bridge.html` | 上传到**中心 toy**，用户过桥时落到这里 |
+| `toy-side/me.html` | 上传到**中心 toy**，个人中心：看自己的身份和被哪些 toy 用过 |
+| `toy-side/xmeta-ui.css` | 页面共用的设计系统。**随页面一起上传**，用相对路径本地引用 |
+| `toy-side/xmeta-client.js` | 接入脚本。**不用自己存，也不用传到 toy 平台**，服务端已挂在 `/xmeta-client.js` |
 | `demo-toy/index.html` | 一个最小的**第三方 toy**示例，用来跑通整条链路 |
-| `demo-toy/raw.html` | **不用 SDK 的裸接入示例** —— 整条链路约 60 行，想自己接就抄它 |
-| `xmeta-client.js` | 接入脚本。**不用自己存**，服务端已挂在 `/xmeta-client.js` |
-| `xmeta-ui.css` | 页面共用的设计系统。**随页面一起上传**，用相对路径本地引用 |
 
 > 第三方 toy 用 `toy.navigate({ type:'toy', id:'<中心 toy slug>' })` 跳过来时，
 > 落点固定是 `index.html`，所以 `index.html` 必须保留那行转发逻辑。
+>
+> B站 官方那份 toy SDK 能力清单（`navigate` / `getUserProfile` / 云存储 /
+> 排行榜等每个方法的参数与返回值）在仓库根目录：
+> [bilibili-toy-sdk.md](bilibili-toy-sdk.md)。本项目对它的依赖只集中在
+> 「几个必须知道的坑」那一节。
 
 `claim.html` / `bridge.html` / `demo-toy/index.html` 里都有
 `API_BASE`（或 `CONFIG.apiBase`），部署前改成你的域名。**必须是 https**——
@@ -227,16 +233,22 @@ toy 页面本身跑在 https 上，调 http 接口会被浏览器按混合内容
 > 照常兑换 —— 别在接入方那边写「已连接就忽略新码」的逻辑，那会让用户永远
 > 换不上。SDK 内部同一条规矩：`completeLogin()` 在没有新码时幂等地返回已有
 > 会话，一有新码就把它换掉。
+>
+> **也可以在 `onCodeReady` 里直接兑换，不设第二个按钮**（`demo-toy/index.html`
+> 就是这么写的）。code 一次性，只有一个实例能兑换成功；输的那个会拿到
+> `code_used`，而 SDK 会自动采纳赢家写在同源 localStorage 里的会话当成成功 ——
+> 谁先谁后都不影响结果。要不要第二个按钮，纯粹是接入方的 UX 选择。
 
 ---
 
 ## 测试
 
 ```bash
-npm test        # 端到端：认领 → 过桥 → 换 JWT → 用 JWKS 验签
+npm test        # test/client.test.ts（SDK 单测）+ test/e2e.test.ts（整条链路）
 npm run typecheck
 ```
 
+端到端那条覆盖：认领 → 过桥 → 换 JWT → 用 JWKS 验签 → 统计接口。
 B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / 签名都是真的。
 测试会往 `xmeta` 库里写 `testtoy*` 前缀的临时数据，跑完自己清理。
 
@@ -264,8 +276,8 @@ B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / 签名�
    > 依赖「跨 toy 同源」属于平台未公开的实现细节，B站 改沙箱配置就会断。
    > 所以 URL 那条路一直保留着，而不是直接删掉。
 
-   正因为它全 toy 共享，`xmeta-client.js` 的 key 一律带 `clientId` 前缀，
-   免得不同 toy 互相踩。
+   正因为它全 toy 共享，SDK 存下来的会话 key 带 `clientId` 前缀
+   （`xmeta:sess:<clientId>`），免得不同 toy 互相踩。
 
    **`xmeta:code` 是一份公开契约**（想自己接、不用 `xmeta-client.js` 的，
    照它读就行）：
@@ -313,13 +325,13 @@ B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / 签名�
    顺带一提：这个失败**不要**跳到一个只有「重试」的错误页，那会把人困在
    「重试 → 再点 → 又失败」的循环里。就地提示、保留按钮，用户再点一次
    就是一次全新的手势。
-4. **绝不能用云存储做实时联机同步**：`getCloudStorage` / `submitScore` 是按「toy」限流的，
+5. **绝不能用云存储做实时联机同步**：`getCloudStorage` / `submitScore` 是按「toy」限流的，
    同一个 toy 的所有玩家共享一份额度，几个人同时在玩就会互相把额度打光（错 307044）。
-5. **`toyOpenId` 跨设备的稳定性没验证过**，上线前务必在手机 App 和桌面 Web 上各测一次。
+6. **`toyOpenId` 跨设备的稳定性没验证过**，上线前务必在手机 App 和桌面 Web 上各测一次。
    如果不稳定，作者会只能在某一台设备上管理自己的 toy。
-6. **`/x/sunflower/artifex/toy/detail` 是未公开接口**，随时可能变更或限流。
+7. **`/x/sunflower/artifex/toy/detail` 是未公开接口**，随时可能变更或限流。
    抓 shell 页面解 `__TOY_META__` 是可用的兜底路径。生产环境建议给 toy 元数据加缓存。
-7. **nonce 的钓鱼风险无技术解**：不能阻止作者被别人骗着把验证码贴进代码。
+8. **nonce 的钓鱼风险无技术解**：不能阻止作者被别人骗着把验证码贴进代码。
    这是所有域名验证方案的共同弱点，只能靠文案提示降低概率。
 
 ---
@@ -327,7 +339,11 @@ B站的接口和外网抓取在测试里用桩替代，DB / 状态机 / 签名�
 ## 还没做
 
 - 撤销 / 轮换 client_id 的接口（DB 里 `toy_client.revoked_at` 已预留）
-- refresh token（目前 15 分钟过期后要重新过桥）
 - 密钥轮转的运维接口（`jwt_signing_key` 支持多把共存，缺的是发起轮转的入口）
 - 限流目前是单实例内存态，多实例部署要换 Redis
 - 认领的重认领流程（nonce 证明的是内容控制权，所以真作者永远能重新证明自己）
+- 统计的按天趋势（现在只有累计值，没有时间轴）
+
+> **刻意不做**：refresh token。理由见上面的「有效期」—— token 能活多久由
+> 用户在授权时自己选（最长 24 小时），到期就回中心 toy 再授权一次。不靠
+> 刷新令牌把人一直留在登录态里。

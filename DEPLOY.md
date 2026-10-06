@@ -70,6 +70,11 @@ CLAIM_MAX_ATTEMPTS=10
 TRUST_PROXY=true
 ```
 
+> `JWT_TTL_SECONDS` 只是**兜底**：token 实际能活多久，是用户在授权页上自己选的
+> （3 / 6 / 12 / 24 小时，默认 6 小时，档位在 `src/config.ts` 的
+> `ALLOWED_TOKEN_TTL_HOURS`）。这个值只在调用方没指定有效期时才会被用到，
+> 正常流程走不到它。
+
 三个最容易配错的：
 
 **① `PUBLIC_BASE_URL` 必须和真实访问地址逐字符一致。**
@@ -199,10 +204,13 @@ server {
 curl https://api.你的域名.com/health
 curl https://api.你的域名.com/.well-known/jwks.json
 curl https://api.你的域名.com/.well-known/xmeta-configuration
+curl https://api.你的域名.com/api/stats
 ```
 
 `jwks.json` 应该返回一把 `"kty":"EC","crv":"P-256"` 的密钥。
 `xmeta-configuration` 里的 `issuer` 应该等于你的 `PUBLIC_BASE_URL`。
+`api/stats` 是公开只读的服务统计（口径见 README 的「统计」一节）——
+`guardSeconds` 从一开始是 0 属正常，它从 `sql/005` 之后才开始累计。
 
 再验一下 CORS（toy 是跨域调用的，这条不过整个链路就废了）：
 
@@ -219,18 +227,36 @@ curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
 
 ## 5. 更新 toy 端
 
-1. 把 `toy-side/` 下的 `index.html`、`claim.html`、`bridge.html` 里的
-   `const API_BASE = 'http://127.0.0.1:8787'` **改成你的 HTTPS 域名**。
+中心 toy（`xmeta`）上是**四个页面 + 一个样式表**：
+
+| 文件 | 说明 |
+|---|---|
+| `toy-side/index.html` | 入口。带 `?cid=` 时转发给授权页；改动很少 |
+| `toy-side/claim.html` | 作者认领用 |
+| `toy-side/bridge.html` | 授权页。**改过就要重传**，页内 `BRIDGE_VERSION` 会 +1 |
+| `toy-side/me.html` | 个人中心 |
+| `toy-side/xmeta-ui.css` | 四个页面都相对引用它；只在它本身改动时才重传 |
+
+1. 把 `bridge.html`、`claim.html`、`me.html` 里的
+   `const API_BASE = ...` **改成你的 HTTPS 域名**（`index.html` 里没有这一行）。
 
    > 忘了改是新手最常见的坑：`127.0.0.1` 在用户手机上指的是用户自己的手机。
 
-2. 把三个文件上传到 `xmeta`（覆盖原来的 `index.html`），发布。
-   `xmeta-client.js` 是给第三方 toy 作者用的，不用传到 xmeta。
+2. 把改动过的文件上传到 `xmeta`，发布。
 
 3. **在 B站 toy 后台开启 `xmeta` 的 OpenID 模式。**
    不开的话 `getUserProfile()` 不返回 `toyOpenId`，整条链断在第一环。
 
 4. 在手机 B站 App 里打开 `xmeta`，走一遍认领流程试试。
+
+> **`xmeta-client.js` 不用传到 toy 平台。** 它由服务端分发
+> （`GET /xmeta-client.js`，源码就是仓库里的 `toy-side/xmeta-client.js`），
+> 所有第三方 toy 都从这里加载。改了它只要重新部署服务端
+> （`git pull` + `npm run build` + 重启），接入方什么都不用做。
+>
+> 传完顺手确认一下生效：`bridge.html` 里的 `BRIDGE_VERSION` 每次改动都 +1
+> （现在是 **4**）。在中心 toy 的任意页面控制台敲
+> `localStorage['xmeta:bridge']` 就能看到页面自己写下的版本戳。
 
 ---
 
@@ -239,6 +265,7 @@ curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
 | 现象 | 原因 |
 |---|---|
 | 页面报 `Failed to fetch` | `API_BASE` 没改成 HTTPS 域名，或 CORS 没放开 |
+| 按钮点了没反应、也没有任何请求 | 页面 JS 在加载时就报错了（后面的代码全没执行，所以连监听都没注册上）。开控制台看第一条红字 |
 | `getUserProfile` 抛 `unsupported` | 在外部手机浏览器里打开了。只能在 B站 App 内或桌面 Web 用 |
 | 拿不到 `toyOpenId` | toy 没开 OpenID 模式 |
 | 认领报 `nonce_not_in_source` | 改了没重新发布，或 nonce 没写进 `index.html`（要写进入口那个文件） |
