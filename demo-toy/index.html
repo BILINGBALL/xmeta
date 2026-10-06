@@ -12,6 +12,19 @@
 <meta name="xmeta-verify" content="PUT_NONCE_HERE">
 
 <link rel="stylesheet" href="xmeta-ui.css">
+
+<style>
+  /* 清除按钮：不要边框，靠虚下划线 + 手型光标表明它可点 */
+  .xm-linkbtn {
+    align-self: center;
+    background: none; border: 0; padding: 4px 8px; font: inherit;
+    font-size: 13px; color: var(--xm-ink-3);
+    text-decoration: underline; text-decoration-style: dotted;
+    text-underline-offset: 4px; cursor: pointer;
+  }
+  .xm-linkbtn:hover { color: var(--xm-pink); }
+</style>
+
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 <script src="https://www.oxth.com:8443/xmeta-client.js"></script>
 </head>
@@ -21,7 +34,6 @@
   <div class="xm-hero" style="text-align:left">
     <p class="xm-kicker">xmeta 联机</p>
     <h1 class="xm-display">联机 Demo</h1>
-    <p class="xm-body xm-mt" style="margin-top:6px">一个最小的第三方 toy，用来验证 xmeta 身份桥。</p>
   </div>
 
   <!-- 没配 client_id 时的接入指引 -->
@@ -55,23 +67,27 @@
     </div>
   </div>
 
-  <!-- 两个主按钮并排：左边 2/3 负责「去申请」，右边 1/3 把结果接回来。
-       右边那个的文案和样式都跟着「有没有 code」变 —— 没 code 时它是个
-       指向左边的提示（红框白底红字、不可点），有 code 时才变成动作（红底白字）。 -->
-  <div class="xm-actions xm-mt-lg" style="flex-direction:row;align-items:stretch">
-    <button class="xm-btn xm-btn--primary" id="btnLogin" style="flex:2 1 0">申请联机凭证</button>
-    <button class="xm-btn xm-btn--outline" id="btnFinish"
-            style="flex:1 1 0;padding-left:6px;padding-right:6px;font-size:14px">👈去申请</button>
+  <!-- 就一个按钮：申请联机凭证，占满整行。拿到 code 后自动兑换，
+       没有第二个「连接」按钮要用户点。 -->
+  <div class="xm-actions xm-mt-lg">
+    <button class="xm-btn xm-btn--primary" id="btnLogin">申请联机凭证</button>
   </div>
-  <div class="xm-actions" style="margin-top:8px">
-    <button class="xm-btn xm-btn--quiet xm-btn--sm" id="btnReset">清除凭证（本地 + 云端）</button>
+  <div class="xm-actions" style="margin-top:6px">
+    <button class="xm-linkbtn" id="btnReset">清除本地凭证（安全）</button>
   </div>
-
-  <!-- 一句话反馈上一步发生了什么，3 秒后自己淡出 -->
-  <p class="xm-small xm-mt" id="diag"
-     style="min-height:1.4em;transition:opacity .6s ease"></p>
 
   <div class="xm-alert xm-alert--error xm-hidden xm-mt-lg" id="errBox"></div>
+
+  <!-- 临时诊断：看清「从中心 toy 跳回来」那一刻有没有重载 / URL 上有没有特征。
+       查完连同脚本里的 DIAG 段一起删。 -->
+  <details class="xm-card xm-mt-lg" style="margin-top:24px">
+    <summary class="xm-small" style="cursor:pointer;color:var(--xm-ink-3)">
+      诊断（临时）· <span id="diagKey">—</span>
+    </summary>
+    <pre id="diagLog" class="xm-mono"
+         style="max-height:240px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;margin:12px 0 8px"></pre>
+    <button class="xm-linkbtn" id="diagClear">清空诊断</button>
+  </details>
 
   <div class="xm-foot">
     <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span>
@@ -85,6 +101,9 @@
 const CONFIG = {
   apiBase:       'https://www.oxth.com:8443',
   centerToySlug: 'xmeta',
+  // 中心 toy 的 toy_id（写死的）。诊断用：App 内 toy→toy 跳转会native 拼一个
+  // from_spmid=toy.toy-detail.<来源 toy 的 toy_id>.0，靠它认「刚从中心 toy 跳回来」。
+  centerToyId:   '39945062320128',
   clientId:      'xmeta_v8lTN7_zee7Kv11TxkN7BQ'
 }
 
@@ -92,6 +111,125 @@ const $ = (id) => document.getElementById(id)
 
 function showErr(msg) { $('errBox').textContent = msg; $('errBox').classList.remove('xm-hidden') }
 function clearErr() { $('errBox').classList.add('xm-hidden') }
+
+// ─────────────────────────────────────────────────────────────
+// 临时诊断 —— 只为看清「从中心 toy 跳回来」那一刻到底发生了什么：
+//   · 回来的 URL 上有没有原生拼的 from_spmid=toy.toy-detail.<中心toy id>.0
+//   · 页面是重载了（load / pageshow），还是只切回了前台（visibility / focus）
+//   · 那一刻共享槽 xmeta:req / xmeta:code 是什么状态
+//
+// 记录写在 localStorage（xmeta:diag），刷新、重开 App 都还在。
+// 纯观测，不改任何行为。查完整段删掉即可（HTML 里那个 #diagBox 一起删）。
+// ─────────────────────────────────────────────────────────────
+const DIAG_KEY = 'xmeta:diag'
+const DIAG_MAX = 80
+
+function diagSnapshot() {
+  const spmid = new URLSearchParams(location.search).get('from_spmid') || ''
+  const snap = {
+    url: location.search || '(无参数)',
+    spmid: spmid || '(无)',
+    hit: spmid.indexOf('toy.toy-detail.' + CONFIG.centerToyId + '.') === 0
+  }
+  try {
+    const req = JSON.parse(localStorage.getItem('xmeta:req') || 'null')
+    if (req && req.cid) {
+      snap.req = '有(发起于' + Math.round((Date.now() - req.ts) / 1000) +
+        '秒前,claimed=' + req.claimed + ')'
+    }
+  } catch (e) { /* 忽略 */ }
+  // 本轮 PKCE 记录。兑换要拿它和槽里的 state 对上号 —— 对不上就永远检测不到，
+  // 而且不报错，所以必须记下来。
+  let myState = null
+  try {
+    const verifier = localStorage.getItem('xmeta:pkce:' + CONFIG.clientId)
+    myState = localStorage.getItem('xmeta:pkce:' + CONFIG.clientId + ':st')
+    snap.pkce = verifier ? ('有,st=' + (myState ? myState.slice(0, 6) : '(无)')) : '无'
+  } catch (e) { /* 忽略 */ }
+  try {
+    const p = JSON.parse(localStorage.getItem('xmeta:code') || 'null')
+    if (p && p.code) {
+      snap.slot = '有码(clientId匹配=' + (p.clientId === CONFIG.clientId) +
+        ',state匹配=' + (!!myState && p.state === myState) +
+        ',剩' + Math.round(((p.expiresAt || 0) - Date.now()) / 1000) + '秒)'
+    }
+  } catch (e) { /* 忽略 */ }
+  // 本地到底还有哪些 xmeta 键 —— 「键被清掉」还是「键名不对」，只有这一招能分辨
+  try {
+    const keys = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k && k.indexOf('xmeta') === 0) keys.push(k)
+    }
+    snap.keys = keys.length ? keys.join(' ') : '(无)'
+  } catch (e) { /* 忽略 */ }
+  // bridge.html 每次加载都会盖一个戳：它在不在、多久之前盖的
+  try {
+    const b = JSON.parse(localStorage.getItem('xmeta:bridge') || 'null')
+    snap.bridge = b ? ('v' + b.v + ' @' + Math.round((Date.now() - b.ts) / 1000) + '秒前') : '无'
+  } catch (e) { /* 忽略 */ }
+  return snap
+}
+
+function diagLog(ev, extra) {
+  const entry = Object.assign({ t: new Date().toTimeString().slice(0, 8), ev }, diagSnapshot())
+  if (extra) entry.extra = extra
+  let log = []
+  try { log = JSON.parse(localStorage.getItem(DIAG_KEY) || '[]') } catch (e) { log = [] }
+  // 写之前日志里有几条。回来那一条要是 before=0（不是第一次跑），说明
+  // 连这段日志本身都被清过 —— 那就是整个 localStorage 被回收了。
+  entry.before = log.length
+  log.push(entry)
+  if (log.length > DIAG_MAX) log = log.slice(-DIAG_MAX)
+  try { localStorage.setItem(DIAG_KEY, JSON.stringify(log)) } catch (e) { /* 忽略 */ }
+  diagPaint()
+}
+
+function diagPaint() {
+  let log = []
+  try { log = JSON.parse(localStorage.getItem(DIAG_KEY) || '[]') } catch (e) { log = [] }
+  const last = log[log.length - 1]
+  $('diagKey').textContent = last
+    ? (last.hit ? '✓ 带回跳特征' : '✗ 无回跳特征') + ' · ' + last.url
+    : '暂无记录'
+  $('diagLog').textContent = log.map((e) =>
+    e.t + ' ' + e.ev + ' (此前' + e.before + '条)' +
+    ' | spmid=' + e.spmid +
+    ' | req=' + (e.req || '无') +
+    ' | pkce=' + (e.pkce || '无') +
+    ' | slot=' + (e.slot || '空') +
+    (e.extra ? ' | ' + e.extra : '') +
+    '\n     keys=' + (e.keys || '?') +
+    ' | bridge=' + (e.bridge || '?')
+  ).join('\n')
+}
+
+const navEntry = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]) || null
+diagLog('load', 'nav=' + ((navEntry && navEntry.type) || '?') + ' ref=' + (document.referrer || '无'))
+
+addEventListener('pageshow', (e) => diagLog('pageshow', 'persisted=' + e.persisted + ' hidden=' + document.hidden))
+addEventListener('pagehide', (e) => diagLog('pagehide', 'persisted=' + e.persisted))
+addEventListener('beforeunload', () => diagLog('beforeunload'))
+addEventListener('focus', () => diagLog('focus'))
+addEventListener('blur', () => diagLog('blur'))
+document.addEventListener('visibilitychange', () => diagLog('visibility', 'hidden=' + document.hidden))
+$('diagClear').addEventListener('click', () => {
+  try { localStorage.removeItem(DIAG_KEY) } catch (e) { /* 忽略 */ }
+  diagPaint()
+})
+
+// 把 SDK 的入口包一层：谁在什么时候动了本地状态，日志里就会留下痕迹。
+// （`logout()` 是唯一会同时清掉 PKCE 记录和 xmeta:req 的地方，重点盯它。）
+if (typeof XMETA !== 'undefined') {
+  ;['login', 'completeLogin', 'logout', 'setSession'].forEach((name) => {
+    const orig = XMETA[name]
+    if (typeof orig !== 'function') return
+    XMETA[name] = function () {
+      diagLog('→ 调用 XMETA.' + name + '()')
+      return orig.apply(this, arguments)
+    }
+  })
+}
 
 // ── 申请联机凭证（必须在用户手势里调用，toy.navigate 需要手势）──
 //
@@ -107,6 +245,7 @@ $('btnLogin').addEventListener('click', async () => {
   lastApplyAt = now
 
   clearErr()
+  diagLog('点了申请联机凭证')
   try {
     await XMETA.login()
     // 成功的话页面就被跳走了，这行不会执行到
@@ -115,49 +254,38 @@ $('btnLogin').addEventListener('click', async () => {
   }
 })
 
-// ── 连接：把中心 toy 带回来的 code 换成 JWT ──
+// ── 兑换：SDK 一检测到 code，就在这里换掉 ──
 //
-// SDK 不会自动兑换 —— 原因见 xmeta-client.js 头部：过桥是「跳走再跳回来」，
-// 跳走时那个页面实例还在后台跑，自动兑换会让它抢在用户看得见的这个页面
-// 之前把一次性 code 消费掉，表现就是「第一次回来显示未连接」。
+// 没有「连接」按钮了 —— 中心 toy 把 code 带回来，onCodeReady 一响就
+// 自动兑换。
 //
-// 所以兑换绑在用户手势上：只有用户点得到的页面能触发它。
-$('btnFinish').addEventListener('click', async () => {
+// 「跳走再跳回来」会留下两个页面实例（用户点的那个还在后台跑），两边
+// 都可能触发兑换。code 一次性，只有一个能成功；输的那边收到 code_used，
+// SDK 会去读赢家写在同源 localStorage 里的会话当成成功。所以谁先谁后
+// 都不影响结果。
+async function redeem() {
   clearErr()
-  $('btnFinish').disabled = true
   try {
     await XMETA.completeLogin()
   } catch (e) {
-    showErr('连接失败：' + (e.message || e))
-  } finally {
-    // 成没成、码还在不在，都交给 render 重新判：它会切回该有的形态，
-    // 可重试的失败（网络抖动）还会保持「连接🌐」可点。
-    render()
+    // 槽里的 code 还在（网络抖动这类可重试的失败不会清槽），刷新页面
+    // 就会重新检测、重新兑换。
+    diagLog('兑换失败', 'msg=' + (e.message || e))
+    showErr('兑换凭证失败：' + (e.message || e) + '（刷新页面可重试）')
   }
-})
+}
 
 // ── 清除凭证（调试用）──
 //
-// 两份都得清，缺一个就会「看起来没清干净」：
-//   XMETA.logout()            本地那份：会话 + PKCE 记录 + 待兑换的码
-//   removeCloudStorage        云端那份：跨设备恢复全靠它，不清的话
-//                             下次进来又被恢复成「已连接」
-$('btnReset').addEventListener('click', async () => {
+// 只清本地那一份：SDK 的 logout() 会把会话、PKCE 记录、待兑换的码
+// 一起清掉。云存储本来就没在用，没有第二份要清。
+$('btnReset').addEventListener('click', () => {
   clearErr()
-  toast('')
-
-  if (typeof XMETA !== 'undefined') XMETA.logout()
-  else console.warn('[demo] XMETA 没加载，只清云端')
-
-  cloudToken = null
-  try {
-    await toy.removeCloudStorage([CLOUD_KEY])
-    toast('本地和云端的凭证都已清除，可以重新走一遍了。')
-  } catch (e) {
-    // 没登录 / 限流 / 抖动都会走这里。本地那份已经清了，说清楚就行。
-    console.warn('[demo] 清除云存储失败：', e)
-    showErr('本地已清除，但云端那份没清掉：' + (e.message || e))
+  if (typeof XMETA === 'undefined') {
+    showErr('xmeta-client.js 没加载，清不了本地凭证。')
+    return
   }
+  XMETA.logout()   // 会话没了 → 下一次心跳把状态刷回未连接
 })
 
 // ── 剩余时间 ──
@@ -174,71 +302,18 @@ function fmtLeft(ms) {
 
 // ── 状态渲染 ────────────────────────────────────────────────────
 //
-// 指示灯三态，判据一条链：
-//   有 session → 已连接 ／ 有没兑换的 code → 可连接 ／ 都没有 → 未连接
-//
-// 配色规则：两颗**一实一虚** —— 实的那颗（红底白字）是「下一步」，
-// 虚的那颗（红框白底红字）在等着。谁该点，谁就是实的。
-//   没 code → 左边实（该去申请），右边虚且不可点（指路牌）
-//   有 code → 左边虚（让位），右边实（该点它了）
-let pending = null   // SDK 检测到的、还没兑换的 code
-
-/**
- * 现在有没有「可以连接」的码。
- *
- * 「是不是我的、能不能用」交给 SDK 判（onCodeReady 通知过来的就是）；
- * 这里只补一件事：它还新不新鲜 —— 槽被清掉或过期了就不算数。
- */
-function pendingCode() {
-  if (!pending) return null
-  try {
-    const p = JSON.parse(localStorage.getItem('xmeta:code') || 'null')
-    if (!p || p.code !== pending.code) { pending = null; return null }
-    if (p.expiresAt && Date.now() > p.expiresAt) { pending = null; return null }
-  } catch (e) { pending = null; return null }
-  return pending
-}
-
-// ── 一句话反馈 ──────────────────────────────────────────────────
-//
-// 只报「上一步发生了什么」，3 秒后自己淡出。不做常驻的状态面板 ——
-// 常驻的话用户得一直盯着看，而且一旦卡住就会怀疑页面坏了。
-let toastTimer = null
-
-function toast(msg) {
-  const el = $('diag')
-  clearTimeout(toastTimer)
-  if (!msg) { el.style.opacity = '0'; return }
-  el.textContent = msg
-  el.style.opacity = '1'
-  toastTimer = setTimeout(() => { el.style.opacity = '0' }, 3000)
-}
-
-const STATE_TEXT = { idle: '未连接', ready: '可连接', online: '已连接' }
+// 指示灯两态：有会话 → 已连接，没有 → 未连接。「拿到码还没兑换」不再是
+// 一个要用户处理的中间态 —— 它自己会过去。
+const STATE_TEXT = { idle: '未连接', online: '已连接' }
 const STATE_CLS = {
   idle: 'xm-live',
-  ready: 'xm-live xm-live--ready',
   online: 'xm-live xm-live--on'
 }
-const STATE_MSG = {
-  idle: '未连接 —— 点「申请联机凭证」去中心 toy 授权',
-  ready: '已拿到授权码 —— 点「连接」完成',
-  online: '已连接'
-}
-
-let lastState = null   // 只在状态真的变了时才吭声
 
 function render() {
   if (typeof XMETA === 'undefined' || !configured) return
   const s = XMETA.getSession()
-  const ready = !s && !!pendingCode()
-  const st = s ? 'online' : (ready ? 'ready' : 'idle')
-
-  // 状态真的变了才报一句；首次进页面不吵
-  if (st !== lastState) {
-    if (lastState !== null) toast(STATE_MSG[st])
-    lastState = st
-  }
+  const st = s ? 'online' : 'idle'
 
   // 指示灯
   $('vState').textContent = STATE_TEXT[st]
@@ -252,45 +327,20 @@ function render() {
     $('vLeft').textContent = '还剩 ' + fmtLeft(XMETA.getRemainingMs())
   }
 
-  // 左：永远是「去申请」；已经连上了就是「重新申请」。
-  //     可连接时它退成虚的 —— 那颗实的位置让给右边
+  // 已经连上了就是「重新申请」
   $('btnLogin').textContent = s ? '重新申请凭证' : '申请联机凭证'
-  $('btnLogin').className = 'xm-btn ' + (ready ? 'xm-btn--outline' : 'xm-btn--primary')
-
-  // 右：可连接时变实、可点；否则是虚的指路牌，不可点
-  $('btnFinish').textContent = ready ? '连接🌐' : '👈去申请'
-  $('btnFinish').className = 'xm-btn ' + (ready ? 'xm-btn--primary' : 'xm-btn--outline')
-  $('btnFinish').disabled = !ready
 }
 
 // 每秒重画一次：有效期倒计时本来就每秒在变，顺带把状态也刷新了
-// （code 过期 → 可连接退回未连接；token 过期 → 已连接退回未连接）
+// （token 过期 → 已连接退回未连接）
 setInterval(render, 1000)
 
-// ── 联机状态 = 本 toy 云存储里那枚 access_token ──
+// ── 云存储不用了 ──
 //
-// 为什么用云存储而不是 localStorage：云存储按「登录用户 + toy」双维度
-// 隔离，跟着登录态跨设备走。localStorage 只按**源**隔离，而所有 toy 的
-// 内层 iframe 同在 www.bilibilitoy.com 一个源下 —— 同源的别的 toy
-// 只要知道你的 clientId（它是公开的）就能读走你存在那里的凭证。
-//
-// 两条平台约束必须守住（SDK 文档「频率限制与最佳实践」）：
-//   1. 额度是**整个 toy 的所有玩家共享**的，所以当凭证存、别当内存用。
-//      这里只在「手上的 token 和云端那份不一样」时才写，页面加载读一次。
-//   2. value ≤1024 字节。本服务的 token 实测 ~380 字节，留个保险。
-const CLOUD_KEY = 'xmeta_access_token'
-const CLOUD_VALUE_MAX = 1024
-
-let cloudToken = null
-/** 首次读取的落地信号：同步的落盘要先等它，才知道云端是不是已经有同一份 */
-let cloudReady = Promise.resolve()
-
-// 云存储暂时禁用——toy.getCloudStorage 是 async 的（1-2 秒），
-// 在 click handler 里 await 它会让 navigator.userActivation 失效，
-// 不 await 又会截胡 toy.navigate。SDK 用 localStorage 存 session 就够了。
-
-/** 云存储暂时禁用，token 只存 localStorage */
-async function syncCloudToken(jwt) { return }
+// toy.getCloudStorage 是 async 的（1-2 秒），在 click handler 里 await 它
+// 会让 navigator.userActivation 失效，不 await 又会截胡 toy.navigate。
+// 凭证只存 SDK 自己的 localStorage（key 带 clientId 前缀），跨设备恢复
+// 那套就不要了。
 
 let configured = false
 
@@ -318,32 +368,28 @@ if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
 
 if (configured) {
   // 状态一变就重画。每秒那趟心跳兜底，这里只是为了不用等到下一秒。
-  XMETA.onSession((s) => {
+  XMETA.onSession(() => {
+    diagLog('已连接（onSession）')
     render()
-    if (!s) return                       // 被 logout() 或彻底失效
     clearErr()
-    // 拿到（或从本机恢复出）身份后，把 token 写进本 toy 的云存储 ——
-    // 那才是「联机状态」的落点。不 await：写失败不该影响玩。
-    syncCloudToken(s.jwt)
   })
 
-  // 检测到待兑换的授权码 —— SDK 只负责通知，兑换等用户点。
+  // 检测到待兑换的授权码 —— 直接兑换，不等用户点。
   //
   // 先确认 SDK 是新版：它是从中心服务器分发的，改了仓库没重启服务端的话
-  // 这里拿到的是旧脚本。旧脚本没有 onCodeReady，右边那个按钮永远停在
-  // 「👈去申请」—— 而且如果不拦一下，下面那行会抛 TypeError，把后面的
-  // 注册全带走，界面上什么都不显示，极难排查。
+  // 这里拿到的是旧脚本。旧脚本没有 onCodeReady，回跳之后就什么都不会发生，
+  // 表现是「申请完回来还是未连接」，而下面那行还会抛 TypeError 把后面的
+  // 注册全带走，极难排查。
   if (typeof XMETA.onCodeReady !== 'function') {
     showErr('xmeta-client.js 还是旧版本（没有 onCodeReady）。' +
       '需要先部署服务端并重启，或强制刷新页面。')
     $('btnLogin').disabled = true
   } else {
     XMETA.onCodeReady((p) => {
-      pending = p        // 有 code 了 → 右边那个按钮变成「连接🌐」
-      render()
+      diagLog('onCodeReady', 'code=' + String(p && p.code).slice(0, 8) + '…')
+      redeem()
     })
   }
-
 }
 
 render()   // 别等第一次心跳，进来就先画一遍
