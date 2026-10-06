@@ -54,12 +54,10 @@
  *   XMETA.onSession(fn)      有身份时触发（包括从本地恢复），fn 收到 session
  *   XMETA.setSession(jwt)    装上一枚已有的 token（例如你存在自己云存储里
  *                            的那份），有效返回 true、无效/过期返回 false
- *   XMETA.pendingCode()      有没有「已检测到、还没兑换」的授权码（纯读）
- *   XMETA.diagnose()         为什么现在不是「可连接」（纯读，调试用）
  *   XMETA.logout()           主动清掉本地会话
  *
- * token 是拿去向数据服务读写数据的凭证 —— 前端不用验签，客户端自己知道
- * 自己是谁。需要再确认一次有效性就打 POST /api/oauth/introspect。
+ * 本地验签只能验出「签名对、没过期」。需要服务端再确认一次就打
+ * POST /api/oauth/introspect。
  *
  * 注意：localStorage 在 www.bilibilitoy.com 下是所有 toy 共享的，
  * 所以 key 都带上 clientId 前缀，避免互相踩。
@@ -256,24 +254,17 @@
 
   /**
    * 槽里那枚 code 是不是「此刻、本实例、该兑换的那一枚」。**纯读**。
-   *
-   * 不管过不过，都返回**原因**。判据有七八条，全都不通过时外面看到的
-   * 都是同一个「没有」—— 不把原因带出来，排查就只能靠猜（这是这个项目
-   * 反复踩的坑：症状一样，原因每次不同）。
+   * 不满足就返回 null —— 除了「已过期」，其它情况一律**不清槽**。
    */
-  function inspectPending() {
+  function detectPending() {
     var p = readPending()
-    if (!p) return { ok: false, reason: 'no_slot' }
+    if (!p) return null
 
     // 单槽是所有 toy 共用的，这枚码可能根本不是发给我的
-    if (p.clientId !== CFG.clientId) {
-      return { ok: false, reason: 'other_client', slot: p }
-    }
+    if (p.clientId !== CFG.clientId) return null
 
     var mine = mySlug()
-    if (p.returnSlug && mine && p.returnSlug !== mine) {
-      return { ok: false, reason: 'other_toy', slot: p }
-    }
+    if (p.returnSlug && mine && p.returnSlug !== mine) return null
 
     // 过期是终态：清掉它，免得每次进页面都拿一枚死码来问
     var expiresAt = typeof p.expiresAt === 'number'
@@ -281,57 +272,22 @@
       : (typeof p.ts === 'number' ? p.ts + FALLBACK_CODE_TTL_MS : 0)
     if (!expiresAt || Date.now() > expiresAt) {
       clearPending()
-      return { ok: false, reason: 'expired' }
+      return null
     }
 
     // 必须对得上「当前正在进行的这一轮」。
     //
     // 注意是 `!expect ||` 而不是 `expect &&` —— 没有进行中的一轮时一定要
-    // 拒绝。那说明这是一条残留：上一轮的结果没被消费掉，而它的 verifier
-    // 早就没了。放行就会拿着一条无主的 code 去换。
+    // 拒绝。那说明这是一条残留：上一轮的结果没被消费掉（页面没重载且轮询
+    // 超时），而它的 verifier 早就没了。放行就会拿着一条无主的 code 去换，
+    // 报「找不到本次登录的 PKCE 记录」。
     var expect = currentState()
-    if (!expect) return { ok: false, reason: 'no_attempt' }
-    if (!p.state || p.state !== expect) {
-      return { ok: false, reason: 'state_mismatch', slot: p }
-    }
+    if (!expect || !p.state || p.state !== expect) return null
 
-    // 已经连上了就别再冒一个「完成连接」的按钮
-    if (SESSION && getRemainingMs() > 0) {
-      return { ok: false, reason: 'already_connected' }
-    }
+    // 已经连上了就别再冒一个「完成登录」的按钮
+    if (SESSION && getRemainingMs() > 0) return null
 
-    return {
-      ok: true,
-      reason: 'ok',
-      pending: { code: p.code, state: p.state, returnSlug: p.returnSlug || null }
-    }
-  }
-
-  function detectPending() {
-    var r = inspectPending()
-    return r.ok ? r.pending : null
-  }
-
-  /**
-   * 把「现在为什么不是可连接」摊开。**纯读**，给接入方的调试面板用。
-   *
-   * 上面那七八条判据全都不通过时，调用方从 pendingCode() 看到的都是 null；
-   * 这个函数把「卡在哪一条」直接说出来，省得靠猜。
-   */
-  function diagnose() {
-    return {
-      connected: !!(SESSION && getRemainingMs() > 0),
-      /** 判据逐条走下来的结果：{ ok, reason, slot? } */
-      pending: inspectPending(),
-      /** 槽里的原始内容，没有就是 null */
-      slot: readPending(),
-      /** 本地「进行中的一轮」的 state，没有就是 null */
-      attemptState: currentState(),
-      /** 本地有没有 PKCE verifier */
-      hasVerifier: (function () {
-        try { return !!localStorage.getItem(VERIFIER_KEY) } catch (e) { return false }
-      })()
-    }
+    return { code: p.code, state: p.state, returnSlug: p.returnSlug || null }
   }
 
   /**
@@ -545,17 +501,6 @@
   }
 
   /**
-   * 当前有没有「已检测到、还没兑换」的授权码。**纯读，不消耗。**
-   *
-   * 接入方拿它渲染自己的状态：有 code 就是「可连接」，没有就是「未连接」，
-   * 有 session 就是「已连接」。三个状态一条链，别自己再拼一套判断。
-   * 返回 { code, state, returnSlug } 或 null。
-   */
-  function pendingCode() {
-    return detectCode()
-  }
-
-  /**
    * 兑换待处理的授权码，建立会话。**必须在用户手势里调用。**
    *
    * 这是整条链路上**唯一**会消费那枚一次性 code 的地方。绑在用户手势上，
@@ -640,9 +585,9 @@
    * （按「登录用户 + toy」隔离、跨设备），换台设备打开时读回来装进去，
    * 就等于已连接，不用再过一次桥。
    *
-   * 有效性只看 payload 里的 exp —— 前端不验签，要不要验是收数据那边的
-   * 责任。返回 false 表示这枚 token 解不开或已过期，调用方应当按
-   * 「未连接」处理，引导用户重新授权。
+   * 有效性只看 payload 里的 exp —— 这里不验签（客户端验不了），
+   * 真正的校验在接入方的服务端。返回 false 表示这枚 token 解不开或已过期，
+   * 调用方应当按「未连接」处理，引导用户重新授权。
    */
   function setSession(jwt) {
     if (typeof jwt !== 'string' || !jwt) return false
@@ -719,7 +664,7 @@
     emit()
   }
 
-  /** 只解析 payload。前端不验签 —— 验不验是收数据那边的事。 */
+  /** 只解析 payload，不验签。验签必须在服务端做。 */
   function decodeClaims(jwt) {
     try {
       var b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
@@ -771,16 +716,6 @@
     handleRedirect: handleRedirect,
     /** 订阅「检测到待兑换的授权码」。据此渲染按钮，让用户点。 */
     onCodeReady: onCodeReady,
-    /**
-     * 当前有没有待兑换的授权码。**纯读**。
-     * 三个状态一条链：有 session = 已连接 / 有 code = 可连接 / 都没有 = 未连接。
-     */
-    pendingCode: pendingCode,
-    /**
-     * 调试用：把「现在为什么不是可连接」摊开 —— 判据没过的**具体是哪一条**。
-     * 纯读，不消耗。接入方的调试面板拿它显示原因，不用再猜。
-     */
-    diagnose: diagnose,
     /**
      * 兑换待处理的授权码，建立会话。**必须在用户手势里调用。**
      * 成功返回 session，失败抛错（接住它并显示给用户）。

@@ -78,7 +78,7 @@ npm run dev               # http://127.0.0.1:8787
 | POST | `/api/bridge/authorize` | 用 toyOpenId 换一次性 code |
 | POST | `/api/oauth/token` | 用 code 换 JWT |
 | POST | `/api/oauth/introspect` | 查一枚 token 还有效吗 |
-| GET | `/.well-known/jwks.json` | 公钥。给**收数据那边**验签用，前端不用管 |
+| GET | `/.well-known/jwks.json` | 公钥，接入方拿来验签 |
 | GET | `/.well-known/xmeta-configuration` | 接入方元信息 |
 | GET | `/xmeta-client.js` | 接入脚本，第三方 toy 直接 `<script src>` 引入 |
 | GET | `/health` | 健康检查 |
@@ -88,9 +88,7 @@ npm run dev               # http://127.0.0.1:8787
 
 ### JWT
 
-ES256 签名。**前端不需要验签** —— 客户端自己知道自己是谁。这枚 token 是
-拿去向数据服务读写数据的凭证；验不验、怎么验，是**收数据那边**的责任，
-公钥在 JWKS 接口（只能验，签发不了）。
+ES256 签名，接入方用 JWKS 公钥验签（拿不到签发能力）。
 
 ```json
 {
@@ -104,7 +102,7 @@ ES256 签名。**前端不需要验签** —— 客户端自己知道自己是�
 }
 ```
 
-**`aud` 一定要校验**（收数据那边）。不校验的话，A toy 拿到的 token 能被 B toy 拿去冒充用户。
+**`aud` 一定要校验。** 不校验的话，A toy 拿到的 token 能被 B toy 拿去冒充用户。
 
 **PKCE 是必填的。** `/api/bridge/authorize` 不带 `cc`（challenge）会直接 400，
 `/api/oauth/token` 不带 `code_verifier` 也会失败。`code` 会出现在 URL 里
@@ -122,7 +120,7 @@ ES256 签名。**前端不需要验签** —— 客户端自己知道自己是�
 接入方拿 `XMETA.getRemainingMs()` 能看到还剩多久，**应该显示给用户**，
 别让人玩到一半突然掉线。
 
-收数据那边想再确认一次 token 有效性，调 `POST /api/oauth/introspect`。
+需要服务端再确认一次 token 有效性，调 `POST /api/oauth/introspect`。
 
 ---
 
@@ -171,8 +169,7 @@ toy 页面本身跑在 https 上，调 http 接口会被浏览器按混合内容
   }
 
   XMETA.onSession(s => {
-    // s.jwt 是访问数据服务的凭证，附在请求里发出去就行 ——
-    // 前端不用验签，要不要验是收数据那边的责任
+    // 把 s.jwt 交给自己的服务端验签
     // s.uid 是 xmeta 内的用户 id，不是 B站 UID
     console.log('已就绪，uid =', s.uid)
   })

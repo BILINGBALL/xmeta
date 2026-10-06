@@ -393,12 +393,6 @@ body.xm--with-nav .xm-page {
   box-shadow: 0 0 0 3px var(--xm-ok-wash);
   animation: xm-pulse 2s ease-in-out infinite;
 }
-
-/* 中间态：拿到授权码了，但还没兑换成 JWT —— 等用户点一下 */
-.xm-live--ready::before {
-  background: var(--xm-pink);
-  box-shadow: 0 0 0 3px var(--xm-pink-wash);
-}
 @keyframes xm-pulse {
   0%, 100% { box-shadow: 0 0 0 3px var(--xm-ok-wash); }
   50% { box-shadow: 0 0 0 6px transparent; }

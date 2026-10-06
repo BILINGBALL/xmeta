@@ -149,8 +149,6 @@ test('XMETA 暴露的接口齐全', () => {
     'login',
     'handleRedirect',
     'onCodeReady',
-    'pendingCode',
-    'diagnose',
     'completeLogin',
     'onSession',
     'getSession',
@@ -299,75 +297,6 @@ test('码过期了：不触发，并且清掉（过期是终态）', () => {
 // 这是整条链路上唯一消费那枚一次性 code 的地方，绑在用户手势上 ——
 // 只有用户看得见的页面能被点到，后台实例想抢也抢不了。
 // ─────────────────────────────────────────────────────────────
-
-test('pendingCode：有 code 时返回它，纯读不消耗', () => {
-  const sb = loadClient();
-  sb.XMETA.configure(CFG);
-  seedAttempt(sb);
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
-
-  const p = sb.XMETA.pendingCode();
-
-  assert.ok(p, '应该返回待兑换的 code');
-  assert.equal(p.code, 'C');
-  assert.ok(sb.__store.has('xmeta:code'), '纯读，不许删');
-  assert.deepEqual(sb.__fetched, [], '更不该发请求');
-  assert.equal(sb.XMETA.getSession(), null, '它只是「可兑换」，不是「已连接」');
-});
-
-test('pendingCode：没有待兑换的 code 就是 null', () => {
-  const sb = loadClient();
-  sb.XMETA.configure(CFG);
-  assert.equal(sb.XMETA.pendingCode(), null);
-});
-
-// ─────────────────────────────────────────────────────────────
-// 为什么不是「可连接」
-//
-// 判据有七八条，全都不通过时外面看到的都是同一个 null —— 这正是
-// 「每次症状一样、原因不一样」的由来。diagnose() 把卡在哪一条说出来。
-// ─────────────────────────────────────────────────────────────
-
-test('diagnose：卡在哪一条，逐条说得清楚', () => {
-  const sb = loadClient();
-  sb.XMETA.configure(CFG);
-  const reason = () => sb.XMETA.diagnose().pending.reason;
-
-  assert.equal(reason(), 'no_slot', '槽里什么都没有');
-
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
-  assert.equal(reason(), 'no_attempt', '本地没有进行中的一轮');
-
-  seedAttempt(sb, 'current-state');
-  assert.equal(reason(), 'state_mismatch', 'state 对不上');
-
-  seedAttempt(sb, 'S');
-  assert.equal(reason(), 'ok', '这时候才对');
-
-  seedCode(sb, { clientId: 'xmeta_other', code: 'C', state: 'S', returnSlug: MY_SLUG });
-  assert.equal(reason(), 'other_client', '这枚码是发给别的 toy 的');
-
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: 'some-other-toy' });
-  assert.equal(reason(), 'other_toy', 'returnSlug 不是自己的');
-
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG, expiresAt: Date.now() - 1 });
-  assert.equal(reason(), 'expired', '码已经过期');
-});
-
-test('diagnose：已连接时直说，不再判 code', () => {
-  const sb = loadClient();
-  sb.XMETA.configure(CFG);
-  seedAttempt(sb, 'S');
-  seedCode(sb, { code: 'C', state: 'S', returnSlug: MY_SLUG });
-  sb.__store.set('xmeta:sess:xmeta_t', JSON.stringify({
-    jwt: 'a.b.c', uid: '42', expiresAt: Date.now() + 3600_000,
-  }));
-  sb.XMETA.configure(CFG);   // 重新 configure 以恢复会话
-
-  const d = sb.XMETA.diagnose();
-  assert.equal(d.connected, true);
-  assert.equal(d.pending.reason, 'already_connected');
-});
 
 test('completeLogin：用户点了才发请求，成功后才清槽', async () => {
   const sb = loadClient();
@@ -590,7 +519,7 @@ test('logout 会连本地存的会话一起清掉', () => {
 //
 // 场景：接入方把 token 存在自己的云存储里（按「登录用户 + toy」隔离、
 // 跨设备），换台设备打开时读回来装进去就该是「已连接」，不用再过一次桥。
-// 有效性只看 exp —— 前端不验签，要不要验是收数据那边的责任。
+// 有效性只看 exp —— 客户端验不了签，真正的校验在接入方服务端。
 // ─────────────────────────────────────────────────────────────
 
 function fakeJwt(claims: Record<string, unknown>): string {
