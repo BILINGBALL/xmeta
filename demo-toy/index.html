@@ -217,10 +217,10 @@ function fmtLeft(ms) {
 // 指示灯三态，判据一条链：
 //   有 session → 已连接 ／ 有没兑换的 code → 可连接 ／ 都没有 → 未连接
 //
-// 配色规则：**谁带红，谁就是「下一步」** —— 同一时刻只有一颗抢眼。
-//   没 code → 左边红框（该去申请），右边是白底灰字的指路牌（不可点）
-//   有 code → 左边退成白底（别抢），右边红底白字（该点它了）
-//   已连接 → 左边回到红框（唯一还能做的就是重新申请）
+// 配色规则：两颗**一实一虚** —— 实的那颗（红底白字）是「下一步」，
+// 虚的那颗（红框白底红字）在等着。谁该点，谁就是实的。
+//   没 code → 左边实（该去申请），右边虚且不可点（指路牌）
+//   有 code → 左边虚（让位），右边实（该点它了）
 let pending = null   // SDK 检测到的、还没兑换的 code
 
 /**
@@ -257,13 +257,13 @@ function render() {
   }
 
   // 左：永远是「去申请」；已经连上了就是「重新申请」。
-  //     可连接时它退成白底 —— 把注意力让给右边那颗
+  //     可连接时它退成虚的 —— 那颗实的位置让给右边
   $('btnLogin').textContent = s ? '重新申请凭证' : '申请联机凭证'
-  $('btnLogin').className = 'xm-btn ' + (ready ? 'xm-btn--ghost' : 'xm-btn--outline')
+  $('btnLogin').className = 'xm-btn ' + (ready ? 'xm-btn--outline' : 'xm-btn--primary')
 
-  // 右：跟着有没有 code 切形态
+  // 右：可连接时变实、可点；否则是虚的指路牌，不可点
   $('btnFinish').textContent = ready ? '连接🌐' : '👈去申请'
-  $('btnFinish').className = 'xm-btn ' + (ready ? 'xm-btn--primary' : 'xm-btn--ghost')
+  $('btnFinish').className = 'xm-btn ' + (ready ? 'xm-btn--primary' : 'xm-btn--outline')
   $('btnFinish').disabled = !ready
 }
 
