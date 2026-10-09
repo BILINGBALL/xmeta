@@ -33,6 +33,15 @@ export const Errors = {
 
   forbidden: (message = '没有权限执行此操作') => new AppError('forbidden', message, 403),
 
+  notFound: (message = '没有找到这条数据') => new AppError('not_found', message, 404),
+
+  /** 令牌缺失 / 验不过 / 过期 / 对不上玩具 */
+  unauthorized: (message = '需要一枚有效的 JWT') =>
+    new AppError('unauthorized', message, 401),
+
+  /** 行数额度用满 */
+  quotaExceeded: (message: string) => new AppError('quota_exceeded', message, 409),
+
   claimNotFound: () =>
     new AppError('claim_not_found', '没有进行中的认领，请先发起认领', 404),
 

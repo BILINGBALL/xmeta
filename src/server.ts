@@ -2,7 +2,7 @@ import { buildApp } from './app.js';
 import { config } from './config.js';
 import { pool } from './db.js';
 import { getActiveKey } from './lib/jwt.js';
-import { cleanupExpired } from './repos.js';
+import { cleanupExpired, cleanupToyData } from './repos.js';
 import { runMigrations } from './scripts/migrate.js';
 
 async function main(): Promise<void> {
@@ -18,10 +18,12 @@ async function main(): Promise<void> {
 
   const cleanupTimer = setInterval(
     () => {
-      cleanupExpired()
-        .then((r) => {
-          if (r.codes || r.claims) {
-            console.log(`[xmeta] 清理过期授权码 ${r.codes} 条 / 认领 ${r.claims} 条`);
+      Promise.all([cleanupExpired(), cleanupToyData()])
+        .then(([r, data]) => {
+          if (r.codes || r.claims || data) {
+            console.log(
+              `[xmeta] 清理过期授权码 ${r.codes} 条 / 认领 ${r.claims} 条 / 联机数据 ${data} 格`,
+            );
           }
         })
         .catch((err) => console.error('[xmeta] 清理失败：', err));

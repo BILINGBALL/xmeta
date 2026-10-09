@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { realDeps, type AppDeps } from './deps.js';
 import { AppError } from './errors.js';
 import { bridgeRoutes } from './routes/bridge.js';
+import { dataRoutes } from './routes/data.js';
 import { claimRoutes } from './routes/claim.js';
 import { introspectRoutes } from './routes/introspect.js';
 import { meRoutes } from './routes/me.js';
@@ -72,6 +73,7 @@ export async function buildApp(deps: AppDeps = realDeps): Promise<FastifyInstanc
   await app.register(meRoutes);
   await app.register(introspectRoutes);
   await app.register(bridgeRoutes);
+  await app.register(dataRoutes);
   await app.register(tokenRoutes);
 
   return app;

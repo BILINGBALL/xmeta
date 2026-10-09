@@ -68,15 +68,16 @@ before(async () => {
 });
 
 after(async () => {
-  const openIds = [AUTHOR_OPENID, PLAYER_OPENID];
-  // 先清引用，再删主体；toy 删除会级联到 toy_claim / toy_client
-  await pool.query(
-    `delete from auth_code
-      where uid in (select id from app_user where toy_open_id = any($1::text[]))`,
-    [openIds],
-  );
+  // 联机数据那几个用例会临时造人（stranger_/friend_/quota_/nosy_…），
+  // 它们的 openid 都带这一轮的 RUN —— 一并清掉，别留垃圾用户污染统计。
+  const suffix = `%_${RUN}_openid`;
+  // 先清引用再删主体：auth_code 指向 toy_client，不清掉删不动 toy
+  await pool.query(`delete from auth_code where client_id = $1`, [clientId]);
   await pool.query(`delete from toy where toy_id = $1`, [TOY_ID]);
-  await pool.query(`delete from app_user where toy_open_id = any($1::text[])`, [openIds]);
+  await pool.query(`delete from app_user where home_toy_id = $1 and toy_open_id like $2`, [
+    config.MY_TOY_ID,
+    suffix,
+  ]);
 
   await app.close();
   await pool.end();
@@ -398,4 +399,248 @@ test('fromToyId 缺失或不是数字：参数校验挡下', async () => {
     toyOpenId: PLAYER_OPENID,
   });
   assert.equal(notNumber.status, 400);
+});
+
+// ─────────────────────────────────────────────────────────────
+// 联机数据（/api/kv）：权限矩阵
+// ─────────────────────────────────────────────────────────────
+
+/** 从令牌里解出 uid（payload 是 base64url，测试里直接拆） */
+function uidOf(token: string): string {
+  const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8'));
+  return String(payload.sub);
+}
+
+/** 换一枚令牌：过桥 → code → token。toyOpenId 不同 = 不同的人 */
+async function tokenFor(toyOpenId: string): Promise<string> {
+  const { json: auth } = await post('/api/bridge/authorize', {
+    cid: clientId,
+    fromToyId: TOY_ID,
+    toyOpenId,
+  });
+  const { json } = await post('/api/oauth/token', {
+    grant_type: 'authorization_code',
+    code: auth.code,
+    client_id: clientId,
+  });
+  return String(json.access_token);
+}
+
+async function kv(
+  method: 'GET' | 'PUT' | 'PATCH' | 'DELETE',
+  path: string,
+  token: string | null,
+  body?: unknown,
+): Promise<{ status: number; json: any }> {
+  const res = await app.inject({
+    method,
+    url: path,
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+    ...(body === undefined ? {} : { payload: body as object }),
+  });
+  let json: any = null;
+  try {
+    json = JSON.parse(res.body);
+  } catch {
+    json = res.body;
+  }
+  return { status: res.statusCode, json };
+}
+
+test('数据：没有令牌一律 401', async () => {
+  assert.equal((await kv('GET', '/api/kv/package', null)).status, 401);
+  assert.equal((await kv('PUT', '/api/kv/package', null, { text1: 'x' })).status, 401);
+});
+
+test('数据：PUT 建自己的格、GET 读回来，字段语义正确', async () => {
+  const token = await tokenFor(PLAYER_OPENID);
+
+  const put = await kv('PUT', '/api/kv/package', token, {
+    ttlDays: 3,
+    text1: '我的背包',
+    tagTinyint: 1,
+    tagBigint: '123456789012345',
+    extra: { items: ['sword', 'shield'] },
+  });
+  assert.equal(put.status, 200);
+  assert.equal(put.json.created, true);
+  assert.equal(put.json.data.scope, 'package');
+  assert.equal(put.json.data.isPublic, false, '默认私有');
+  assert.deepEqual(put.json.data.openEdit, []);
+  assert.equal(put.json.data.tagBigint, '123456789012345', 'bigint 用字符串往返');
+
+  const got = await kv('GET', '/api/kv/package', token);
+  assert.equal(got.status, 200);
+  assert.equal(got.json.data.text1, '我的背包');
+  assert.deepEqual(got.json.data.extra, { items: ['sword', 'shield'] });
+
+  const span =
+    (new Date(got.json.data.expiresAt).getTime() - new Date(got.json.data.createdAt).getTime()) /
+    86400000;
+  assert.ok(Math.abs(span - 3) < 0.01, `有效期应该是 3 天，实际 ${span}`);
+});
+
+test('数据：私有格别人读不到（作者除外）', async () => {
+  const player = await tokenFor(PLAYER_OPENID);
+  const author = await tokenFor(AUTHOR_OPENID);
+  const stranger = await tokenFor(`stranger_${RUN}_openid`);
+  const uid = uidOf(await tokenFor(PLAYER_OPENID));
+
+  await kv('PUT', '/api/kv/secret', player, { text1: '只有我看得到' });
+
+  // 作者有最高权限，能读玩家的私有行
+  assert.equal((await kv('GET', `/api/kv/secret?uid=${uid}`, author)).status, 200);
+
+  // 别的玩家读不到
+  const denied = await kv('GET', `/api/kv/secret?uid=${uid}`, stranger);
+  assert.equal(denied.status, 403);
+  assert.ok(String(denied.json.error.message).includes('私有'));
+
+  // 陌生人读自己那一格：不存在，但不是错误
+  const own = await kv('GET', '/api/kv/secret', stranger);
+  assert.equal(own.status, 200);
+  assert.equal(own.json.data, null);
+
+  // 列表里也看不到别人的私有行
+  const list = await kv('GET', '/api/kv/secret/list', stranger);
+  assert.equal(list.json.total, 0, '非作者只列 is_public 的行');
+  const asAuthor = await kv('GET', '/api/kv/secret/list', author);
+  assert.equal(asAuthor.json.total, 1, '作者看得全');
+});
+
+test('数据：open_edit 只放开口子里列的字段，extra 永远改不了', async () => {
+  const owner = await tokenFor(PLAYER_OPENID);
+  const friend = await tokenFor(`friend_${RUN}_openid`);
+  const target = `/api/kv/board?uid=${uidOf(owner)}`;
+
+  await kv('PUT', '/api/kv/board', owner, {
+    isPublic: true,
+    openEdit: ['tag_int1'],
+    tagInt1: 10,
+    text1: '原标题',
+    extra: { by: 'owner' },
+  });
+
+  // 别人改开放字段：可以
+  const hit = await kv('PATCH', target, friend, { tagInt1: 20 });
+  assert.equal(hit.status, 200);
+  assert.equal(hit.json.data.tagInt1, 20);
+
+  // 没开放的字段：403，报错要说清是哪个字段
+  const denied = await kv('PATCH', target, friend, { text1: '我要改标题' });
+  assert.equal(denied.status, 403);
+  assert.ok(String(denied.json.error.message).includes('text1'));
+
+  // extra 永远不在白名单里
+  assert.equal((await kv('PATCH', target, friend, { extra: { hijack: true } })).status, 403);
+
+  // 也不能整行覆盖
+  assert.equal((await kv('PUT', target, friend, { text1: '全清掉' })).status, 403);
+
+  // 属主自己不受限制
+  assert.equal((await kv('PUT', '/api/kv/board', owner, { text1: '我说了算' })).status, 200);
+});
+
+test('数据：admin* 只有作者能创建，但开放字段谁都能改', async () => {
+  const player = await tokenFor(PLAYER_OPENID);
+  const author = await tokenFor(AUTHOR_OPENID);
+
+  assert.equal((await kv('PUT', '/api/kv/admin_world', player, { tagInt1: 100 })).status, 403);
+
+  const created = await kv('PUT', '/api/kv/admin_world', author, {
+    isPublic: true,
+    openEdit: ['tag_int1'],
+    tagInt1: 100,
+  });
+  assert.equal(created.status, 200, '作者可以建 admin scope');
+
+  // 世界 boss：作者开了血量，玩家就能打
+  const hit = await kv('PATCH', `/api/kv/admin_world?uid=${uidOf(author)}`, player, {
+    tagInt1: 99,
+  });
+  assert.equal(hit.status, 200);
+  assert.equal(hit.json.data.tagInt1, 99);
+});
+
+test('数据：改动留日志，权限跟那一格走', async () => {
+  const player = await tokenFor(PLAYER_OPENID);
+  const stranger = await tokenFor(`nosy_${RUN}_openid`);
+  const uid = uidOf(player);
+
+  await kv('PUT', '/api/kv/logs', player, { ttlDays: 1, isPublic: true, text1: '第一版' });
+  await kv('PATCH', '/api/kv/logs', player, { text1: '第二版', tagInt1: 7 });
+
+  const mine = await kv('GET', `/api/kv/logs/${uid}/log`, player);
+  assert.equal(mine.status, 200);
+  assert.equal(mine.json.total, 2, 'create + update 各一条');
+  const [latest, first] = mine.json.items;
+  assert.equal(latest.action, 'update');
+  assert.deepEqual([...latest.changed].sort(), ['tag_int1', 'text_1']);
+  assert.equal(latest.before.text_1, '第一版', '日志存的是改动前后的值');
+  assert.equal(latest.after.text_1, '第二版');
+  assert.equal(first.action, 'create');
+
+  // 公开的格，别人看得到它的日志
+  assert.equal((await kv('GET', `/api/kv/logs/${uid}/log`, stranger)).status, 200);
+
+  // 私有格的日志，别人看不到
+  await kv('PUT', '/api/kv/private_log', player, { text1: '私有' });
+  await kv('PATCH', '/api/kv/private_log', player, { text1: '改了' });
+  assert.equal((await kv('GET', `/api/kv/private_log/${uid}/log`, stranger)).status, 403);
+});
+
+test('数据：额度 64 行，超了报 quota_exceeded', async () => {
+  // 用一个干净的人，别被前面几个用例建的行影响计数
+  const fresh = await tokenFor(`quota_${RUN}_openid`);
+
+  for (let i = 0; i < 64; i++) {
+    const res = await kv('PUT', `/api/kv/bag${i}`, fresh, { tagInt1: i });
+    assert.equal(res.status, 200, `第 ${i + 1} 行应该能建`);
+  }
+
+  const over = await kv('PUT', '/api/kv/bag99', fresh, { tagInt1: 999 });
+  assert.equal(over.status, 409);
+  assert.equal(over.json.error.code, 'quota_exceeded');
+  assert.ok(String(over.json.error.message).includes('64'));
+});
+
+test('数据：删除只有作者能用，且分页有上限', async () => {
+  const player = await tokenFor(PLAYER_OPENID);
+  const author = await tokenFor(AUTHOR_OPENID);
+  const uid = uidOf(player);
+
+  assert.equal((await kv('DELETE', `/api/kv/package/${uid}`, player)).status, 403, '玩家不能删');
+  assert.equal(
+    (await kv('DELETE', '/api/kv/package', author)).status,
+    400,
+    '删整个 scope 要显式带 ?all=1',
+  );
+
+  const byAuthor = await kv('DELETE', `/api/kv/package?all=1`, author);
+  assert.equal(byAuthor.status, 200);
+  assert.ok(byAuthor.json.deleted >= 1, '作者能删掉整个 scope');
+  assert.equal((await kv('GET', '/api/kv/package', player)).json.data, null, '删干净了');
+
+  assert.equal((await kv('GET', '/api/kv/package/list?size=200', player)).status, 400);
+});
+
+test('数据：scope 不合法、extra 过大、text 过长都会被参数校验挡下', async () => {
+  const player = await tokenFor(PLAYER_OPENID);
+
+  assert.equal((await kv('PUT', '/api/kv/BadScope', player, {})).status, 400, '大写不行');
+  assert.equal(
+    (await kv('PUT', '/api/kv/package', player, { extra: { blob: 'x'.repeat(3000) } })).status,
+    400,
+    'extra 超 2048 字节',
+  );
+  assert.equal(
+    (await kv('PUT', '/api/kv/package', player, { text1: 'x'.repeat(129) })).status,
+    400,
+    'text_1 超 128 字符',
+  );
+  assert.equal(
+    (await kv('PUT', '/api/kv/package', player, { openEdit: ['extra'] })).status,
+    400,
+    'extra 不许进 open_edit',
+  );
 });

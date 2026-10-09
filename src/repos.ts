@@ -480,3 +480,357 @@ export async function cleanupExpired(): Promise<{ codes: number; claims: number 
   return { codes: codes.rowCount ?? 0, claims: claims.rowCount ?? 0 };
 }
 export type { pg };
+
+// ---------------------------------------------------------------- 联机数据
+
+export type ToyDataRow = {
+  id: string;
+  uid: string;
+  toy_id: string;
+  scope: string;
+  is_public: boolean;
+  open_edit: string[];
+  tag_tinyint: number | null;
+  tag_int1: number | null;
+  tag_int2: number | null;
+  tag_bigint: string | null;
+  text_1: string | null;
+  text_2: string | null;
+  text_long: string | null;
+  extra: unknown;
+  expires_at: Date;
+  created_at: Date;
+  updated_at: Date;
+};
+
+/** 八个可写的数据列（和迁移里的 CHECK 白名单一一对应） */
+export const DATA_FIELDS = [
+  'tag_tinyint',
+  'tag_int1',
+  'tag_int2',
+  'tag_bigint',
+  'text_1',
+  'text_2',
+  'text_long',
+  'extra',
+] as const;
+
+/** 列名写死一处，别让 select * 跟着表结构漂 */
+const DATA_COLUMNS = `id, uid, toy_id, scope, is_public, open_edit,
+  tag_tinyint, tag_int1, tag_int2, tag_bigint,
+  text_1, text_2, text_long, extra,
+  expires_at, created_at, updated_at`;
+
+/** 行数额度：普通用户每 toy 64 行，toy 作者 256 行 */
+export const ROW_QUOTA = { user: 64, owner: 256 } as const;
+
+export async function getUserById(id: string): Promise<AppUser | null> {
+  return queryOne<AppUser>(
+    `select id, home_toy_id, toy_open_id, nickname, avatar from app_user where id = $1`,
+    [id],
+  );
+}
+
+/** 这个人在这个 toy 里占了多少行（额度用，走 toy_data_by_uid_idx） */
+export async function countUserDataRows(toyId: string, uid: string): Promise<number> {
+  const row = await queryOne<{ n: string }>(
+    `select count(*) as n from toy_data where toy_id = $1 and uid = $2`,
+    [toyId, uid],
+  );
+  return Number(row?.n ?? 0);
+}
+
+/** 读一格。**过期的当作不存在** —— 清理任务是定时的，别把过期的读出来 */
+export async function getToyData(
+  toyId: string,
+  uid: string,
+  scope: string,
+): Promise<ToyDataRow | null> {
+  return queryOne<ToyDataRow>(
+    `select ${DATA_COLUMNS} from toy_data
+      where toy_id = $1 and uid = $2 and scope = $3 and expires_at > now()`,
+    [toyId, uid, scope],
+  );
+}
+
+/** 列一个 scope 下所有人的格（分页） */
+export async function listToyData(input: {
+  toyId: string;
+  scope: string;
+  page: number;
+  size: number;
+  tagTinyint?: number | null;
+  /** true = 只列 is_public 的（非作者视角）。过滤要进 SQL，否则分页和 total 都会错 */
+  publicOnly?: boolean;
+}): Promise<{ items: ToyDataRow[]; total: number }> {
+  const params: unknown[] = [input.toyId, input.scope];
+  let filter = '';
+  if (input.publicOnly) filter += ' and is_public';
+  if (typeof input.tagTinyint === 'number') {
+    params.push(input.tagTinyint);
+    filter += ` and tag_tinyint = $${params.length}`;
+  }
+  const where = `toy_id = $1 and scope = $2 and expires_at > now()${filter}`;
+
+  const totalRow = await queryOne<{ n: string }>(
+    `select count(*) as n from toy_data where ${where}`,
+    params,
+  );
+  const items = await query<ToyDataRow>(
+    `select ${DATA_COLUMNS} from toy_data
+      where ${where} order by uid
+      limit $${params.length + 1} offset $${params.length + 2}`,
+    [...params, input.size, (input.page - 1) * input.size],
+  );
+  return { items: items.rows, total: Number(totalRow?.n ?? 0) };
+}
+
+export type ToyDataLogRow = {
+  id: string;
+  data_id: string;
+  actor_uid: string | null;
+  action: 'create' | 'update';
+  changed: string[];
+  before: unknown;
+  after: unknown;
+  created_at: Date;
+};
+
+export async function listToyDataLog(
+  dataId: string,
+  page: number,
+  size: number,
+): Promise<{ items: ToyDataLogRow[]; total: number }> {
+  const totalRow = await queryOne<{ n: string }>(
+    `select count(*) as n from toy_data_log where data_id = $1`,
+    [dataId],
+  );
+  const items = await query<ToyDataLogRow>(
+    `select id, data_id, actor_uid, action, changed, before, after, created_at
+       from toy_data_log where data_id = $1
+      order by id desc limit $2 offset $3`,
+    [dataId, size, (page - 1) * size],
+  );
+  return { items: items.rows, total: Number(totalRow?.n ?? 0) };
+}
+
+/**
+ * 写一格，并记一条日志。**整个过程一个事务** —— 数据和日志必须同生同死，
+ * 否则会留下「日志说改了、数据没变」的条目。
+ *
+ * 权限已经在 routes/data.ts 判完了，这里只负责落库：
+ *   mode 'put'   整行覆盖：没提到的数据列一律清空
+ *   mode 'patch' 部分更新：只动 changes.columns 里提到的列
+ *   createOnly   作者替玩家/公共格占位时用，已存在就报错
+ */
+export async function writeToyData(input: {
+  toyId: string;
+  uid: string;
+  scope: string;
+  actorUid: string;
+  mode: 'put' | 'patch';
+  changes: {
+    columns: Record<string, unknown>;
+    isPublic?: boolean;
+    openEdit?: string[];
+    ttlDays?: number;
+  };
+  quota: number;
+  createOnly?: boolean;
+}): Promise<{ row: ToyDataRow; created: boolean; changed: string[] }> {
+  return withTransaction(async (client) => {
+    // 锁住这一格：并发写同一格要排队，否则会丢更新
+    const found = await client.query<ToyDataRow>(
+      `select ${DATA_COLUMNS} from toy_data
+        where toy_id = $1 and scope = $2 and uid = $3 for update`,
+      [input.toyId, input.scope, input.uid],
+    );
+    const before = found.rows[0] ?? null;
+
+    if (before && input.createOnly) {
+      throw Errors.quotaExceeded('这一格已经存在了，别重复创建');
+    }
+
+    // 最终的列值：put 是全量（缺的清空），patch 是旧值 + 改动
+    const values: Record<string, unknown> = {};
+    for (const col of DATA_FIELDS) {
+      if (input.mode === 'put') {
+        values[col] = input.changes.columns[col] ?? null;
+      } else {
+        values[col] =
+          col in input.changes.columns
+            ? (input.changes.columns[col] ?? null)
+            : ((before as Record<string, unknown> | null)?.[col] ?? null);
+      }
+    }
+
+    // 真正变了的列 —— 日志只记这些，别把整行塞进去
+    const changed = DATA_FIELDS.filter(
+      (col) =>
+        JSON.stringify(before ? ((before as Record<string, unknown>)[col] ?? null) : null) !==
+        JSON.stringify(values[col] ?? null),
+    );
+    const metaChanged: string[] = [];
+    if (before) {
+      if (input.changes.isPublic !== undefined && input.changes.isPublic !== before.is_public) {
+        metaChanged.push('is_public');
+      }
+      if (
+        input.changes.openEdit !== undefined &&
+        JSON.stringify(input.changes.openEdit) !== JSON.stringify(before.open_edit)
+      ) {
+        metaChanged.push('open_edit');
+      }
+    }
+
+    const ttlDays = input.changes.ttlDays ?? 7;
+
+    if (!before) {
+      // 额度检查放在事务里，避免并发把额度顶爆
+      const n = await client.query<{ n: string }>(
+        `select count(*) as n from toy_data where toy_id = $1 and uid = $2`,
+        [input.toyId, input.uid],
+      );
+      if (Number(n.rows[0]!.n) >= input.quota) {
+        throw Errors.quotaExceeded(
+          `这一格放不下：每个用户在这个 toy 里最多 ${input.quota} 行。` +
+            '只存 id 之类的必要信息、把展示用的名字留在本地，通常就够了',
+        );
+      }
+
+      const cols = [...DATA_FIELDS, 'is_public', 'open_edit'];
+      const params: unknown[] = [
+        input.toyId,
+        input.uid,
+        input.scope,
+        ...DATA_FIELDS.map((c) => values[c] ?? null),
+        input.changes.isPublic ?? false,
+        input.changes.openEdit ?? [],
+        ttlDays,
+      ];
+      const row = (
+        await client.query<ToyDataRow>(
+          `insert into toy_data (toy_id, uid, scope, ${cols.join(', ')}, expires_at)
+           values ($1, $2, $3,
+                   ${cols.map((_, i) => `$${i + 4}`).join(', ')},
+                   now() + make_interval(days => $${cols.length + 4}))
+           returning ${DATA_COLUMNS}`,
+          params,
+        )
+      ).rows[0]!;
+
+      await writeLog(client, {
+        dataId: row.id,
+        actorUid: input.actorUid,
+        action: 'create',
+        changed: [...changed, ...metaChanged],
+        before: null,
+        after: pick(row, [...changed, ...metaChanged]),
+      });
+      return { row, created: true, changed };
+    }
+
+    // 更新：expires_at 一律重算成 created_at + ttlDays，**不接受续期**
+    const isPublic = input.changes.isPublic ?? before.is_public;
+    const openEdit = input.changes.openEdit ?? before.open_edit;
+    const params: unknown[] = [
+      ...DATA_FIELDS.map((c) => values[c] ?? null),
+      isPublic,
+      openEdit,
+      ttlDays,
+      input.toyId,
+      input.scope,
+      input.uid,
+    ];
+    const row = (
+      await client.query<ToyDataRow>(
+        `update toy_data set
+           ${DATA_FIELDS.map((c, i) => `${c} = $${i + 1}`).join(', ')},
+           is_public  = $${DATA_FIELDS.length + 1},
+           open_edit  = $${DATA_FIELDS.length + 2},
+           expires_at = created_at + make_interval(days => $${DATA_FIELDS.length + 3}),
+           updated_at = now()
+         where toy_id = $${DATA_FIELDS.length + 4}
+           and scope = $${DATA_FIELDS.length + 5}
+           and uid   = $${DATA_FIELDS.length + 6}
+         returning ${DATA_COLUMNS}`,
+        params,
+      )
+    ).rows[0]!;
+
+    await writeLog(client, {
+      dataId: row.id,
+      actorUid: input.actorUid,
+      action: 'update',
+      changed: [...changed, ...metaChanged],
+      before: pick(before, [...changed, ...metaChanged]),
+      after: pick(row, [...changed, ...metaChanged]),
+    });
+    return { row, created: false, changed };
+  });
+}
+
+/** 只挑这几个字段（日志里别塞整行） */
+function pick(row: unknown, fields: string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of fields) out[f] = (row as Record<string, unknown> | null)?.[f] ?? null;
+  return out;
+}
+
+/** 日志只追加。changed 为空时不记 */
+async function writeLog(
+  client: pg.PoolClient,
+  entry: {
+    dataId: string;
+    actorUid: string;
+    action: 'create' | 'update';
+    changed: string[];
+    before: unknown;
+    after: unknown;
+  },
+): Promise<void> {
+  if (entry.changed.length === 0) return;
+  await client.query(
+    `insert into toy_data_log (data_id, actor_uid, action, changed, before, after)
+     values ($1, $2, $3, $4, $5::jsonb, $6::jsonb)`,
+    [
+      entry.dataId,
+      entry.actorUid,
+      entry.action,
+      entry.changed,
+      JSON.stringify(entry.before ?? null),
+      JSON.stringify(entry.after ?? null),
+    ],
+  );
+}
+
+/** 作者删一行。日志靠 on delete cascade 跟着走（你定的「日志随记录删除」） */
+export async function deleteToyData(toyId: string, scope: string, uid: string): Promise<number> {
+  const res = await query(
+    `delete from toy_data where toy_id = $1 and scope = $2 and uid = $3`,
+    [toyId, scope, uid],
+  );
+  return res.rowCount ?? 0;
+}
+
+/** 作者删掉整个 scope */
+export async function deleteToyScope(toyId: string, scope: string): Promise<number> {
+  const res = await query(`delete from toy_data where toy_id = $1 and scope = $2`, [toyId, scope]);
+  return res.rowCount ?? 0;
+}
+
+/** 过期清理：分批删，别一次锁一大片 */
+export async function cleanupToyData(batch = 1000, maxRounds = 20): Promise<number> {
+  let total = 0;
+  for (let i = 0; i < maxRounds; i++) {
+    const res = await query(
+      `delete from toy_data
+        where id in (select id from toy_data where expires_at < now() limit $1)`,
+      [batch],
+    );
+    const n = res.rowCount ?? 0;
+    total += n;
+    if (n < batch) break;
+  }
+  return total;
+}
