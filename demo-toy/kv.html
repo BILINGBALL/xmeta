@@ -67,7 +67,7 @@
       <span class="kv-sep">·</span>
       <span class="xm-small">uid <b class="xm-mono" id="vUid">—</b></span>
       <span class="kv-sep">·</span>
-      <span class="xm-small" id="vLeft">点右边按钮过桥拿一枚</span>
+      <span class="xm-small">还剩 <b class="xm-mono" id="vLeft">—</b></span>
       <button class="xm-btn xm-btn--ghost xm-btn--sm kv-right" id="btnToken">申请联机凭证</button>
     </div>
     <p class="xm-small xm-mt">
@@ -161,6 +161,42 @@
     <pre id="out" class="kv-out"></pre>
   </div>
 
+  <!-- 返回结构速查：写接入代码时对着看 -->
+  <details class="xm-card xm-mt-lg">
+    <summary class="kv-summary">返回结构速查 —— 每个接口回什么</summary>
+    <pre class="kv-out xm-mt">GET    /api/kv/:scope            → { data: Row | null }                     没建过是 null，不是报错
+PUT    /api/kv/:scope            → { data: Row, created: bool, changed: [字段] }
+PATCH  /api/kv/:scope            → { data: Row, changed: [字段] }             inc 也一样，新值就在 data 里
+DELETE /api/kv/:scope/:uid       → { deleted: 1, data: Row }                  回带被删掉的那一行
+DELETE /api/kv/:scope?all=1      → { deleted: n, scope }
+GET    /api/kv/:scope/list       → { items: [Row], page, size, total, hasNext }
+GET    /api/kv/:scope/:uid/log   → { items: [Log], page, size, total, hasNext }
+POST   /api/user/profiles        → { profiles: [ { uid, nickname, avatar } ] }
+
+出任何错                          → { error: { code, message } }              code 是机器可读的，别按 message 匹配
+
+Row = {
+  uid, scope,                              // 归属
+  isPublic, openEdit: [字段名],             // 可见性 / 允许别人改哪些字段
+  tagTinyint, tagInt1, tagInt2, tagBigint, // 数字标签（筛选用，也可以是血量那种状态）
+  text1, text2, textLong,                  // 128 / 512 / 1024 字符
+  extra,                                   // 任意 JSON，序列化后 ≤2048 字节，别人永远改不了
+  expiresAt, createdAt, updatedAt          // ISO 时间字符串
+}
+
+Log = {
+  id, dataId, actorUid,                    // actorUid 是「真正动手的人」（作者替玩家改时是作者）
+  action,                                  // 'create' | 'update'
+  changed: [字段名],                        // 这次动了哪几个，名字同 Row
+  before, after,                           // 只含被改字段的前后值，不是整行
+  createdAt
+}</pre>
+    <p class="xm-small xm-mt">
+      <b>changed</b> 和 <b>openEdit</b> 里用的都是 Row 的字段名（<span class="xm-mono">tag_int1</span> 这种），
+      不是接口参数名（那是 <span class="xm-mono">tagInt1</span>）。
+    </p>
+  </details>
+
   <div class="xm-foot">
     <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 联机数据测试台</span>
   </div>
@@ -193,11 +229,12 @@ function token() {
   return s ? s.jwt : null
 }
 
+// 时:分:秒 —— 秒位每秒都在动，一眼能看出倒计时还活着（只显示分的话像卡住了）
 function fmtLeft(ms) {
-  const s = Math.round(ms / 1000)
-  if (s >= 3600) return '还剩 ' + Math.floor(s / 3600) + ' 小时 ' + Math.floor((s % 3600) / 60) + ' 分'
-  if (s >= 60) return '还剩 ' + Math.floor(s / 60) + ' 分钟'
-  return '还剩 ' + s + ' 秒'
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const pad = (n) => String(n).padStart(2, '0')
+  const h = Math.floor(s / 3600)
+  return (h > 0 ? h + ':' : '') + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60)
 }
 
 function render() {
@@ -206,7 +243,7 @@ function render() {
   $('vState').className = s ? 'xm-live xm-live--on' : 'xm-live'
   myUid = s ? decodeSub(s.jwt) : null
   $('vUid').textContent = myUid || '—'
-  $('vLeft').textContent = s ? fmtLeft(XMETA.getRemainingMs()) : '点右边按钮过桥拿一枚'
+  $('vLeft').textContent = s ? fmtLeft(XMETA.getRemainingMs()) : '—'
   $('btnToken').textContent = s ? '重新申请凭证' : '申请联机凭证'
 }
 setInterval(render, 1000)

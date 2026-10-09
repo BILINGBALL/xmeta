@@ -229,13 +229,12 @@ $('btnGoXmeta').addEventListener('click', () => {
 // ── 剩余时间 ──
 // 用户自己选的时长，过期后要回中心 toy 再授权一次。把它显示出来，
 // 别让人玩到一半突然掉线还不知道为什么。
+// 时:分:秒 —— 秒位每秒都在动，一眼看得出倒计时还活着（只显示分的话像卡住了）
 function fmtLeft(ms) {
-  const s = Math.floor(ms / 1000)
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const pad = (n) => String(n).padStart(2, '0')
   const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  if (h > 0) return h + ' 小时 ' + m + ' 分'
-  if (m > 0) return m + ' 分 ' + (s % 60) + ' 秒'
-  return (s % 60) + ' 秒'
+  return (h > 0 ? h + ':' : '') + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60)
 }
 
 // ── 状态渲染 ────────────────────────────────────────────────────
