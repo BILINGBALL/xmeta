@@ -1,4 +1,5 @@
 import { buildApp } from './app.js';
+import { realDeps } from './deps.js';
 import { config } from './config.js';
 import { pool } from './db.js';
 import { getActiveKey } from './lib/jwt.js';
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
     try {
       await app.close();
       await pool.end();
+      await realDeps.cache.close();
     } finally {
       process.exit(0);
     }

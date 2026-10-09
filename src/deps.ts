@@ -1,4 +1,6 @@
+import { config } from './config.js';
 import { fetchToyDetail, fetchToySource, type ToyDetail, type ToySource } from './lib/bili.js';
+import { noopCache, redisCache, type Cache } from './lib/cache.js';
 
 /**
  * 外部依赖的注入口。生产用 realBiliDeps，测试可以塞桩，
@@ -13,6 +15,11 @@ export const realBiliDeps: BiliDeps = { fetchToyDetail, fetchToySource };
 
 export type AppDeps = {
   bili: BiliDeps;
+  /** 读缓存。没配 REDIS_URL 就是空转实现，测试里塞 MemoryCache */
+  cache: Cache;
 };
 
-export const realDeps: AppDeps = { bili: realBiliDeps };
+export const realDeps: AppDeps = {
+  bili: realBiliDeps,
+  cache: config.REDIS_URL ? redisCache(config.REDIS_URL) : noopCache,
+};

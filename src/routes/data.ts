@@ -8,6 +8,8 @@ import {
   parse,
   scopeSchema,
 } from '../http.js';
+import { config } from '../config.js';
+import type { Cache } from '../lib/cache.js';
 import { verifyToken } from '../lib/jwt.js';
 import { rateLimit } from '../lib/ratelimit.js';
 import {
@@ -113,7 +115,32 @@ function quotaFor(caller: Caller, ownerUid: string): number {
   return caller.toy.owner_uid === ownerUid ? ROW_QUOTA.owner : ROW_QUOTA.user;
 }
 
-export async function dataRoutes(app: FastifyInstance): Promise<void> {
+/**
+ * 缓存键。单格写完就删；列表只靠 TTL 过期（要枚举「哪些页/tag 受影响」才删得干净，
+ * 代价大于收益），所以键里必须把可见性、tag、分页都带上，别让不同视角互相踩。
+ */
+function rowKey(toyId: string, scope: string, uid: string): string {
+  return `kv:row:${toyId}:${scope}:${uid}`;
+}
+
+function listKey(
+  toyId: string,
+  scope: string,
+  publicOnly: boolean,
+  tagTinyint: number | null,
+  page: number,
+  size: number,
+): string {
+  return `kv:list:${toyId}:${scope}:${publicOnly ? 'pub' : 'all'}:${tagTinyint ?? '-'}:${page}:${size}`;
+}
+
+export async function dataRoutes(
+  app: FastifyInstance,
+  opts: { cache: Cache },
+): Promise<void> {
+  const cache = opts.cache;
+  const cacheTtl = config.CACHE_TTL_SECONDS;
+
   const limit = (caller: Caller, key: string, max: number): void => {
     const r = rateLimit(`kv:${key}:${caller.uid}`, max, 60_000);
     if (!r.ok) throw Errors.rateLimited(r.retryAfter);
@@ -126,8 +153,17 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
 
     const scope = scopeOf(req);
     const uid = await targetUid(req, caller);
-    const row = await getToyData(caller.toy.toy_id, uid, scope);
+
+    const key = rowKey(caller.toy.toy_id, scope, uid);
+    let row = await cache.get<ToyDataRow | null>(key);
+    if (row === undefined) {
+      // 未命中（包括缓存里本来就存的 null）
+      row = await getToyData(caller.toy.toy_id, uid, scope);
+      await cache.set(key, row, cacheTtl);
+    }
     if (!row) return { data: null };
+    // 缓存里那行可能刚好过点了（缓存 30 秒，过期要即时生效）
+    if (new Date(row.expires_at).getTime() <= Date.now()) return { data: null };
 
     // 非作者读别人的行：必须是公开的
     if (row.uid !== caller.uid && !caller.isOwner && !row.is_public) {
@@ -147,14 +183,22 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
     const tagTinyint =
       rawTag === undefined || rawTag === '' ? null : Number.parseInt(String(rawTag), 10);
 
-    const result = await listToyData({
-      toyId: caller.toy.toy_id,
-      scope,
-      page,
-      size,
-      tagTinyint: Number.isNaN(tagTinyint) ? null : tagTinyint,
-      publicOnly: !caller.isOwner,
-    });
+    const tag = Number.isNaN(tagTinyint) ? null : tagTinyint;
+    const publicOnly = !caller.isOwner;
+    const key = listKey(caller.toy.toy_id, scope, publicOnly, tag, page, size);
+
+    let result = await cache.get<{ items: ToyDataRow[]; total: number }>(key);
+    if (result === undefined) {
+      result = await listToyData({
+        toyId: caller.toy.toy_id,
+        scope,
+        page,
+        size,
+        tagTinyint: tag,
+        publicOnly,
+      });
+      await cache.set(key, result, cacheTtl);
+    }
     return {
       items: result.items.map(toWire),
       page,
@@ -207,6 +251,8 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
       },
       quota: quotaFor(caller, uid),
     });
+
+    await cache.del(rowKey(caller.toy.toy_id, scope, uid));
 
     return {
       data: toWire(result.row),
@@ -269,6 +315,8 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
       quota: quotaFor(caller, uid),
     });
 
+    await cache.del(rowKey(caller.toy.toy_id, scope, uid));
+
     return {
       data: toWire(result.row),
       changed: result.changed.map(columnToApi),
@@ -307,6 +355,7 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
     }
     const n = await deleteToyData(caller.toy.toy_id, scope, uid);
     if (n === 0) throw Errors.notFound('没有这一格');
+    await cache.del(rowKey(caller.toy.toy_id, scope, uid));
     return { deleted: n };
   });
 

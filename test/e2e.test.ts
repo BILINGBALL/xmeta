@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { importJWK, jwtVerify, type JWK } from 'jose';
 
 import { buildApp } from '../src/app.js';
+import { MemoryCache } from '../src/lib/cache.js';
 import { config } from '../src/config.js';
 import { pool } from '../src/db.js';
 import type { BiliDeps } from '../src/deps.js';
@@ -24,6 +25,8 @@ const AUTHOR_OPENID = `author_${RUN}_openid`;
 const PLAYER_OPENID = `player_${RUN}_openid`;
 
 let app: FastifyInstance;
+/** 进程内假缓存：真缓存的行为一样（含 TTL 和删键），只是不依赖 Redis */
+const testCache = new MemoryCache();
 let nonce = '';
 let clientId = '';
 
@@ -63,7 +66,7 @@ async function post(url: string, body: unknown): Promise<{ status: number; json:
 
 before(async () => {
   await runMigrations();
-  app = await buildApp({ bili: stubBili });
+  app = await buildApp({ bili: stubBili, cache: testCache });
   await app.ready();
 });
 
@@ -709,4 +712,31 @@ test('CORS：数据接口的预检要放行方法和 Authorization 头', async (
     const allowedHeaders = String(res.headers['access-control-allow-headers'] ?? '').toLowerCase();
     assert.ok(allowedHeaders.includes('authorization'), `allow-headers 要含 authorization：${allowedHeaders}`);
   }
+});
+
+test('数据：单格读走缓存，写完（和删完）立刻失效', async () => {
+  const player = await tokenFor(PLAYER_OPENID);
+  const uid = uidOf(player);
+
+  await kv('PUT', '/api/kv/cachetest', player, { text1: '第一版' });
+  assert.equal((await kv('GET', '/api/kv/cachetest', player)).json.data.text1, '第一版');
+
+  // 直接改库、绕过 API：缓存还在，所以读到的应该**还是旧值** —— 这就证明走了缓存
+  await pool.query(
+    `update toy_data set text_1 = '偷偷改的' where toy_id = $1 and scope = 'cachetest' and uid = $2`,
+    [TOY_ID, uid],
+  );
+  assert.equal(
+    (await kv('GET', '/api/kv/cachetest', player)).json.data.text1,
+    '第一版',
+    '直改库不该立刻反映出来，否则说明缓存根本没生效',
+  );
+
+  // 走 API 写一次：单格缓存被删掉，立刻读到新值
+  await kv('PATCH', '/api/kv/cachetest', player, { text1: '第二版' });
+  assert.equal((await kv('GET', '/api/kv/cachetest', player)).json.data.text1, '第二版');
+
+  // 删掉同理：立刻读不到
+  await kv('DELETE', `/api/kv/cachetest/${uid}`, player);
+  assert.equal((await kv('GET', '/api/kv/cachetest', player)).json.data, null);
 });
