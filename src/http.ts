@@ -172,6 +172,14 @@ export const kvPatchSchema = z.object({
   ...dataFields,
 });
 
+/** 批量查资料：一次最多 50 个 uid */
+export const profilesSchema = z.object({
+  uids: z
+    .array(z.string().regex(/^\d+$/, 'uid 只能是数字'))
+    .min(1, '至少要给一个 uid')
+    .max(50, '一次最多查 50 个 uid'),
+});
+
 /** 列表分页：一页最多 100，默认 20 */
 export const pageSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

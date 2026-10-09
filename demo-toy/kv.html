@@ -85,6 +85,7 @@
       <button class="kv-fill" data-fill="list"><b>列这个 scope 的所有人</b><i>分页，默认 20 条；非作者只看得到公开的</i></button>
       <button class="kv-fill" data-fill="filter"><b>按标签筛人</b><i>数字标签就是为筛选准备的</i></button>
       <button class="kv-fill" data-fill="log"><b>看某一格改过什么</b><i>每次改动一条，含前后值；只读</i></button>
+      <button class="kv-fill" data-fill="profiles"><b>uid 换昵称头像</b><i>数据里只存 id，显示名字时用这个</i></button>
     </div>
 
     <p class="kv-group">写</p>
@@ -119,6 +120,7 @@
     <div class="kv-row" style="flex-wrap:nowrap">
       <select id="method" class="xm-input" style="width:104px;flex:none">
         <option>GET</option>
+        <option>POST</option>
         <option>PUT</option>
         <option>PATCH</option>
         <option>DELETE</option>
@@ -258,6 +260,7 @@ const FILLS = {
   list: () => ['GET', '/api/kv/package/list?page=1&size=20', null],
   filter: () => ['GET', '/api/kv/roles/list?page=1&size=20&tagTinyint=1', null],
   log: () => ['GET', '/api/kv/board/466/log?page=1&size=20', null],
+  profiles: () => ['POST', '/api/user/profiles', { uids: ['466', '10'] }],
 
   // 写
   put: () => ['PUT', '/api/kv/package', {

@@ -828,3 +828,55 @@ test('数据：inc 也受 open_edit 限制，且不能和赋值混用', async ()
   assert.equal(overflow.status, 400);
   assert.ok(String(overflow.json.error.message).includes('tag_int1'));
 });
+
+test('资料：按 uid 批量取昵称头像，只给本 toy 出现过的人', async () => {
+  const player = await tokenFor(PLAYER_OPENID);
+  const playerUid = uidOf(player);
+  const authorUid = uidOf(await tokenFor(AUTHOR_OPENID));
+
+  const res = await kv('POST' as never, '/api/user/profiles', player, {
+    uids: [playerUid, authorUid],
+  } as never);
+  // inject 的 method 只认 GET/PUT/PATCH/DELETE 那条封装，这里直接走 app.inject
+  const raw = await app.inject({
+    method: 'POST',
+    url: '/api/user/profiles',
+    headers: { authorization: `Bearer ${player}` },
+    payload: { uids: [playerUid, authorUid] },
+  });
+  assert.equal(raw.statusCode, 200);
+  const body = JSON.parse(raw.body) as { profiles: { uid: string; nickname: string | null }[] };
+  assert.equal(body.profiles.length, 2, '两个人都该查到');
+  assert.equal(body.profiles[0]!.uid, playerUid);
+
+  // 造一个「授权过但没在这个 toy 留下使用记录」的人 —— 不该被查到
+  const loner = `loner_${RUN}_openid`;
+  await post('/api/bridge/authorize', { cid: clientId, fromToyId: TOY_ID, toyOpenId: loner });
+  const lonerRow = await pool.query<{ id: string }>(
+    `select id from app_user where toy_open_id = $1`,
+    [loner],
+  );
+  const lonerUid = lonerRow.rows[0]!.id;
+
+  const again = await app.inject({
+    method: 'POST',
+    url: '/api/user/profiles',
+    headers: { authorization: `Bearer ${player}` },
+    payload: { uids: [playerUid, lonerUid] },
+  });
+  const got = JSON.parse(again.body) as { profiles: { uid: string }[] };
+  assert.equal(got.profiles.length, 1, '没在这个 toy 出现过的人查不到');
+  assert.equal(got.profiles[0]!.uid, playerUid);
+
+  // 没有令牌 → 401；一次超过 50 个 → 400
+  const noToken = await app.inject({ method: 'POST', url: '/api/user/profiles', payload: { uids: ['1'] } });
+  assert.equal(noToken.statusCode, 401);
+  const tooMany = await app.inject({
+    method: 'POST',
+    url: '/api/user/profiles',
+    headers: { authorization: `Bearer ${player}` },
+    payload: { uids: Array.from({ length: 51 }, (_, i) => String(i + 1)) },
+  });
+  assert.equal(tooMany.statusCode, 400);
+  void res;
+});

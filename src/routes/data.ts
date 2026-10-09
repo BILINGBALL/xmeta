@@ -6,6 +6,7 @@ import {
   kvPutSchema,
   pageSchema,
   parse,
+  profilesSchema,
   scopeSchema,
 } from '../http.js';
 import { config } from '../config.js';
@@ -17,6 +18,7 @@ import {
   deleteToyData,
   deleteToyScope,
   getToyById,
+  getProfileInToy,
   getToyData,
   getUserById,
   listToyData,
@@ -24,6 +26,7 @@ import {
   writeToyData,
   type Toy,
   type ToyDataRow,
+  type UserProfile,
 } from '../repos.js';
 
 /**
@@ -357,6 +360,35 @@ export async function dataRoutes(
     };
   });
 
+  /**
+   * 批量取昵称/头像。
+   *
+   * 数据里只存 uid（作者那边也该只存 id、渲染在本地），要显示名字就来这里换。
+   * **只给「在本 toy 出现过的人」** —— uid 是全平台唯一的，放开就成了拿 uid 枚举
+   * 全平台资料的入口。
+   *
+   * 缓存键里必须带 toy：同一个人在不同 toy 的可见性不同，不隔离就等于跨 toy 泄漏。
+   */
+  app.post('/api/user/profiles', async (req) => {
+    const caller = await requireCaller(req);
+    limit(caller, 'profile', 120);
+
+    const body = parse(profilesSchema, req.body);
+    const uids = [...new Set(body.uids)];
+
+    const found = await Promise.all(
+      uids.map((uid) =>
+        cache.getOrFill<UserProfile | null>(
+          `kv:profile:${caller.toy.toy_id}:${uid}`,
+          300, // 昵称改了最多旧 5 分钟，换来的是这一次不用查库
+          () => getProfileInToy(caller.toy.toy_id, uid),
+        ),
+      ),
+    );
+
+    return { profiles: found.filter((p): p is UserProfile => p !== null) };
+  });
+
   /** 某一格的改动日志（读权限跟那一格走） */
   app.get('/api/kv/:scope/:uid/log', async (req) => {
     const caller = await requireCaller(req);
@@ -387,10 +419,11 @@ export async function dataRoutes(
     if (!caller.isOwner && uid !== caller.uid) {
       throw Errors.forbidden('只能删自己那一格（toy 作者能删这个 toy 里的任何一格）');
     }
-    const n = await deleteToyData(caller.toy.toy_id, scope, uid);
-    if (n === 0) throw Errors.notFound('没有这一格');
+    const gone = await deleteToyData(caller.toy.toy_id, scope, uid);
+    if (!gone) throw Errors.notFound('没有这一格');
     await cache.del(rowKey(caller.toy.toy_id, scope, uid));
-    return { deleted: n };
+    // 回带删掉的那一行：客户端要显示「删掉了什么」，而且此刻已经查不到了
+    return { deleted: 1, data: toWire(gone) };
   });
 
   /** 删掉整个 scope（日志跟着级联删）。要显式带 ?all=1，免得手滑 */
@@ -404,7 +437,7 @@ export async function dataRoutes(
     }
     const scope = scopeOf(req);
     const n = await deleteToyScope(caller.toy.toy_id, scope);
-    return { deleted: n };
+    return { deleted: n, scope };
   });
 
   /** 给前端看的时候把列名换回 API 字段名 */

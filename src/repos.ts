@@ -531,6 +531,27 @@ export async function getUserById(id: string): Promise<AppUser | null> {
   );
 }
 
+export type UserProfile = { uid: string; nickname: string | null; avatar: string | null };
+
+/**
+ * 按 uid 取昵称/头像，**只给「在本 toy 出现过的人」**（identity_usage 里有记录）。
+ *
+ * 为什么要这道限制：uid 是全平台唯一的，放开就是「拿 uid 枚举全平台用户资料」的
+ * 入口。限定在自己 toy 的玩家范围里，排行榜那种场景照样够用。
+ *
+ * 只回 uid/nickname/avatar —— 不带 toy_open_id（那是中心 toy 命名空间里的假名，
+ * 给出去没有任何用处，只会多一处可以泄漏的东西）。
+ */
+export async function getProfileInToy(toyId: string, uid: string): Promise<UserProfile | null> {
+  return queryOne<UserProfile>(
+    `select u.id as uid, u.nickname, u.avatar
+       from app_user u
+       join identity_usage iu on iu.uid = u.id and iu.toy_id = $2
+      where u.id = $1`,
+    [uid, toyId],
+  );
+}
+
 /** 这个人在这个 toy 里占了多少行（额度用，走 toy_data_by_uid_idx） */
 export async function countUserDataRows(toyId: string, uid: string): Promise<number> {
   const row = await queryOne<{ n: string }>(
@@ -808,13 +829,20 @@ async function writeLog(
   );
 }
 
-/** 作者删一行。日志靠 on delete cascade 跟着走（你定的「日志随记录删除」） */
-export async function deleteToyData(toyId: string, scope: string, uid: string): Promise<number> {
-  const res = await query(
-    `delete from toy_data where toy_id = $1 and scope = $2 and uid = $3`,
+/**
+ * 删一格。日志靠 on delete cascade 跟着走（你定的「日志随记录删除」）。
+ * 回带被删掉的那一行 —— 客户端要显示「删掉了什么」，不该再查一次（也查不到了）。
+ */
+export async function deleteToyData(
+  toyId: string,
+  scope: string,
+  uid: string,
+): Promise<ToyDataRow | null> {
+  return queryOne<ToyDataRow>(
+    `delete from toy_data where toy_id = $1 and scope = $2 and uid = $3
+     returning ${DATA_COLUMNS}`,
     [toyId, scope, uid],
   );
-  return res.rowCount ?? 0;
 }
 
 /** 作者删掉整个 scope */

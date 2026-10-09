@@ -84,6 +84,7 @@ npm run dev               # http://127.0.0.1:8787
 | GET | `/api/kv/:scope/list` | 列一个 scope 下所有人的格（分页） |
 | PUT | `/api/kv/:scope` | 整行覆盖（属主 / 作者） |
 | PATCH | `/api/kv/:scope` | 部分改（别人的行受 `open_edit` 限制） |
+| POST | `/api/user/profiles` | 按 uid 批量取昵称/头像（只给本 toy 出现过的人） |
 | GET | `/api/kv/:scope/:uid/log` | 改动日志（分页） |
 | DELETE | `/api/kv/:scope/:uid` | 删一行（属主删自己的腾地方；作者删任何一格） |
 | DELETE | `/api/kv/:scope?all=1` | 删整个 scope（作者） |
@@ -140,6 +141,17 @@ toy**，行数就是 `toyServices`，`sum(uses)` 是 `tokens`，`sum(seconds)` �
 权限：读要令牌（非作者只看公开的）；写自己的行全字段，写别人的行只能动
 `open_edit` 里的；删只有属主（自己那格）和作者。**作者对自己的 toy 有最高权限**——
 含读玩家的私有行。
+
+**写操作的响应里带结果**：`PUT` / `PATCH` 回的 `data` 是**写完之后的整行**
+（`inc` 也一样，新值直接就在里面，不用再查一次）；`DELETE` 回带被删掉的那一行。
+`changed` 列出这次动了哪几个字段。
+
+**昵称头像怎么来**：数据里只存 `uid`（作者那边也该只存 id、渲染在本地），要显示
+名字就 `POST /api/user/profiles { "uids": [...] }`（一次最多 50 个）。**只给「在本
+toy 出现过的人」** —— uid 是全平台唯一的，不限制就等于开了一个拿 uid 枚举全平台
+资料的入口。注意昵称/头像是**客户端上报的**（`getUserProfile` 来的），只当展示用，
+别拿它做鉴权或唯一性判断；头像 URL 是 B站 CDN 的，前端记得加
+`referrerPolicy="no-referrer"`。
 
 > **「私有」是对其他玩家私有，对作者不是。** 玩家写进 xmeta 的东西作者看得到，
 > 别让人误以为作者也看不到。
