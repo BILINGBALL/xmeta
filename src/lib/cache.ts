@@ -18,6 +18,11 @@ export type Cache = {
   /** 命中返回数据；未命中、出错一律返回 undefined（注意和「缓存了一个 null」区分） */
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown, ttlSeconds: number): Promise<void>;
+  /**
+   * 读缓存，没有就回源并写进去。**同一个键的并发回源只会发生一次** ——
+   * 这就是防惊群的那一道：热键过期的一瞬间，几百个请求不会一起扑向数据库。
+   */
+  getOrFill<T>(key: string, ttlSeconds: number, fill: () => Promise<T>): Promise<T>;
   del(...keys: string[]): Promise<void>;
   close(): Promise<void>;
 };
@@ -29,9 +34,22 @@ export const noopCache: Cache = {
     return undefined;
   },
   async set() {},
+  async getOrFill(_key, _ttl, fill) {
+    return fill();
+  },
   async del() {},
   async close() {},
 };
+
+/**
+ * 给 TTL 加 0~5 秒抖动。
+ *
+ * 不加的话，一批同时写入的键会在同一毫秒集体过期 —— 那一刻所有请求一起回源。
+ * 抖动之后它们错开了，最多是零散回源。
+ */
+function withJitter(ttlSeconds: number): number {
+  return ttlSeconds + Math.floor(Math.random() * 5);
+}
 
 /** 测试用：进程内 Map，行为和真缓存一致 */
 export class MemoryCache implements Cache {
@@ -49,7 +67,24 @@ export class MemoryCache implements Cache {
   }
 
   async set(key: string, value: unknown, ttlSeconds: number): Promise<void> {
-    this.store.set(key, { value, exp: Date.now() + ttlSeconds * 1000 });
+    this.store.set(key, { value, exp: Date.now() + withJitter(ttlSeconds) * 1000 });
+  }
+
+  /** 单飞：同一个键并发回源时，后面的等第一个的结果 */
+  private inflight = new Map<string, Promise<unknown>>();
+
+  getOrFill<T>(key: string, ttlSeconds: number, fill: () => Promise<T>): Promise<T> {
+    const running = this.inflight.get(key);
+    if (running) return running as Promise<T>;
+    const task = (async () => {
+      const hit = await this.get<T>(key);
+      if (hit !== undefined) return hit;
+      const value = await fill();
+      await this.set(key, value, ttlSeconds);
+      return value;
+    })().finally(() => this.inflight.delete(key));
+    this.inflight.set(key, task);
+    return task;
   }
 
   async del(...keys: string[]): Promise<void> {
@@ -62,6 +97,8 @@ export class MemoryCache implements Cache {
 }
 
 export function redisCache(url: string): Cache {
+  /** 进程内单飞表：同一个键的并发回源只留一个 */
+  const inflight = new Map<string, Promise<unknown>>();
   const redis = new Redis(url, {
     // 断线时不要排队等，直接失败 —— 排队会把请求卡住
     enableOfflineQueue: false,
@@ -88,10 +125,27 @@ export function redisCache(url: string): Cache {
     },
     async set(key: string, value: unknown, ttlSeconds: number): Promise<void> {
       try {
-        await redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+        await redis.set(key, JSON.stringify(value), 'EX', withJitter(ttlSeconds));
       } catch {
         /* 缓存写失败不该影响主流程 */
       }
+    },
+    async getOrFill<T>(key: string, ttlSeconds: number, fill: () => Promise<T>): Promise<T> {
+      // 先查缓存；miss 时**进程内**单飞 —— 同一个键的并发回源只发生一次
+      const hit = await this.get<T>(key);
+      if (hit !== undefined) return hit;
+
+      const running = inflight.get(key);
+      if (running) return running as Promise<T>;
+
+      const task = fill()
+        .then(async (value) => {
+          await this.set(key, value, ttlSeconds);
+          return value;
+        })
+        .finally(() => inflight.delete(key));
+      inflight.set(key, task);
+      return task;
     },
     async del(...keys: string[]): Promise<void> {
       try {

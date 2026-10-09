@@ -740,3 +740,29 @@ test('数据：单格读走缓存，写完（和删完）立刻失效', async ()
   await kv('DELETE', `/api/kv/cachetest/${uid}`, player);
   assert.equal((await kv('GET', '/api/kv/cachetest', player)).json.data, null);
 });
+
+test('缓存：同一个键并发回源只打一次库（防惊群）', async () => {
+  const cache = new MemoryCache();
+  let fills = 0;
+  const fill = async () => {
+    fills += 1;
+    await new Promise((r) => setTimeout(r, 30));
+    return { n: 42 };
+  };
+
+  // 八个并发请求扑同一个冷键 —— 只该有一次真的回源
+  const results = await Promise.all(
+    Array.from({ length: 8 }, () => cache.getOrFill('probe', 30, fill)),
+  );
+  assert.equal(fills, 1, `并发 8 次只该回源一次，实际 ${fills} 次`);
+  assert.deepEqual(results[0], { n: 42 });
+
+  // 之后是缓存命中
+  await cache.getOrFill('probe', 30, fill);
+  assert.equal(fills, 1);
+
+  // 删掉之后又会回源一次
+  await cache.del('probe');
+  await cache.getOrFill('probe', 30, fill);
+  assert.equal(fills, 2);
+});

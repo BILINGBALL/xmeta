@@ -154,13 +154,12 @@ export async function dataRoutes(
     const scope = scopeOf(req);
     const uid = await targetUid(req, caller);
 
-    const key = rowKey(caller.toy.toy_id, scope, uid);
-    let row = await cache.get<ToyDataRow | null>(key);
-    if (row === undefined) {
-      // 未命中（包括缓存里本来就存的 null）
-      row = await getToyData(caller.toy.toy_id, uid, scope);
-      await cache.set(key, row, cacheTtl);
-    }
+    // getOrFill 自带单飞：热键过期的那一瞬，并发请求只会有一次真的查库
+    const row = await cache.getOrFill<ToyDataRow | null>(
+      rowKey(caller.toy.toy_id, scope, uid),
+      cacheTtl,
+      () => getToyData(caller.toy.toy_id, uid, scope),
+    );
     if (!row) return { data: null };
     // 缓存里那行可能刚好过点了（缓存 30 秒，过期要即时生效）
     if (new Date(row.expires_at).getTime() <= Date.now()) return { data: null };
@@ -187,18 +186,19 @@ export async function dataRoutes(
     const publicOnly = !caller.isOwner;
     const key = listKey(caller.toy.toy_id, scope, publicOnly, tag, page, size);
 
-    let result = await cache.get<{ items: ToyDataRow[]; total: number }>(key);
-    if (result === undefined) {
-      result = await listToyData({
-        toyId: caller.toy.toy_id,
-        scope,
-        page,
-        size,
-        tagTinyint: tag,
-        publicOnly,
-      });
-      await cache.set(key, result, cacheTtl);
-    }
+    const result = await cache.getOrFill<{ items: ToyDataRow[]; total: number }>(
+      key,
+      cacheTtl,
+      () =>
+        listToyData({
+          toyId: caller.toy.toy_id,
+          scope,
+          page,
+          size,
+          tagTinyint: tag,
+          publicOnly,
+        }),
+    );
     return {
       items: result.items.map(toWire),
       page,
