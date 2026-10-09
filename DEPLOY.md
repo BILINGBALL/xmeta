@@ -67,6 +67,10 @@ JWT_TTL_SECONDS=900
 AUTH_CODE_TTL_SECONDS=60
 CLAIM_NONCE_TTL_HOURS=24
 CLAIM_MAX_ATTEMPTS=10
+
+# 读缓存（可选）。见 2.6；不配就是纯走库，功能一样。
+REDIS_URL=redis://127.0.0.1:6379
+CACHE_TTL_SECONDS=30
 TRUST_PROXY=true
 ```
 
@@ -121,6 +125,24 @@ pm2 startup     # 照着输出的提示再执行一次它给的那行命令
 `[xmeta] 签名密钥就绪` 和 `[xmeta] 监听 http://...`。
 
 > ⚠️ `MY_TOY_ID` / `MY_TOY_SLUG` 还是占位值时启动会打警告。看到警告说明没配好。
+
+### 2.6 Redis（可选，但建议装）
+
+联机数据的读缓存用它。**不装也能跑** —— 只是每次读都查库，功能一模一样。
+
+```bash
+sudo apt install -y redis-server
+sudo sed -i 's/^bind .*/bind 127.0.0.1 ::1/'   /etc/redis/redis.conf
+sudo sed -i 's/^appendonly .*/appendonly yes/' /etc/redis/redis.conf
+sudo systemctl restart redis-server
+redis-cli ping     # 应该回 PONG
+```
+
+两处改动都要留：**`bind 127.0.0.1`** 保证它不对公网开；**`appendonly yes`**
+保证重启不丢（缓存丢了其实没影响，但养成习惯——将来要是把限流也搬过来，就靠它了）。
+
+启动日志里会打印 `[xmeta] Redis 就绪，读缓存已开启`。连不上不会崩：会打印
+`Redis 出错，读缓存降级`，请求照走数据库。
 
 ---
 
@@ -284,6 +306,7 @@ curl -i -X OPTIONS https://api.你的域名.com/api/kv/package   -H "Origin: htt
 | 认领报 `upstream_fetch_failed` | 服务器访问不了 `bilibili.com`，检查出网和 DNS |
 | 限流报 429 | 限流是单实例内存态。多实例部署要换 Redis，见 README「还没做」 |
 | `connect ETIMEDOUT` 连数据库 | RDS 白名单没加服务器 IP |
+| 日志里一直刷 `Redis 出错，读缓存降级` | Redis 没起来或地址不对。**不影响功能**，修好自己会恢复 |
 | 接入方验签失败 | `PUBLIC_BASE_URL` 和实际访问地址不一致 |
 
 ---
