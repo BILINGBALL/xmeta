@@ -102,9 +102,12 @@ export const FIELD_TO_COLUMN: Record<string, string> = {
   extra: 'extra',
 };
 
-/** 有效期档位（天）。必须显式给，不给按 7 天 */
-export const TTL_DAYS = [1, 3, 7, 30] as const;
-const ttlSchema = z.union([z.literal(1), z.literal(3), z.literal(7), z.literal(30)]);
+/** 有效期（天）：1~30 之间的任意整数。不给按 7 天；超过 30 天会被数据库的 CHECK 顶回来 */
+const ttlSchema = z.coerce
+  .number()
+  .int('有效期要整数天')
+  .min(1, '有效期最少 1 天')
+  .max(30, '有效期最多 30 天');
 
 const dataFields = {
   /** 0..255；当 boolean 用就传 0/1 */

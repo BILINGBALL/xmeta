@@ -295,14 +295,16 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
     return { items: result.items, page, size, total: result.total };
   });
 
-  /** 删一行 —— 只有 toy 作者能做 */
+  /** 删一行 —— 属主删自己那格（清空间，不用等过期），toy 作者能删任何一格 */
   app.delete('/api/kv/:scope/:uid', async (req) => {
     const caller = await requireCaller(req);
     limit(caller, 'delete', 30);
 
-    if (!caller.isOwner) throw Errors.forbidden('只有 toy 作者能删数据');
     const scope = scopeOf(req);
     const uid = String((req.params as Record<string, unknown>).uid);
+    if (!caller.isOwner && uid !== caller.uid) {
+      throw Errors.forbidden('只能删自己那一格（toy 作者能删这个 toy 里的任何一格）');
+    }
     const n = await deleteToyData(caller.toy.toy_id, scope, uid);
     if (n === 0) throw Errors.notFound('没有这一格');
     return { deleted: n };

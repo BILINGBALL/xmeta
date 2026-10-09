@@ -411,8 +411,16 @@ function uidOf(token: string): string {
   return String(payload.sub);
 }
 
-/** 换一枚令牌：过桥 → code → token。toyOpenId 不同 = 不同的人 */
+/**
+ * 换一枚令牌：过桥 → code → token。toyOpenId 不同 = 不同的人。
+ *
+ * 按人缓存：过桥接口是**按 IP 30 次/分钟**限流的，测试里几十次换令牌会把额度
+ * 打爆，后面的用例全拿到 429 —— 表现出来是「令牌无效」的 401，很难往限流上想。
+ */
+const tokenCache = new Map<string, string>();
 async function tokenFor(toyOpenId: string): Promise<string> {
+  const cached = tokenCache.get(toyOpenId);
+  if (cached) return cached;
   const { json: auth } = await post('/api/bridge/authorize', {
     cid: clientId,
     fromToyId: TOY_ID,
@@ -423,7 +431,9 @@ async function tokenFor(toyOpenId: string): Promise<string> {
     code: auth.code,
     client_id: clientId,
   });
-  return String(json.access_token);
+  const token = String(json.access_token);
+  tokenCache.set(toyOpenId, token);
+  return token;
 }
 
 async function kv(
@@ -609,7 +619,16 @@ test('数据：删除只有作者能用，且分页有上限', async () => {
   const author = await tokenFor(AUTHOR_OPENID);
   const uid = uidOf(player);
 
-  assert.equal((await kv('DELETE', `/api/kv/package/${uid}`, player)).status, 403, '玩家不能删');
+  // 玩家能删自己的（清空间），但删不了别人的
+  assert.equal((await kv('DELETE', `/api/kv/package/${uid}`, player)).status, 200, '属主能删自己那格');
+  await kv('PUT', '/api/kv/package', player, { text1: '再建一次' });
+  const other = uidOf(await tokenFor(`victim_${RUN}_openid`));
+  await kv('PUT', `/api/kv/package?uid=${other}`, author, { text1: '别人的格' });
+  assert.equal(
+    (await kv('DELETE', `/api/kv/package/${other}`, player)).status,
+    403,
+    '删不了别人的',
+  );
   assert.equal(
     (await kv('DELETE', '/api/kv/package', author)).status,
     400,
@@ -622,6 +641,24 @@ test('数据：删除只有作者能用，且分页有上限', async () => {
   assert.equal((await kv('GET', '/api/kv/package', player)).json.data, null, '删干净了');
 
   assert.equal((await kv('GET', '/api/kv/package/list?size=200', player)).status, 400);
+});
+
+test('数据：有效期是 1~30 的任意整数，越界被挡', async () => {
+  const player = await tokenFor(`ttl_${RUN}_openid`);
+
+  for (const days of [1, 5, 17, 30]) {
+    const res = await kv('PUT', '/api/kv/package', player, { ttlDays: days, text1: 'x' });
+    assert.equal(res.status, 200, `${days} 天应该可以`);
+    const span =
+      (new Date(res.json.data.expiresAt).getTime() - new Date(res.json.data.createdAt).getTime()) /
+      86400000;
+    assert.ok(Math.abs(span - days) < 0.01, `${days} 天，实际 ${span}`);
+  }
+
+  for (const bad of [0, 31, 2.5]) {
+    const res = await kv('PUT', '/api/kv/package', player, { ttlDays: bad });
+    assert.equal(res.status, 400, `${bad} 应该被拒`);
+  }
 });
 
 test('数据：scope 不合法、extra 过大、text 过长都会被参数校验挡下', async () => {

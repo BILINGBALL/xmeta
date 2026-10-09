@@ -40,7 +40,7 @@ create table if not exists toy_data (
   -- 容器：里面放什么由作者定。API 限制序列化后 2048 字节，这里留 2 字节容错
   extra       jsonb       check (extra is null or octet_length(extra::text) <= 2050),
 
-  -- 强制过期：创建时定 1/3/7/30 天；属主之后最多改到「创建时刻 + 30 天」；
+  -- 强制过期：创建时定 1~30 天（任意整数，默认 7）；之后最多改到「创建时刻 + 30 天」；
   -- 任何编辑都不续期。到点由清理任务删掉。
   expires_at  timestamptz not null,
   created_at  timestamptz not null default now(),
