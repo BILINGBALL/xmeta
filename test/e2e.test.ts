@@ -517,6 +517,7 @@ test('数据：私有格别人读不到（作者除外）', async () => {
   // 列表里也看不到别人的私有行
   const list = await kv('GET', '/api/kv/secret/list', stranger);
   assert.equal(list.json.total, 0, '非作者只列 is_public 的行');
+  assert.equal(list.json.hasNext, false, '空列表没有下一页');
   const asAuthor = await kv('GET', '/api/kv/secret/list', author);
   assert.equal(asAuthor.json.total, 1, '作者看得全');
 });
@@ -586,6 +587,12 @@ test('数据：改动留日志，权限跟那一格走', async () => {
   const mine = await kv('GET', `/api/kv/logs/${uid}/log`, player);
   assert.equal(mine.status, 200);
   assert.equal(mine.json.total, 2, 'create + update 各一条');
+  assert.equal(mine.json.hasNext, false, '只有一页，hasNext 应该是 false');
+  {
+    const item = mine.json.items[0];
+    assert.ok(item.dataId && item.actorUid && item.createdAt, '日志字段是 camelCase');
+    assert.equal(item.data_id, undefined, '不该把数据库列名漏出去');
+  }
   const [latest, first] = mine.json.items;
   assert.equal(latest.action, 'update');
   assert.deepEqual([...latest.changed].sort(), ['tag_int1', 'text_1']);

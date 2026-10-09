@@ -25,6 +25,7 @@ import {
   listToyDataLog,
   writeToyData,
   type Toy,
+  type ToyDataLogRow,
   type ToyDataRow,
   type UserProfile,
 } from '../repos.js';
@@ -90,6 +91,20 @@ function scopeOf(req: FastifyRequest): string {
   const result = scopeSchema.safeParse(raw);
   if (!result.success) throw Errors.invalidParam(result.error.issues[0]?.message ?? 'scope 不合法');
   return result.data;
+}
+
+/** 日志行也走 camelCase —— 跟别的接口保持一致，别一半驼峰一半下划线 */
+function toWireLog(row: ToyDataLogRow) {
+  return {
+    id: row.id,
+    dataId: row.data_id,
+    actorUid: row.actor_uid,
+    action: row.action,
+    changed: row.changed,
+    before: row.before,
+    after: row.after,
+    createdAt: row.created_at,
+  };
 }
 
 /** 出参一律 camelCase，别把数据库列名漏出去 */
@@ -207,6 +222,8 @@ export async function dataRoutes(
       page,
       size,
       total: result.total,
+      /** 还有没有下一页 —— 省得作者自己算 page * size < total */
+      hasNext: page * size < result.total,
     };
   });
 
@@ -406,7 +423,13 @@ export async function dataRoutes(
     }
 
     const result = await listToyDataLog(row.id, page, size);
-    return { items: result.items, page, size, total: result.total };
+    return {
+      items: result.items.map(toWireLog),
+      page,
+      size,
+      total: result.total,
+      hasNext: page * size < result.total,
+    };
   });
 
   /** 删一行 —— 属主删自己那格（清空间，不用等过期），toy 作者能删任何一格 */
