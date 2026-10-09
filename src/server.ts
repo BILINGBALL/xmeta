@@ -12,6 +12,10 @@ async function main(): Promise<void> {
   await getActiveKey();
   console.log('[xmeta] 签名密钥就绪');
 
+  // 主动连一次 Redis，好让「就绪/降级」早点出现在日志里。
+  // **不 await**：连不上时要等超时，不能拖住服务启动。
+  void realDeps.cache.warmup();
+
   const app = await buildApp();
 
   await app.listen({ host: config.HOST, port: config.PORT });

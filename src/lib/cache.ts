@@ -24,6 +24,11 @@ export type Cache = {
    */
   getOrFill<T>(key: string, ttlSeconds: number, fill: () => Promise<T>): Promise<T>;
   del(...keys: string[]): Promise<void>;
+  /**
+   * 主动连一次，好让「Redis 就绪」早点出现在启动日志里。
+   * 没配 Redis 就是空转；调用方**别 await 它** —— 连不上时它要等到超时。
+   */
+  warmup(): Promise<void>;
   close(): Promise<void>;
 };
 
@@ -38,6 +43,7 @@ export const noopCache: Cache = {
     return fill();
   },
   async del() {},
+  async warmup() {},
   async close() {},
 };
 
@@ -91,6 +97,8 @@ export class MemoryCache implements Cache {
     for (const k of keys) this.store.delete(k);
   }
 
+  async warmup(): Promise<void> {}
+
   async close(): Promise<void> {
     this.store.clear();
   }
@@ -100,6 +108,9 @@ export function redisCache(url: string): Cache {
   /** 进程内单飞表：同一个键的并发回源只留一个 */
   const inflight = new Map<string, Promise<unknown>>();
   const redis = new Redis(url, {
+    // **惰性连接**：import 这个模块不建连接。否则测试、脚本这些只 import 的
+    // 场景会平白挂一个 socket，进程跑完都退不出去（实测：跑测试直接卡死）。
+    lazyConnect: true,
     // 断线时不要排队等，直接失败 —— 排队会把请求卡住
     enableOfflineQueue: false,
     // 单条命令的上限，超了就当 miss。绝不让缓存拖慢接口
@@ -108,14 +119,43 @@ export function redisCache(url: string): Cache {
     retryStrategy: (times: number) => Math.min(times * 500, 5000),
   });
 
+  // 错误日志节流：Redis 挂掉时每个请求都会报错，不节流就是刷屏
+  let lastErrorAt = 0;
   redis.on('error', (e: Error) => {
+    const now = Date.now();
+    if (now - lastErrorAt < 30_000) return;
+    lastErrorAt = now;
     console.warn('[xmeta] Redis 出错，读缓存降级（请求照走数据库）：', e.message);
   });
   redis.on('ready', () => console.log('[xmeta] Redis 就绪，读缓存已开启'));
 
+  /**
+   * 能不能用 Redis。**绝不能在这里无限等** —— 连不上时只等一次 300ms，
+   * 之后 status 会停在 connecting，直接返回 false（请求照走数据库）。
+   */
+  async function ready(): Promise<boolean> {
+    if (redis.status === 'ready') return true;
+    if (redis.status === 'wait') {
+      try {
+        await Promise.race([
+          redis.connect(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 300)),
+        ]);
+      } catch {
+        return false;
+      }
+    }
+    // connect() 成功的话 status 已经变了，但 TS 看不到那次副作用
+    return String(redis.status) === 'ready';
+  }
+
   return {
     enabled: true,
+    async warmup(): Promise<void> {
+      await ready();
+    },
     async get<T>(key: string): Promise<T | undefined> {
+      if (!(await ready())) return undefined;
       try {
         const raw = await redis.get(key);
         return raw === null ? undefined : (JSON.parse(raw) as T);
@@ -124,6 +164,7 @@ export function redisCache(url: string): Cache {
       }
     },
     async set(key: string, value: unknown, ttlSeconds: number): Promise<void> {
+      if (!(await ready())) return;
       try {
         await redis.set(key, JSON.stringify(value), 'EX', withJitter(ttlSeconds));
       } catch {
@@ -131,6 +172,7 @@ export function redisCache(url: string): Cache {
       }
     },
     async getOrFill<T>(key: string, ttlSeconds: number, fill: () => Promise<T>): Promise<T> {
+      if (!(await ready())) return fill(); // Redis 不在就老实查库
       // 先查缓存；miss 时**进程内**单飞 —— 同一个键的并发回源只发生一次
       const hit = await this.get<T>(key);
       if (hit !== undefined) return hit;
@@ -148,6 +190,7 @@ export function redisCache(url: string): Cache {
       return task;
     },
     async del(...keys: string[]): Promise<void> {
+      if (!(await ready())) return;
       try {
         if (keys.length > 0) await redis.del(...keys);
       } catch {
@@ -156,7 +199,7 @@ export function redisCache(url: string): Cache {
     },
     async close(): Promise<void> {
       try {
-        await redis.quit();
+        redis.disconnect(); // 可能压根没连过，disconnect 比 quit 稳
       } catch {
         /* 忽略 */
       }
