@@ -82,6 +82,7 @@
     <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="put">建 / 整行覆盖我的一格</button><span><b>PUT</b> /api/kv/package —— 没有就建、有就整行覆盖（<b>没写的字段会被清空</b>）</span></div>
     <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="patch">只改几个字段</button><span><b>PATCH</b> /api/kv/package —— 只动你写的那几项，其余原样保留（日常写数据用这个）</span></div>
     <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="other">改别人开给我的字段</button><span><b>PATCH</b> /api/kv/board?uid=466 —— 那一格的 open_edit 开了 tag_int1 / text_1，我就能改这两个；<b>extra 永远改不了</b></span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="inc">原子加减（打 boss）</button><span><b>PATCH</b> /api/kv/admin_world?uid=10 —— <b>inc 是加减不是赋值</b>：几百人同时打，谁也不会把谁挤掉</span></div>
     <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="admin">建世界 boss（作者）</button><span><b>PUT</b> /api/kv/admin_world —— <b>admin* 开头的 scope 只有作者能建</b>；open_edit 放开血量，所有人一起打</span></div>
     <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delrow">删掉我一格（清空间）</button><span><b>DELETE</b> /api/kv/package/&lt;我的 uid&gt; —— 不用等过期；<b>只能删自己的</b>，作者能删别人的</span></div>
     <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delscope">删整个 scope（作者）</button><span><b>DELETE</b> /api/kv/package?all=1 —— 作者清掉这个 scope 下所有人的格；要显式带 ?all=1 防手滑</span></div>
@@ -208,6 +209,8 @@ const FILLS = {
   }],
   patch: () => ['PATCH', '/api/kv/package', { tagInt1: 101, text1: '只改这两项' }],
   other: () => ['PATCH', '/api/kv/board?uid=466', { tagInt1: 20, text1: '被别人改过了' }],
+  // inc：把增量交给服务端算（客户端自己「读出来加一再写回去」在并发下必然丢更新）
+  inc: () => ['PATCH', '/api/kv/admin_world?uid=10', { inc: { tagInt1: -10 } }],
   admin: () => ['PUT', '/api/kv/admin_world', {
     ttlDays: 30, isPublic: true, openEdit: ['tag_int1'], tagInt1: 1000, text1: '世界 Boss'
   }],

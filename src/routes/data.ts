@@ -274,9 +274,16 @@ export async function dataRoutes(
     if (!existing) throw Errors.notFound('这一格还不存在，请先用 PUT 创建');
 
     const isOwn = uid === caller.uid;
-    const touched = Object.keys(body).filter(
-      (k) => k in FIELD_TO_COLUMN || k === 'isPublic' || k === 'openEdit' || k === 'ttlDays',
-    );
+    const incFields = Object.entries(body.inc ?? {}).filter(
+      ([, v]) => typeof v === 'number',
+    ) as [string, number][];
+    const touched = [
+      ...Object.keys(body).filter(
+        (k) => k in FIELD_TO_COLUMN || k === 'isPublic' || k === 'openEdit' || k === 'ttlDays',
+      ),
+      // inc 动的字段也要算进来，否则「别人 inc 一个未开放的字段」就绕过 open_edit 了
+      ...incFields.map(([k]) => k),
+    ];
 
     if (!isOwn && !caller.isOwner) {
       const denied = touched.filter((k) => {
@@ -300,20 +307,47 @@ export async function dataRoutes(
       if (api in body) columns[col] = (body as Record<string, unknown>)[api] ?? null;
     }
 
-    const result = await writeToyData({
-      toyId: caller.toy.toy_id,
-      uid,
-      scope,
-      actorUid: caller.uid,
-      mode: 'patch',
-      changes: {
-        columns,
-        isPublic: body.isPublic,
-        openEdit: body.openEdit,
-        ttlDays: body.ttlDays,
-      },
-      quota: quotaFor(caller, uid),
-    });
+    // 同一个字段不能既赋值又加减 —— 一个说「等于」，一个说「加上」，没法解释
+    const incColumns: Record<string, number> = {};
+    for (const [api, delta] of incFields) {
+      const col = FIELD_TO_COLUMN[api];
+      if (!col) throw Errors.invalidParam(`inc 不支持 ${api}`);
+      if (api in body && (body as Record<string, unknown>)[api] !== undefined) {
+        throw Errors.invalidParam(
+          `${api} 不能同时出现在 inc 和普通字段里：一个是加、一个是赋值`,
+        );
+      }
+      incColumns[col] = delta;
+    }
+
+    let result;
+    try {
+      result = await writeToyData({
+        toyId: caller.toy.toy_id,
+        uid,
+        scope,
+        actorUid: caller.uid,
+        mode: 'patch',
+        changes: {
+          columns,
+          inc: incColumns,
+          isPublic: body.isPublic,
+          openEdit: body.openEdit,
+          ttlDays: body.ttlDays,
+        },
+        quota: quotaFor(caller, uid),
+      });
+    } catch (e) {
+      // 加减之后超出列能存的范围。服务端**不做任何业务边界**（血量能不能是负的
+      // 是玩具自己的事），只有「存不进去」这一条硬线。
+      if ((e as { code?: string } | null)?.code === '22003') {
+        throw Errors.invalidParam(
+          '加减之后超出了列能存的范围：tag_tinyint 是 0~255、tag_int1 是 ±32767、' +
+            'tag_int2 是 ±21 亿。想放更大的数用 tag_bigint',
+        );
+      }
+      throw e;
+    }
 
     await cache.del(rowKey(caller.toy.toy_id, scope, uid));
 

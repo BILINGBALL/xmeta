@@ -631,6 +631,8 @@ export async function writeToyData(input: {
   mode: 'put' | 'patch';
   changes: {
     columns: Record<string, unknown>;
+    /** 列名 → 增量（原子加减）。和 columns 里同名的列不允许同时出现，调用方先挡 */
+    inc?: Record<string, number>;
     isPublic?: boolean;
     openEdit?: string[];
     ttlDays?: number;
@@ -651,35 +653,20 @@ export async function writeToyData(input: {
       throw Errors.quotaExceeded('这一格已经存在了，别重复创建');
     }
 
+    const inc = input.changes.inc ?? {};
+
     // 最终的列值：put 是全量（缺的清空），patch 是旧值 + 改动
     const values: Record<string, unknown> = {};
     for (const col of DATA_FIELDS) {
       if (input.mode === 'put') {
         values[col] = input.changes.columns[col] ?? null;
+      } else if (col in inc) {
+        values[col] = inc[col] ?? 0; // 增量：下面 SQL 里走 coalesce(col,0) + $n
       } else {
         values[col] =
           col in input.changes.columns
             ? (input.changes.columns[col] ?? null)
             : ((before as Record<string, unknown> | null)?.[col] ?? null);
-      }
-    }
-
-    // 真正变了的列 —— 日志只记这些，别把整行塞进去
-    const changed = DATA_FIELDS.filter(
-      (col) =>
-        JSON.stringify(before ? ((before as Record<string, unknown>)[col] ?? null) : null) !==
-        JSON.stringify(values[col] ?? null),
-    );
-    const metaChanged: string[] = [];
-    if (before) {
-      if (input.changes.isPublic !== undefined && input.changes.isPublic !== before.is_public) {
-        metaChanged.push('is_public');
-      }
-      if (
-        input.changes.openEdit !== undefined &&
-        JSON.stringify(input.changes.openEdit) !== JSON.stringify(before.open_edit)
-      ) {
-        metaChanged.push('open_edit');
       }
     }
 
@@ -719,15 +706,16 @@ export async function writeToyData(input: {
         )
       ).rows[0]!;
 
+      const created2 = diffColumns(null, row);
       await writeLog(client, {
         dataId: row.id,
         actorUid: input.actorUid,
         action: 'create',
-        changed: [...changed, ...metaChanged],
+        changed: created2,
         before: null,
-        after: pick(row, [...changed, ...metaChanged]),
+        after: pick(row, created2),
       });
-      return { row, created: true, changed };
+      return { row, created: true, changed: created2 };
     }
 
     // 更新：expires_at 一律重算成 created_at + ttlDays，**不接受续期**
@@ -745,7 +733,11 @@ export async function writeToyData(input: {
     const row = (
       await client.query<ToyDataRow>(
         `update toy_data set
-           ${DATA_FIELDS.map((c, i) => `${c} = $${i + 1}`).join(', ')},
+           ${DATA_FIELDS.map((c, i) =>
+             c in inc
+               ? `${c} = coalesce(${c}, 0) + $${i + 1}` // 原子加减：并发也不会丢
+               : `${c} = $${i + 1}`,
+           ).join(', ')},
            is_public  = $${DATA_FIELDS.length + 1},
            open_edit  = $${DATA_FIELDS.length + 2},
            expires_at = created_at + make_interval(days => $${DATA_FIELDS.length + 3}),
@@ -758,16 +750,28 @@ export async function writeToyData(input: {
       )
     ).rows[0]!;
 
+    // 写完再比一次：inc 的最终值只有数据库知道，事先算不出来
+    const changed = diffColumns(before, row);
     await writeLog(client, {
       dataId: row.id,
       actorUid: input.actorUid,
       action: 'update',
-      changed: [...changed, ...metaChanged],
-      before: pick(before, [...changed, ...metaChanged]),
-      after: pick(row, [...changed, ...metaChanged]),
+      changed,
+      before: pick(before, changed),
+      after: pick(row, changed),
     });
     return { row, created: false, changed };
   });
+}
+
+/** 哪些列真的变了（数据列 + 可见性 + 开放编辑） */
+function diffColumns(before: unknown, after: unknown): string[] {
+  const cols = [...DATA_FIELDS, 'is_public', 'open_edit'];
+  return cols.filter(
+    (c) =>
+      JSON.stringify((before as Record<string, unknown> | null)?.[c] ?? null) !==
+      JSON.stringify((after as Record<string, unknown> | null)?.[c] ?? null),
+  );
 }
 
 /** 只挑这几个字段（日志里别塞整行） */

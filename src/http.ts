@@ -141,10 +141,31 @@ export const kvPutSchema = z.object({
 });
 
 /**
+ * `inc`：原子加减，只认四个数字标签。
+ *
+ * 为什么需要它：客户端「读出来 + 2 再写回去」在并发下必然丢更新（A 读到 1、B 也读到
+ * 1，各写 3 和 4，最后是 4 不是 6）。把**增量**交给服务端，一条 `col = col + $n`
+ * 才是原子的 —— 同行并发加减永远不会丢。
+ *
+ * **不做任何边界**：血量能不能变负、负数在游戏里什么意思，是玩具自己的事
+ * （作者在前端把 -100HP 显示成 0HP 就行）。服务端只保证不超出列类型范围。
+ */
+export const incSchema = z
+  .object({
+    tagTinyint: z.number().int().nullish(),
+    tagInt1: z.number().int().nullish(),
+    tagInt2: z.number().int().nullish(),
+    tagBigint: z.number().int().nullish(),
+  })
+  .strict('inc 只支持 tagTinyint / tagInt1 / tagInt2 / tagBigint')
+  .nullish();
+
+/**
  * 部分更新。**故意不用 default()** —— 缺省表示「这一项没动」，和显式传 null 是两回事。
  * 调用方用 `Object.hasOwn(parsed, 'text2')` 判断动了哪些。
  */
 export const kvPatchSchema = z.object({
+  inc: incSchema,
   ttlDays: ttlSchema.optional(),
   isPublic: z.boolean().optional(),
   openEdit: z.array(z.enum(EDITABLE_FIELDS)).max(EDITABLE_FIELDS.length).optional(),

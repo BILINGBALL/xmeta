@@ -766,3 +766,65 @@ test('缓存：同一个键并发回源只打一次库（防惊群）', async ()
   await cache.getOrFill('probe', 30, fill);
   assert.equal(fills, 2);
 });
+
+test('数据：inc 是原子加减 —— 并发写不会丢更新', async () => {
+  const player = await tokenFor(PLAYER_OPENID);
+  const uid = uidOf(player);
+
+  await kv('PUT', '/api/kv/counter', player, { tagInt1: 0 });
+  assert.equal((await kv('GET', '/api/kv/counter', player)).json.data.tagInt1, 0);
+
+  // 20 个人同时 +1。如果是「读出来加一再写回去」，这里必然丢一大半
+  await Promise.all(
+    Array.from({ length: 20 }, () => kv('PATCH', '/api/kv/counter', player, { inc: { tagInt1: 1 } })),
+  );
+
+  const after = await kv('GET', '/api/kv/counter', player);
+  assert.equal(after.json.data.tagInt1, 20, '并发 20 次 +1 必须正好是 20');
+
+  // 减也一样
+  await kv('PATCH', '/api/kv/counter', player, { inc: { tagInt1: -7 } });
+  assert.equal((await kv('GET', '/api/kv/counter', player)).json.data.tagInt1, 13);
+
+  // 日志里记的是**加减后的最终值**，不是增量
+  const log = await kv('GET', `/api/kv/counter/${uid}/log?page=1&size=100`, player);
+  const last = log.json.items[0];
+  assert.equal(last.action, 'update');
+  assert.deepEqual(last.changed, ['tag_int1']);
+  assert.equal(last.after.tag_int1, 13);
+});
+
+test('数据：inc 也受 open_edit 限制，且不能和赋值混用', async () => {
+  const owner = await tokenFor(PLAYER_OPENID);
+  const friend = await tokenFor(`incfriend_${RUN}_openid`);
+  const target = `/api/kv/incboard?uid=${uidOf(owner)}`;
+
+  await kv('PUT', '/api/kv/incboard', owner, {
+    isPublic: true,
+    openEdit: ['tag_int1'],
+    tagInt1: 100,
+    tagInt2: 5,
+  });
+
+  // 开放的字段能加减
+  const ok = await kv('PATCH', target, friend, { inc: { tagInt1: -30 } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.data.tagInt1, 70);
+
+  // 没开放的字段：403（不能因为「只是加减」就放行）
+  const denied = await kv('PATCH', target, friend, { inc: { tagInt2: 1 } });
+  assert.equal(denied.status, 403);
+  assert.ok(String(denied.json.error.message).includes('tagInt2'));
+
+  // 同一个字段既赋值又加减：400
+  const mixed = await kv('PATCH', target, owner, { tagInt1: 5, inc: { tagInt1: 1 } });
+  assert.equal(mixed.status, 400);
+
+  // inc 只认四个数字标签
+  assert.equal((await kv('PATCH', target, owner, { inc: { text1: 1 } })).status, 400);
+
+  // 超出列范围：400，而且要说清范围
+  const overflow = await kv('PATCH', target, owner, { inc: { tagInt1: 999999 } });
+  assert.equal(overflow.status, 400);
+  assert.ok(String(overflow.json.error.message).includes('tag_int1'));
+});
