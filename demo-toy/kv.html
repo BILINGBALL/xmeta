@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>联机数据测试台</title>
 <link rel="stylesheet" href="xmeta-ui.css">
+<style>
+  /* 快捷填充：左边按钮、右边一句人话 */
+  .fill { display: flex; gap: 10px; align-items: baseline; margin-top: 8px; }
+  .fill button { flex: none; white-space: nowrap; }
+  .fill span { font-size: 12.5px; line-height: 1.55; color: var(--xm-ink-3); }
+  .fill span b { color: var(--xm-ink-2); font-weight: 600; }
+</style>
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 <script src="https://www.oxth.com:8443/xmeta-client.js"></script>
 </head>
@@ -64,21 +71,27 @@
     </div>
 
     <p class="xm-label xm-mt-lg">快捷填充</p>
-    <div class="xm-actions" style="flex-wrap:wrap;gap:6px">
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="put">① 建/覆盖自己的一格</button>
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="get">② 读自己这一格</button>
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="list">③ 列这个 scope 所有人</button>
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="patch">④ 改别人的格（开放字段）</button>
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="log">⑤ 看改动日志</button>
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="admin">⑥ 建 admin scope</button>
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delrow">⑦ 删一行（作者）</button>
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delscope">⑧ 删整个 scope（作者）</button>
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="bad">⑨ 参数违规（看 400）</button>
-      <p class="xm-small" style="width:100%;margin:6px 0 0">
-        uid 从「③ 列这个 scope 所有人」的结果里抄一个 —— 下面填的是 466，<b>换成你库里真实存在的 uid</b>。
-        想验「非作者改未开放字段会 403」，得换一个不是这款 toy 作者的身份，测试台上办不到（你就是作者）。
-      </p>
-    </div>
+    <p class="xm-small" style="margin:0 0 4px">
+      点一下就把对应请求填进上面的表单。右边写的是<b>这条接口在干什么</b>。
+    </p>
+
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="get">读我这一格</button><span><b>GET</b> /api/kv/package —— 读回我在 package 里的那一格；还没建过就返回 <b>data: null</b>，不是报错</span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="list">列这个 scope 的所有人</button><span><b>GET</b> /api/kv/package/list —— 分页列（默认 20 条、最多 100）；<b>非作者只看得见公开的那些</b></span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="filter">按标签筛人</button><span><b>GET</b> /api/kv/roles/list?tagTinyint=1 —— 数字标签就是为这个准备的：当布尔或枚举来筛</span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="log">看某一格改过什么</button><span><b>GET</b> /api/kv/board/466/log —— 每次改动一条，含改了哪些字段和前后值；只读，改不了</span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="put">建 / 整行覆盖我的一格</button><span><b>PUT</b> /api/kv/package —— 没有就建、有就整行覆盖（<b>没写的字段会被清空</b>）</span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="patch">只改几个字段</button><span><b>PATCH</b> /api/kv/package —— 只动你写的那几项，其余原样保留（日常写数据用这个）</span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="other">改别人开给我的字段</button><span><b>PATCH</b> /api/kv/board?uid=466 —— 那一格的 open_edit 开了 tag_int1 / text_1，我就能改这两个；<b>extra 永远改不了</b></span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="admin">建世界 boss（作者）</button><span><b>PUT</b> /api/kv/admin_world —— <b>admin* 开头的 scope 只有作者能建</b>；open_edit 放开血量，所有人一起打</span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delrow">删掉我一格（清空间）</button><span><b>DELETE</b> /api/kv/package/&lt;我的 uid&gt; —— 不用等过期；<b>只能删自己的</b>，作者能删别人的</span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delscope">删整个 scope（作者）</button><span><b>DELETE</b> /api/kv/package?all=1 —— 作者清掉这个 scope 下所有人的格；要显式带 ?all=1 防手滑</span></div>
+    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="bad">参数违规（看 400）</button><span><b>PATCH</b> /api/kv/package —— 文本超长 / extra 超 2048 字节 / 把 extra 塞进 open_edit，三种都被挡</span></div>
+
+    <p class="xm-small xm-mt">
+      uid 从「列这个 scope 的所有人」的结果里抄一个，上面写的 <b>466 换成你库里真实存在的 uid</b>。
+      想亲眼看到「非作者改未开放字段 → 403」，得换一个不是这款 toy 作者的身份 —— 测试台上办不到（你就是作者），
+      这条在 e2e 里用三个令牌验过。
+    </p>
   </div>
 
   <!-- 输出 -->
@@ -185,27 +198,25 @@ $('btnClear').addEventListener('click', () => out(null, undefined))
 
 // ── 快捷填充：把一套典型请求塞进表单，直接点发送就能看结果 ──
 const FILLS = {
+  get: () => ['GET', '/api/kv/package', null],
+  list: () => ['GET', '/api/kv/package/list?page=1&size=20', null],
+  filter: () => ['GET', '/api/kv/roles/list?page=1&size=20&tagTinyint=1', null],
+  log: () => ['GET', '/api/kv/board/466/log?page=1&size=20', null],
   put: () => ['PUT', '/api/kv/package', {
     ttlDays: 7, isPublic: false, openEdit: [],
     tagTinyint: 1, tagInt1: 100, text1: '我的背包', text2: '摘要', extra: { items: ['sword'] }
   }],
-  get: () => ['GET', '/api/kv/package', null],
-  list: () => ['GET', '/api/kv/package/list?page=1&size=20', null],
-  // 改别人的格：只有开放给所有人的字段能改（看服务端返回的 changed）
-  patch: () => ['PATCH', '/api/kv/board?uid=466', {
-    tagInt1: 20, text1: '被改过了'
-  }],
-  log: () => ['GET', `/api/kv/board/466/log?page=1&size=20`, null],
+  patch: () => ['PATCH', '/api/kv/package', { tagInt1: 101, text1: '只改这两项' }],
+  other: () => ['PATCH', '/api/kv/board?uid=466', { tagInt1: 20, text1: '被别人改过了' }],
   admin: () => ['PUT', '/api/kv/admin_world', {
-    ttlDays: 30, isPublic: true, openEdit: ['tag_int1'], tagInt1: 100, text1: '世界 Boss'
+    ttlDays: 30, isPublic: true, openEdit: ['tag_int1'], tagInt1: 1000, text1: '世界 Boss'
   }],
-  // 删一行是**路径**参数（服务端路由是 /api/kv/:scope/:uid）
-  delrow: () => ['DELETE', '/api/kv/package/466', null],
+  delrow: () => ['DELETE', `/api/kv/package/${myUid || '<我的uid>'}`, null],
   delscope: () => ['DELETE', '/api/kv/package?all=1', null],
   bad: () => ['PATCH', '/api/kv/package', {
-    text1: 'x'.repeat(200),                       // 超 128 字符
-    extra: { blob: 'x'.repeat(3000) },            // 超 2048 字节
-    openEdit: ['extra']                           // extra 不许进白名单
+    text1: 'x'.repeat(200),                    // 超 128 字符
+    extra: { blob: 'x'.repeat(3000) },         // 超 2048 字节
+    openEdit: ['extra']                        // extra 不许进白名单
   }]
 }
 
