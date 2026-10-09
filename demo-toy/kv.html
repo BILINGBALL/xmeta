@@ -48,6 +48,27 @@
     max-height: 380px; overflow: auto;
   }
   .kv-out:empty::before { content: '发送一个请求，这里会显示状态码和返回的 JSON。'; color: var(--xm-ink-3); }
+
+  /* 返回结构速查：排成 markdown 的样子 —— 小标题 + 代码块 + 列表 */
+  .kv-doc { margin-top: 8px; }
+  .kv-h { font-size: 13.5px; font-weight: 600; color: var(--xm-ink); margin: 22px 0 8px; }
+  .kv-h:first-child { margin-top: 0; }
+  .kv-block { position: relative; }
+  .kv-block__lang {
+    position: absolute; top: 7px; right: 8px; z-index: 1;
+    padding: 1px 6px; border-radius: 4px;
+    background: var(--xm-surface); border: 1px solid var(--xm-line);
+    font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--xm-ink-3); pointer-events: none;
+  }
+  .kv-doc .xm-pre { max-height: none; white-space: pre; word-break: normal; padding-right: 48px; }
+  .kv-list { margin: 10px 0 0; padding-left: 18px; }
+  .kv-list li { font-size: 12.5px; line-height: 1.75; color: var(--xm-ink-2); margin-bottom: 5px; }
+  .kv-doc code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px; padding: 1px 5px; border-radius: 4px;
+    background: var(--xm-sunken); color: var(--xm-ink);
+  }
 </style>
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 <script src="https://www.oxth.com:8443/xmeta-client.js"></script>
@@ -164,37 +185,96 @@
   <!-- 返回结构速查：写接入代码时对着看 -->
   <details class="xm-card xm-mt-lg">
     <summary class="kv-summary">返回结构速查 —— 每个接口回什么</summary>
-    <pre class="kv-out xm-mt">GET    /api/kv/:scope            → { data: Row | null }                     没建过是 null，不是报错
-PUT    /api/kv/:scope            → { data: Row, created: bool, changed: [字段] }
-PATCH  /api/kv/:scope            → { data: Row, changed: [字段] }             inc 也一样，新值就在 data 里
-DELETE /api/kv/:scope/:uid       → { deleted: 1, data: Row }                  回带被删掉的那一行
-DELETE /api/kv/:scope?all=1      → { deleted: n, scope }
-GET    /api/kv/:scope/list       → { items: [Row], page, size, total, hasNext }
-GET    /api/kv/:scope/:uid/log   → { items: [Log], page, size, total, hasNext }
-POST   /api/user/profiles        → { profiles: [ { uid, nickname, avatar } ] }
 
-出任何错                          → { error: { code, message } }              code 是机器可读的，别按 message 匹配
+    <div class="kv-doc">
 
-Row = {
-  uid, scope,                              // 归属
-  isPublic, openEdit: [字段名],             // 可见性 / 允许别人改哪些字段
-  tagTinyint, tagInt1, tagInt2, tagBigint, // 数字标签（筛选用，也可以是血量那种状态）
-  text1, text2, textLong,                  // 128 / 512 / 1024 字符
-  extra,                                   // 任意 JSON，序列化后 ≤2048 字节，别人永远改不了
-  expiresAt, createdAt, updatedAt          // ISO 时间字符串
-}
+      <h3 class="kv-h">接口 → 返回</h3>
+      <div class="kv-block">
+        <span class="kv-block__lang">http</span>
+        <pre class="xm-pre">GET     /api/kv/:scope           → { "data": Row | null }
+PUT     /api/kv/:scope           → { "data": Row, "created": true, "changed": ["tagInt1"] }
+PATCH   /api/kv/:scope           → { "data": Row, "changed": ["tagInt1"] }
+DELETE  /api/kv/:scope/:uid      → { "deleted": 1,  "data": Row }
+DELETE  /api/kv/:scope?all=1     → { "deleted": 12, "scope": "package" }
+GET     /api/kv/:scope/list      → { "items": [Row], "page": 1, "size": 20, "total": 3, "hasNext": false }
+GET     /api/kv/:scope/:uid/log  → { "items": [Log], "page": 1, "size": 20, "total": 2, "hasNext": false }
+POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "…", "avatar": "…" } ] }</pre>
+      </div>
+      <ul class="kv-list">
+        <li><code>GET</code> 没建过回 <code>data: null</code>，不是报错 —— 别当成失败处理。</li>
+        <li><code>PUT</code> 是整行覆盖，没写的字段会被清空；日常改数据用 <code>PATCH</code>。</li>
+        <li><code>PATCH</code> 的 <code>inc</code> 也一样，新值直接就在 <code>data</code> 里，不用再查一次。</li>
+        <li><code>DELETE /:uid</code> 回带被删掉的那一行，客户端可以据此撤销。</li>
+        <li><code>?all=1</code> 删的是整个 scope（<b>所有人</b>的格），必须显式带上。</li>
+        <li><code>list</code> / <code>log</code> 都带 <code>hasNext</code>，分页不用自己算 <code>page * size &lt; total</code>。</li>
+      </ul>
 
-Log = {
-  id, dataId, actorUid,                    // actorUid 是「真正动手的人」（作者替玩家改时是作者）
-  action,                                  // 'create' | 'update'
-  changed: [字段名],                        // 这次动了哪几个，名字同 Row
-  before, after,                           // 只含被改字段的前后值，不是整行
-  createdAt
+      <h3 class="kv-h">Row —— 一行数据（<code>/api/kv</code> 里那个「格」）</h3>
+      <div class="kv-block">
+        <span class="kv-block__lang">json</span>
+        <pre class="xm-pre">{
+  "uid": 42,
+  "scope": "package",
+  "isPublic": false,
+  "openEdit": ["tag_int1"],
+  "tagTinyint": 1,
+  "tagInt1": 100,
+  "tagInt2": 0,
+  "tagBigint": 0,
+  "text1": "我的背包",
+  "text2": null,
+  "textLong": null,
+  "extra": { "items": ["sword"], "gold": 1000 },
+  "expiresAt": "2026-10-17T12:00:00.000Z",
+  "createdAt": "2026-10-10T12:00:00.000Z",
+  "updatedAt": "2026-10-10T12:00:00.000Z"
 }</pre>
-    <p class="xm-small xm-mt">
-      <b>changed</b> 和 <b>openEdit</b> 里用的都是 Row 的字段名（<span class="xm-mono">tag_int1</span> 这种），
-      不是接口参数名（那是 <span class="xm-mono">tagInt1</span>）。
-    </p>
+      </div>
+      <ul class="kv-list">
+        <li><code>uid</code> / <code>scope</code> —— 这一格归谁、属于哪个业务。</li>
+        <li><code>isPublic</code> —— <code>false</code> 时只有属主和作者看得见。</li>
+        <li><code>openEdit</code> —— 别人能改哪些字段的<b>白名单</b>，空数组 = 只读。</li>
+        <li><code>tagTinyint</code> / <code>tagInt1</code> / <code>tagInt2</code> / <code>tagBigint</code> —— 数字标签，给筛选用；也可以是「剩余血量」那种状态。</li>
+        <li><code>text1</code> / <code>text2</code> / <code>textLong</code> —— 上限 128 / 512 / 1024 字符。</li>
+        <li><code>extra</code> —— 任意 JSON，序列化后不超过 2048 字节；永远不在 <code>openEdit</code> 里，别人改不了。</li>
+        <li><code>expiresAt</code> —— 创建时定死（1~30 天），任何编辑都不续期。</li>
+      </ul>
+
+      <h3 class="kv-h">Log —— 改一次留一条</h3>
+      <div class="kv-block">
+        <span class="kv-block__lang">json</span>
+        <pre class="xm-pre">{
+  "id": 901,
+  "dataId": 77,
+  "actorUid": 42,
+  "action": "update",
+  "changed": ["tag_int1", "text_1"],
+  "before": { "tag_int1": 100, "text_1": "旧值" },
+  "after":  { "tag_int1": 90,  "text_1": "新值" },
+  "createdAt": "2026-10-10T12:00:00.000Z"
+}</pre>
+      </div>
+      <ul class="kv-list">
+        <li><code>actorUid</code> —— 真正动手的人（作者替玩家改时就是作者）。</li>
+        <li><code>action</code> —— <code>"create"</code> 或 <code>"update"</code>。</li>
+        <li><code>changed</code> —— 这次动了哪几个字段，名字和 <code>openEdit</code> 一样。</li>
+        <li><code>before</code> / <code>after</code> —— 只含被改字段的前后值，不是整行快照。</li>
+      </ul>
+
+      <h3 class="kv-h">出错</h3>
+      <div class="kv-block">
+        <span class="kv-block__lang">json</span>
+        <pre class="xm-pre">{ "error": { "code": "invalid_param", "message": "text1 超过 128 字" } }</pre>
+      </div>
+      <ul class="kv-list">
+        <li>所有失败都是这个形状，<b>按 <code>code</code> 判断，别按 <code>message</code> 匹配</b>。</li>
+      </ul>
+
+      <p class="xm-small xm-mt">
+        接口参数用驼峰（<code>tagInt1</code>），但 <code>openEdit</code> 和 <code>changed</code> 里装的是
+        <b>数据库字段名</b>（<code>tag_int1</code>）—— 这两个最容易写反。
+      </p>
+    </div>
   </details>
 
   <div class="xm-foot">
