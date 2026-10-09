@@ -6,11 +6,48 @@
 <title>联机数据测试台</title>
 <link rel="stylesheet" href="xmeta-ui.css">
 <style>
-  /* 快捷填充：左边按钮、右边一句人话 */
-  .fill { display: flex; gap: 10px; align-items: baseline; margin-top: 8px; }
-  .fill button { flex: none; white-space: nowrap; }
-  .fill span { font-size: 12.5px; line-height: 1.55; color: var(--xm-ink-3); }
-  .fill span b { color: var(--xm-ink-2); font-weight: 600; }
+  /* 只加这一个页面要用的几块，其余全用共用设计系统的类 */
+
+  /* 令牌 / 返回 那一行：横向排，右边那个自动靠右 */
+  .kv-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .kv-right { margin-left: auto; }
+  .kv-sep { color: var(--xm-line); }
+
+  /* 快捷填充：可折起的分组卡片 */
+  .kv-summary { cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--xm-ink-2); }
+  .kv-summary::marker { color: var(--xm-ink-3); }
+  .kv-group {
+    font-size: 11.5px; letter-spacing: .08em; color: var(--xm-ink-3);
+    margin: 18px 0 8px;
+  }
+  .kv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+
+  .kv-fill {
+    display: block; text-align: left; width: 100%;
+    background: var(--xm-surface); border: 1px solid var(--xm-line);
+    border-radius: 12px; padding: 10px 12px; cursor: pointer; font: inherit;
+    transition: border-color .15s ease, transform .12s ease;
+  }
+  .kv-fill:hover { border-color: var(--xm-pink); }
+  .kv-fill:active { transform: scale(.985); }
+  .kv-fill b { display: block; font-size: 13.5px; font-weight: 600; color: var(--xm-ink); }
+  .kv-fill i {
+    display: block; font-style: normal;
+    font-size: 11.5px; line-height: 1.5; color: var(--xm-ink-3); margin-top: 3px;
+  }
+
+  /* 返回区 */
+  .kv-code { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--xm-ink-3); }
+  .kv-code--ok { color: var(--xm-ok); }
+  .kv-code--bad { color: var(--xm-danger); }
+  .kv-out {
+    margin: 12px 0 0; padding: 12px 14px; border-radius: 10px;
+    background: var(--xm-sunken); color: var(--xm-ink-2);
+    font-size: 12px; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-all;
+    max-height: 380px; overflow: auto;
+  }
+  .kv-out:empty::before { content: '发送一个请求，这里会显示状态码和返回的 JSON。'; color: var(--xm-ink-3); }
 </style>
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 <script src="https://www.oxth.com:8443/xmeta-client.js"></script>
@@ -21,88 +58,90 @@
   <div class="xm-hero" style="text-align:left">
     <p class="xm-kicker">xmeta 联机数据</p>
     <h1 class="xm-display">测试台</h1>
-    <p class="xm-body xm-mt" style="margin-top:6px">
-      直接把请求打过去，看返回。左边填路径和方法，右边看状态码和 JSON。
-    </p>
   </div>
 
-  <!-- 令牌 -->
+  <!-- 令牌：一行读完 -->
   <div class="xm-card xm-mt-lg xm-rise">
-    <div style="display:flex;align-items:center;justify-content:space-between">
-      <span class="xm-label" style="margin:0">令牌</span>
+    <div class="kv-row">
       <span class="xm-live" id="vState">未连接</span>
-    </div>
-    <div class="xm-kv">
-      <span class="xm-kv__k">uid</span>
-      <span class="xm-kv__v xm-mono" id="vUid">—</span>
-    </div>
-    <div class="xm-kv">
-      <span class="xm-kv__k">剩余</span>
-      <span class="xm-kv__v" id="vLeft">—</span>
-    </div>
-    <div class="xm-actions" style="margin-top:12px">
-      <button class="xm-btn xm-btn--primary" id="btnToken">申请 / 重新申请联机凭证</button>
+      <span class="kv-sep">·</span>
+      <span class="xm-small">uid <b class="xm-mono" id="vUid">—</b></span>
+      <span class="kv-sep">·</span>
+      <span class="xm-small" id="vLeft">点右边按钮过桥拿一枚</span>
+      <button class="xm-btn xm-btn--ghost xm-btn--sm kv-right" id="btnToken">申请联机凭证</button>
     </div>
     <p class="xm-small xm-mt">
-      没有令牌时所有请求都会 401 —— 这也是要验的一条。
+      所有请求都带这枚令牌。没连接时发出去会 401 —— 这也是要验的一条。
     </p>
   </div>
 
+  <!-- 快捷填充：分组、可折起 -->
+  <details class="xm-card xm-mt-lg xm-rise xm-rise--2" open>
+    <summary class="kv-summary">快捷填充 —— 点一下填进下面的表单，再按「发送」</summary>
+
+    <p class="kv-group">读</p>
+    <div class="kv-grid">
+      <button class="kv-fill" data-fill="get"><b>读我这一格</b><i>没建过返回 data:null，不是报错</i></button>
+      <button class="kv-fill" data-fill="list"><b>列这个 scope 的所有人</b><i>分页，默认 20 条；非作者只看得到公开的</i></button>
+      <button class="kv-fill" data-fill="filter"><b>按标签筛人</b><i>数字标签就是为筛选准备的</i></button>
+      <button class="kv-fill" data-fill="log"><b>看某一格改过什么</b><i>每次改动一条，含前后值；只读</i></button>
+    </div>
+
+    <p class="kv-group">写</p>
+    <div class="kv-grid">
+      <button class="kv-fill" data-fill="put"><b>建 / 整行覆盖</b><i>没写的字段会清空，日常别用它</i></button>
+      <button class="kv-fill" data-fill="patch"><b>只改几个字段</b><i>其余原样保留，日常写数据用这个</i></button>
+      <button class="kv-fill" data-fill="inc"><b>原子加减</b><i>打 boss 用：并发几百人也不会丢更新</i></button>
+      <button class="kv-fill" data-fill="other"><b>改别人开给我的字段</b><i>那格 open_edit 开了什么才能改什么</i></button>
+    </div>
+
+    <p class="kv-group">作者专属</p>
+    <div class="kv-grid">
+      <button class="kv-fill" data-fill="admin"><b>建世界 boss</b><i>admin* 开头的 scope 只有作者能建</i></button>
+      <button class="kv-fill" data-fill="delrow"><b>删掉我一格</b><i>清空间，不用等过期；只能删自己的</i></button>
+      <button class="kv-fill" data-fill="delscope"><b>删整个 scope</b><i>清掉所有人的格，要显式带 ?all=1</i></button>
+    </div>
+
+    <p class="kv-group">调试</p>
+    <div class="kv-grid">
+      <button class="kv-fill" data-fill="bad"><b>参数违规</b><i>文本超长 / extra 超大 / 非法 open_edit，看 400</i></button>
+    </div>
+
+    <p class="xm-small xm-mt">
+      uid 从「列这个 scope 的所有人」的结果里抄一个，上面写的 <b>466 换成你库里真实存在的 uid</b>。
+      想看「非作者改未开放字段 → 403」得换个不是作者的身份，测试台上办不到（你就是作者），
+      这条在 e2e 里用三个令牌验过。
+    </p>
+  </details>
+
   <!-- 请求 -->
-  <div class="xm-card xm-mt-lg xm-rise xm-rise--2">
-    <p class="xm-label">请求</p>
-    <div style="display:flex;gap:8px">
-      <select id="method" class="xm-input" style="width:110px;flex:none">
+  <div class="xm-card xm-mt-lg xm-rise xm-rise--3">
+    <div class="kv-row" style="flex-wrap:nowrap">
+      <select id="method" class="xm-input" style="width:104px;flex:none">
         <option>GET</option>
         <option>PUT</option>
         <option>PATCH</option>
         <option>DELETE</option>
       </select>
       <input id="path" class="xm-input xm-mono" value="/api/kv/package"
-             placeholder="/api/kv/package 或 /api/kv/package/list?page=1&amp;size=20">
+             placeholder="/api/kv/package/list?page=1&amp;size=20">
     </div>
-    <textarea id="body" class="xm-input xm-mono xm-mt" rows="7" spellcheck="false"
+    <textarea id="body" class="xm-input xm-mono xm-mt" rows="6" spellcheck="false"
       placeholder='请求体（PUT / PATCH 才用），例如：
-{ "ttlDays": 7, "isPublic": true, "openEdit": ["tag_int1"], "tagInt1": 1, "text1": "hi" }'></textarea>
-
-    <div class="xm-actions" style="margin-top:12px">
+{ "ttlDays": 7, "isPublic": true, "openEdit": ["tag_int1"], "tagInt1": 100, "text1": "hi" }'></textarea>
+    <div class="xm-actions" style="margin-top:10px">
       <button class="xm-btn xm-btn--primary" id="btnSend">发送</button>
-      <button class="xm-btn xm-btn--ghost" id="btnClear">清空输出</button>
+      <button class="xm-btn xm-btn--quiet" id="btnClear">清空返回</button>
     </div>
-
-    <p class="xm-label xm-mt-lg">快捷填充</p>
-    <p class="xm-small" style="margin:0 0 4px">
-      点一下就把对应请求填进上面的表单。右边写的是<b>这条接口在干什么</b>。
-    </p>
-
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="get">读我这一格</button><span><b>GET</b> /api/kv/package —— 读回我在 package 里的那一格；还没建过就返回 <b>data: null</b>，不是报错</span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="list">列这个 scope 的所有人</button><span><b>GET</b> /api/kv/package/list —— 分页列（默认 20 条、最多 100）；<b>非作者只看得见公开的那些</b></span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="filter">按标签筛人</button><span><b>GET</b> /api/kv/roles/list?tagTinyint=1 —— 数字标签就是为这个准备的：当布尔或枚举来筛</span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="log">看某一格改过什么</button><span><b>GET</b> /api/kv/board/466/log —— 每次改动一条，含改了哪些字段和前后值；只读，改不了</span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="put">建 / 整行覆盖我的一格</button><span><b>PUT</b> /api/kv/package —— 没有就建、有就整行覆盖（<b>没写的字段会被清空</b>）</span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="patch">只改几个字段</button><span><b>PATCH</b> /api/kv/package —— 只动你写的那几项，其余原样保留（日常写数据用这个）</span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="other">改别人开给我的字段</button><span><b>PATCH</b> /api/kv/board?uid=466 —— 那一格的 open_edit 开了 tag_int1 / text_1，我就能改这两个；<b>extra 永远改不了</b></span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="inc">原子加减（打 boss）</button><span><b>PATCH</b> /api/kv/admin_world?uid=10 —— <b>inc 是加减不是赋值</b>：几百人同时打，谁也不会把谁挤掉</span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="admin">建世界 boss（作者）</button><span><b>PUT</b> /api/kv/admin_world —— <b>admin* 开头的 scope 只有作者能建</b>；open_edit 放开血量，所有人一起打</span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delrow">删掉我一格（清空间）</button><span><b>DELETE</b> /api/kv/package/&lt;我的 uid&gt; —— 不用等过期；<b>只能删自己的</b>，作者能删别人的</span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delscope">删整个 scope（作者）</button><span><b>DELETE</b> /api/kv/package?all=1 —— 作者清掉这个 scope 下所有人的格；要显式带 ?all=1 防手滑</span></div>
-    <div class="fill"><button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="bad">参数违规（看 400）</button><span><b>PATCH</b> /api/kv/package —— 文本超长 / extra 超 2048 字节 / 把 extra 塞进 open_edit，三种都被挡</span></div>
-
-    <p class="xm-small xm-mt">
-      uid 从「列这个 scope 的所有人」的结果里抄一个，上面写的 <b>466 换成你库里真实存在的 uid</b>。
-      想亲眼看到「非作者改未开放字段 → 403」，得换一个不是这款 toy 作者的身份 —— 测试台上办不到（你就是作者），
-      这条在 e2e 里用三个令牌验过。
-    </p>
   </div>
 
-  <!-- 输出 -->
-  <div class="xm-card xm-mt-lg xm-rise xm-rise--3">
-    <div style="display:flex;align-items:center;justify-content:space-between">
+  <!-- 返回 -->
+  <div class="xm-card xm-mt-lg">
+    <div class="kv-row">
       <span class="xm-label" style="margin:0">返回</span>
-      <span class="xm-mono xm-small" id="vCode">—</span>
+      <span class="kv-code" id="vCode">—</span>
     </div>
-    <pre id="out" class="xm-mono"
-         style="max-height:420px;overflow:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;margin:10px 0 0"></pre>
+    <pre id="out" class="kv-out"></pre>
   </div>
 
   <div class="xm-foot">
@@ -120,8 +159,6 @@ const CONFIG = {
 }
 
 const $ = (id) => document.getElementById(id)
-let configured = false
-let myUid = null
 
 /** 从 JWT 里解出 sub —— 只是给页面显示用，服务端那边才验签 */
 function decodeSub(jwt) {
@@ -130,9 +167,18 @@ function decodeSub(jwt) {
   } catch (e) { return null }
 }
 
+let myUid = null
+
 function token() {
   const s = typeof XMETA !== 'undefined' ? XMETA.getSession() : null
   return s ? s.jwt : null
+}
+
+function fmtLeft(ms) {
+  const s = Math.round(ms / 1000)
+  if (s >= 3600) return '还剩 ' + Math.floor(s / 3600) + ' 小时 ' + Math.floor((s % 3600) / 60) + ' 分'
+  if (s >= 60) return '还剩 ' + Math.floor(s / 60) + ' 分钟'
+  return '还剩 ' + s + ' 秒'
 }
 
 function render() {
@@ -141,20 +187,28 @@ function render() {
   $('vState').className = s ? 'xm-live xm-live--on' : 'xm-live'
   myUid = s ? decodeSub(s.jwt) : null
   $('vUid').textContent = myUid || '—'
-  $('vLeft').textContent = s
-    ? Math.max(0, Math.round(XMETA.getRemainingMs() / 1000)) + ' 秒'
-    : '—'
+  $('vLeft').textContent = s ? fmtLeft(XMETA.getRemainingMs()) : '点右边按钮过桥拿一枚'
+  $('btnToken').textContent = s ? '重新申请凭证' : '申请联机凭证'
 }
 setInterval(render, 1000)
 
 function out(code, payload) {
-  $('vCode').textContent = code === null ? '—' : String(code)
+  const el = $('vCode')
+  if (code === null || code === undefined) {
+    el.textContent = '—'
+    el.className = 'kv-code'
+    $('out').textContent = ''
+    return
+  }
+  const ok = typeof code === 'number' && code >= 200 && code < 300
+  el.textContent = String(code) + (ok ? ' OK' : '')
+  el.className = 'kv-code ' + (ok ? 'kv-code--ok' : 'kv-code--bad')
   $('out').textContent = payload === undefined ? '' : JSON.stringify(payload, null, 2)
 }
 
 // ── 令牌：走一遍正常的过桥流程 ──
 $('btnToken').addEventListener('click', async () => {
-  if (typeof XMETA === 'undefined') { out('xmeta-client.js 没加载'); return }
+  if (typeof XMETA === 'undefined') { $('out').textContent = 'xmeta-client.js 没加载'; return }
   try {
     await XMETA.login()
   } catch (e) {
@@ -187,7 +241,7 @@ $('btnSend').addEventListener('click', async () => {
     const res = await fetch(CONFIG.apiBase + path, init)
     let json = null
     try { json = await res.json() } catch (e) { json = { raw: await res.text().catch(() => '') } }
-    out(res.status + ' ' + (res.ok ? 'OK' : 'FAIL'), json)
+    out(res.status, json)
   } catch (e) {
     out('网络错误', { message: e.message || String(e) })
   } finally {
@@ -195,27 +249,34 @@ $('btnSend').addEventListener('click', async () => {
   }
 })
 
-$('btnClear').addEventListener('click', () => out(null, undefined))
+$('btnClear').addEventListener('click', () => out(null))
 
-// ── 快捷填充：把一套典型请求塞进表单，直接点发送就能看结果 ──
+// ── 快捷填充：把一套典型请求塞进表单，点「发送」就能看结果 ──
 const FILLS = {
+  // 读
   get: () => ['GET', '/api/kv/package', null],
   list: () => ['GET', '/api/kv/package/list?page=1&size=20', null],
   filter: () => ['GET', '/api/kv/roles/list?page=1&size=20&tagTinyint=1', null],
   log: () => ['GET', '/api/kv/board/466/log?page=1&size=20', null],
+
+  // 写
   put: () => ['PUT', '/api/kv/package', {
     ttlDays: 7, isPublic: false, openEdit: [],
     tagTinyint: 1, tagInt1: 100, text1: '我的背包', text2: '摘要', extra: { items: ['sword'] }
   }],
   patch: () => ['PATCH', '/api/kv/package', { tagInt1: 101, text1: '只改这两项' }],
-  other: () => ['PATCH', '/api/kv/board?uid=466', { tagInt1: 20, text1: '被别人改过了' }],
-  // inc：把增量交给服务端算（客户端自己「读出来加一再写回去」在并发下必然丢更新）
+  // inc：增量交给服务端算（客户端自己「读出来加一再写回去」在并发下必然丢更新）
   inc: () => ['PATCH', '/api/kv/admin_world?uid=10', { inc: { tagInt1: -10 } }],
+  other: () => ['PATCH', '/api/kv/board?uid=466', { tagInt1: 20, text1: '被别人改过了' }],
+
+  // 作者专属
   admin: () => ['PUT', '/api/kv/admin_world', {
     ttlDays: 30, isPublic: true, openEdit: ['tag_int1'], tagInt1: 1000, text1: '世界 Boss'
   }],
   delrow: () => ['DELETE', `/api/kv/package/${myUid || '<我的uid>'}`, null],
   delscope: () => ['DELETE', '/api/kv/package?all=1', null],
+
+  // 调试
   bad: () => ['PATCH', '/api/kv/package', {
     text1: 'x'.repeat(200),                    // 超 128 字符
     extra: { blob: 'x'.repeat(3000) },         // 超 2048 字节
@@ -229,21 +290,21 @@ document.querySelectorAll('[data-fill]').forEach((btn) => {
     $('method').value = method
     $('path').value = path
     $('body').value = body ? JSON.stringify(body, null, 2) : ''
+    // 填完把「发送」带到眼前，省得在手机上翻了半天找不到
+    $('btnSend').scrollIntoView({ block: 'center', behavior: 'smooth' })
   })
 })
 
 // ── 初始化 ──
 if (typeof XMETA === 'undefined') {
-  out('xmeta-client.js 没加载，联机数据用不了', { hint: '检查 apiBase 是否可达' })
+  $('out').textContent = 'xmeta-client.js 没加载 —— 检查 apiBase 是否可达'
 } else {
   try {
     XMETA.configure(CONFIG)
-    configured = true
     XMETA.onSession(() => render())
-    // 回跳可能落在 index.html 上（过桥页固定回 index.html），这里只是把状态刷出来
     if (typeof XMETA.handleRedirect === 'function') XMETA.handleRedirect()
   } catch (e) {
-    out('初始化失败', { message: e.message })
+    $('out').textContent = '初始化失败：' + e.message
   }
 }
 render()
