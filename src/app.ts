@@ -30,8 +30,10 @@ export async function buildApp(deps: AppDeps = realDeps): Promise<FastifyInstanc
   await app.register(cors, {
     // toy 的内层 iframe 固定跑在 https://www.bilibilitoy.com
     origin: config.allowedOrigins,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type'],
+    // 数据接口用 PUT/PATCH/DELETE，并且都带 Authorization —— 少一个，
+    // 浏览器就会「预检过了但真实请求不发」，服务器日志里只剩一排 OPTIONS 204
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     maxAge: 600,
   });
 

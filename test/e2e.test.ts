@@ -644,3 +644,32 @@ test('数据：scope 不合法、extra 过大、text 过长都会被参数校验
     'extra 不许进 open_edit',
   );
 });
+
+test('CORS：数据接口的预检要放行方法和 Authorization 头', async () => {
+  for (const [method, url] of [
+    ['PATCH', '/api/kv/package'],
+    ['PUT', '/api/kv/package'],
+    ['DELETE', '/api/kv/package'],
+    ['GET', '/api/kv/package'],
+  ] as const) {
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url,
+      headers: {
+        origin: 'https://www.bilibilitoy.com',
+        'access-control-request-method': method,
+        'access-control-request-headers': 'authorization,content-type',
+      },
+    });
+
+    assert.equal(res.statusCode, 204, `${method} ${url} 的预检`);
+    assert.equal(
+      res.headers['access-control-allow-origin'],
+      'https://www.bilibilitoy.com',
+    );
+    const allowedMethods = String(res.headers['access-control-allow-methods'] ?? '');
+    assert.ok(allowedMethods.includes(method), `${method} 要在 allow-methods 里：${allowedMethods}`);
+    const allowedHeaders = String(res.headers['access-control-allow-headers'] ?? '').toLowerCase();
+    assert.ok(allowedHeaders.includes('authorization'), `allow-headers 要含 authorization：${allowedHeaders}`);
+  }
+});

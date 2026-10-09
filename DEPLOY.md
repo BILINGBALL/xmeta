@@ -223,6 +223,17 @@ curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
 
 应该能看到 `access-control-allow-origin: https://www.bilibilitoy.com`。
 
+**联机数据接口还要单独验一次** —— 它们用 `PATCH` 和 `Authorization` 头，这两个
+只要有一个没在预检里放行，浏览器就会「预检过了但真实请求不发」，服务器日志里
+只剩一排 `OPTIONS 204`，看起来像接口不存在：
+
+```bash
+curl -i -X OPTIONS https://api.你的域名.com/api/kv/package   -H "Origin: https://www.bilibilitoy.com"   -H "Access-Control-Request-Method: PATCH"   -H "Access-Control-Request-Headers: authorization,content-type" | grep -i access-control
+```
+
+`access-control-allow-methods` 里要有 `PATCH`，`access-control-allow-headers` 里
+要有 `authorization`。
+
 ---
 
 ## 5. 更新 toy 端
@@ -265,6 +276,7 @@ curl -i -X OPTIONS https://api.你的域名.com/api/bridge/authorize \
 | 现象 | 原因 |
 |---|---|
 | 页面报 `Failed to fetch` | `API_BASE` 没改成 HTTPS 域名，或 CORS 没放开 |
+| 所有请求都失败，但服务器日志里只有一排 `OPTIONS 204` | CORS 预检没放行**方法**或**请求头**（`Authorization`、`PATCH` 最容易漏）。真实请求根本没发出去 |
 | 按钮点了没反应、也没有任何请求 | 页面 JS 在加载时就报错了（后面的代码全没执行，所以连监听都没注册上）。开控制台看第一条红字 |
 | `getUserProfile` 抛 `unsupported` | 在外部手机浏览器里打开了。只能在 B站 App 内或桌面 Web 用 |
 | 拿不到 `toyOpenId` | toy 没开 OpenID 模式 |
