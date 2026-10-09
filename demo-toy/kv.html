@@ -68,12 +68,16 @@
       <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="put">① 建/覆盖自己的一格</button>
       <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="get">② 读自己这一格</button>
       <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="list">③ 列这个 scope 所有人</button>
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="patch">④ 改开放字段（他人视角）</button>
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="patch">④ 改别人的格（开放字段）</button>
       <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="log">⑤ 看改动日志</button>
       <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="admin">⑥ 建 admin scope</button>
       <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delrow">⑦ 删一行（作者）</button>
       <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delscope">⑧ 删整个 scope（作者）</button>
-      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="bad">⑨ 故意违规（看 403/400）</button>
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="bad">⑨ 参数违规（看 400）</button>
+      <p class="xm-small" style="width:100%;margin:6px 0 0">
+        uid 从「③ 列这个 scope 所有人」的结果里抄一个 —— 下面填的是 466，<b>换成你库里真实存在的 uid</b>。
+        想验「非作者改未开放字段会 403」，得换一个不是这款 toy 作者的身份，测试台上办不到（你就是作者）。
+      </p>
     </div>
   </div>
 
@@ -187,17 +191,21 @@ const FILLS = {
   }],
   get: () => ['GET', '/api/kv/package', null],
   list: () => ['GET', '/api/kv/package/list?page=1&size=20', null],
-  patch: () => ['PATCH', `/api/kv/board?uid=${myUid || '<别人的uid>'}`, {
-    tagInt1: 20
+  // 改别人的格：只有开放给所有人的字段能改（看服务端返回的 changed）
+  patch: () => ['PATCH', '/api/kv/board?uid=466', {
+    tagInt1: 20, text1: '被改过了'
   }],
-  log: () => ['GET', `/api/kv/package/${myUid || '<uid>'}/log?page=1&size=20`, null],
+  log: () => ['GET', `/api/kv/board/466/log?page=1&size=20`, null],
   admin: () => ['PUT', '/api/kv/admin_world', {
     ttlDays: 30, isPublic: true, openEdit: ['tag_int1'], tagInt1: 100, text1: '世界 Boss'
   }],
-  delrow: () => ['DELETE', `/api/kv/package?uid=${myUid || '<uid>'}`, null],
+  // 删一行是**路径**参数（服务端路由是 /api/kv/:scope/:uid）
+  delrow: () => ['DELETE', '/api/kv/package/466', null],
   delscope: () => ['DELETE', '/api/kv/package?all=1', null],
   bad: () => ['PATCH', '/api/kv/package', {
-    extra: { hijack: true }, isPublic: true, text1: 'x'.repeat(200)
+    text1: 'x'.repeat(200),                       // 超 128 字符
+    extra: { blob: 'x'.repeat(3000) },            // 超 2048 字节
+    openEdit: ['extra']                           // extra 不许进白名单
   }]
 }
 
