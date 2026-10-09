@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>联机数据测试台</title>
+<link rel="stylesheet" href="xmeta-ui.css">
+<script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
+<script src="https://www.oxth.com:8443/xmeta-client.js"></script>
+</head>
+<body class="xm">
+<div class="xm-page">
+
+  <div class="xm-hero" style="text-align:left">
+    <p class="xm-kicker">xmeta 联机数据</p>
+    <h1 class="xm-display">测试台</h1>
+    <p class="xm-body xm-mt" style="margin-top:6px">
+      直接把请求打过去，看返回。左边填路径和方法，右边看状态码和 JSON。
+    </p>
+  </div>
+
+  <!-- 令牌 -->
+  <div class="xm-card xm-mt-lg xm-rise">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <span class="xm-label" style="margin:0">令牌</span>
+      <span class="xm-live" id="vState">未连接</span>
+    </div>
+    <div class="xm-kv">
+      <span class="xm-kv__k">uid</span>
+      <span class="xm-kv__v xm-mono" id="vUid">—</span>
+    </div>
+    <div class="xm-kv">
+      <span class="xm-kv__k">剩余</span>
+      <span class="xm-kv__v" id="vLeft">—</span>
+    </div>
+    <div class="xm-actions" style="margin-top:12px">
+      <button class="xm-btn xm-btn--primary" id="btnToken">申请 / 重新申请联机凭证</button>
+    </div>
+    <p class="xm-small xm-mt">
+      没有令牌时所有请求都会 401 —— 这也是要验的一条。
+    </p>
+  </div>
+
+  <!-- 请求 -->
+  <div class="xm-card xm-mt-lg xm-rise xm-rise--2">
+    <p class="xm-label">请求</p>
+    <div style="display:flex;gap:8px">
+      <select id="method" class="xm-input" style="width:110px;flex:none">
+        <option>GET</option>
+        <option>PUT</option>
+        <option>PATCH</option>
+        <option>DELETE</option>
+      </select>
+      <input id="path" class="xm-input xm-mono" value="/api/kv/package"
+             placeholder="/api/kv/package 或 /api/kv/package/list?page=1&amp;size=20">
+    </div>
+    <textarea id="body" class="xm-input xm-mono xm-mt" rows="7" spellcheck="false"
+      placeholder='请求体（PUT / PATCH 才用），例如：
+{ "ttlDays": 7, "isPublic": true, "openEdit": ["tag_int1"], "tagInt1": 1, "text1": "hi" }'></textarea>
+
+    <div class="xm-actions" style="margin-top:12px">
+      <button class="xm-btn xm-btn--primary" id="btnSend">发送</button>
+      <button class="xm-btn xm-btn--ghost" id="btnClear">清空输出</button>
+    </div>
+
+    <p class="xm-label xm-mt-lg">快捷填充</p>
+    <div class="xm-actions" style="flex-wrap:wrap;gap:6px">
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="put">① 建/覆盖自己的一格</button>
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="get">② 读自己这一格</button>
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="list">③ 列这个 scope 所有人</button>
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="patch">④ 改开放字段（他人视角）</button>
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="log">⑤ 看改动日志</button>
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="admin">⑥ 建 admin scope</button>
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delrow">⑦ 删一行（作者）</button>
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="delscope">⑧ 删整个 scope（作者）</button>
+      <button class="xm-btn xm-btn--quiet xm-btn--sm" data-fill="bad">⑨ 故意违规（看 403/400）</button>
+    </div>
+  </div>
+
+  <!-- 输出 -->
+  <div class="xm-card xm-mt-lg xm-rise xm-rise--3">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <span class="xm-label" style="margin:0">返回</span>
+      <span class="xm-mono xm-small" id="vCode">—</span>
+    </div>
+    <pre id="out" class="xm-mono"
+         style="max-height:420px;overflow:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;margin:10px 0 0"></pre>
+  </div>
+
+  <div class="xm-foot">
+    <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 联机数据测试台</span>
+  </div>
+</div>
+
+<script>
+// 和 demo-toy/index.html 用同一个 client_id / 中心 toy
+const CONFIG = {
+  apiBase:       'https://www.oxth.com:8443',
+  centerToySlug: 'xmeta',
+  centerToyId:   '39945062320128',
+  clientId:      'xmeta_v8lTN7_zee7Kv11TxkN7BQ'
+}
+
+const $ = (id) => document.getElementById(id)
+let configured = false
+let myUid = null
+
+/** 从 JWT 里解出 sub —— 只是给页面显示用，服务端那边才验签 */
+function decodeSub(jwt) {
+  try {
+    return JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub || null
+  } catch (e) { return null }
+}
+
+function token() {
+  const s = typeof XMETA !== 'undefined' ? XMETA.getSession() : null
+  return s ? s.jwt : null
+}
+
+function render() {
+  const s = typeof XMETA !== 'undefined' ? XMETA.getSession() : null
+  $('vState').textContent = s ? '已连接' : '未连接'
+  $('vState').className = s ? 'xm-live xm-live--on' : 'xm-live'
+  myUid = s ? decodeSub(s.jwt) : null
+  $('vUid').textContent = myUid || '—'
+  $('vLeft').textContent = s
+    ? Math.max(0, Math.round(XMETA.getRemainingMs() / 1000)) + ' 秒'
+    : '—'
+}
+setInterval(render, 1000)
+
+function out(code, payload) {
+  $('vCode').textContent = code === null ? '—' : String(code)
+  $('out').textContent = payload === undefined ? '' : JSON.stringify(payload, null, 2)
+}
+
+// ── 令牌：走一遍正常的过桥流程 ──
+$('btnToken').addEventListener('click', async () => {
+  if (typeof XMETA === 'undefined') { out('xmeta-client.js 没加载'); return }
+  try {
+    await XMETA.login()
+  } catch (e) {
+    out('登录失败', { message: e.message || String(e) })
+  }
+})
+
+// ── 发请求 ──
+$('btnSend').addEventListener('click', async () => {
+  const method = $('method').value
+  const path = $('path').value.trim()
+  const jwt = token()
+
+  const init = { method, headers: {} }
+  if (jwt) init.headers.Authorization = 'Bearer ' + jwt
+  const raw = $('body').value.trim()
+  if (raw && method !== 'GET' && method !== 'DELETE') {
+    try {
+      JSON.parse(raw)
+    } catch (e) {
+      out('请求体不是合法 JSON', { error: e.message })
+      return
+    }
+    init.headers['Content-Type'] = 'application/json'
+    init.body = raw
+  }
+
+  $('btnSend').disabled = true
+  try {
+    const res = await fetch(CONFIG.apiBase + path, init)
+    let json = null
+    try { json = await res.json() } catch (e) { json = { raw: await res.text().catch(() => '') } }
+    out(res.status + ' ' + (res.ok ? 'OK' : 'FAIL'), json)
+  } catch (e) {
+    out('网络错误', { message: e.message || String(e) })
+  } finally {
+    $('btnSend').disabled = false
+  }
+})
+
+$('btnClear').addEventListener('click', () => out(null, undefined))
+
+// ── 快捷填充：把一套典型请求塞进表单，直接点发送就能看结果 ──
+const FILLS = {
+  put: () => ['PUT', '/api/kv/package', {
+    ttlDays: 7, isPublic: false, openEdit: [],
+    tagTinyint: 1, tagInt1: 100, text1: '我的背包', text2: '摘要', extra: { items: ['sword'] }
+  }],
+  get: () => ['GET', '/api/kv/package', null],
+  list: () => ['GET', '/api/kv/package/list?page=1&size=20', null],
+  patch: () => ['PATCH', `/api/kv/board?uid=${myUid || '<别人的uid>'}`, {
+    tagInt1: 20
+  }],
+  log: () => ['GET', `/api/kv/package/${myUid || '<uid>'}/log?page=1&size=20`, null],
+  admin: () => ['PUT', '/api/kv/admin_world', {
+    ttlDays: 30, isPublic: true, openEdit: ['tag_int1'], tagInt1: 100, text1: '世界 Boss'
+  }],
+  delrow: () => ['DELETE', `/api/kv/package?uid=${myUid || '<uid>'}`, null],
+  delscope: () => ['DELETE', '/api/kv/package?all=1', null],
+  bad: () => ['PATCH', '/api/kv/package', {
+    extra: { hijack: true }, isPublic: true, text1: 'x'.repeat(200)
+  }]
+}
+
+document.querySelectorAll('[data-fill]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const [method, path, body] = FILLS[btn.getAttribute('data-fill')]()
+    $('method').value = method
+    $('path').value = path
+    $('body').value = body ? JSON.stringify(body, null, 2) : ''
+  })
+})
+
+// ── 初始化 ──
+if (typeof XMETA === 'undefined') {
+  out('xmeta-client.js 没加载，联机数据用不了', { hint: '检查 apiBase 是否可达' })
+} else {
+  try {
+    XMETA.configure(CONFIG)
+    configured = true
+    XMETA.onSession(() => render())
+    // 回跳可能落在 index.html 上（过桥页固定回 index.html），这里只是把状态刷出来
+    if (typeof XMETA.handleRedirect === 'function') XMETA.handleRedirect()
+  } catch (e) {
+    out('初始化失败', { message: e.message })
+  }
+}
+render()
+</script>
+</body>
+</html>
