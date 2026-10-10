@@ -261,7 +261,7 @@ function render() {
   $('rowLeft').classList.toggle('xm-hidden', !s)
   if (s) {
     $('vUid').textContent = s.uid || '—'
-    $('vLeft').textContent = '还剩 ' + fmtLeft(XMETA.getRemainingMs())
+    $('vLeft').textContent = fmtLeft(XMETA.getRemainingMs())
   }
 
   // 已经连上了就是「重新申请」

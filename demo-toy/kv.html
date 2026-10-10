@@ -88,7 +88,7 @@
       <span class="kv-sep">·</span>
       <span class="xm-small">uid <b class="xm-mono" id="vUid">—</b></span>
       <span class="kv-sep">·</span>
-      <span class="xm-small">还剩 <b class="xm-mono" id="vLeft">—</b></span>
+      <span class="xm-small" title="凭证剩余有效时间"><b class="xm-mono" id="vLeft">—</b></span>
       <button class="xm-btn xm-btn--ghost xm-btn--sm kv-right" id="btnToken">申请联机凭证</button>
     </div>
     <p class="xm-small xm-mt">
@@ -102,38 +102,38 @@
 
     <p class="kv-group">读</p>
     <div class="kv-grid">
-      <button class="kv-fill" data-fill="get"><b>读我这一格</b><i>没建过返回 data:null，不是报错</i></button>
-      <button class="kv-fill" data-fill="list"><b>列这个 scope 的所有人</b><i>分页，默认 20 条；非作者只看得到公开的</i></button>
-      <button class="kv-fill" data-fill="filter"><b>按标签筛人</b><i>数字标签就是为筛选准备的</i></button>
-      <button class="kv-fill" data-fill="log"><b>看某一格改过什么</b><i>每次改动一条，含前后值；只读</i></button>
-      <button class="kv-fill" data-fill="profiles"><b>uid 换昵称头像</b><i>数据里只存 id，显示名字时用这个</i></button>
+      <button class="kv-fill" data-fill="get"><b>读我存的数据</b><i>还没存过返回 data:null，不是出错</i></button>
+      <button class="kv-fill" data-fill="list"><b>列出同一类的所有人</b><i>分页，默认 20 条；非作者只看得到公开的</i></button>
+      <button class="kv-fill" data-fill="filter"><b>按标签筛人</b><i>那四个数字标签就是留给筛选用的</i></button>
+      <button class="kv-fill" data-fill="log"><b>看一条数据被改过什么</b><i>每次改动留一条，含前后值；只读</i></button>
+      <button class="kv-fill" data-fill="profiles"><b>一串 uid 换昵称头像</b><i>数据里只存 uid，要显示名字时用这个换</i></button>
     </div>
 
     <p class="kv-group">写</p>
     <div class="kv-grid">
-      <button class="kv-fill" data-fill="put"><b>建 / 整行覆盖</b><i>没写的字段会清空，日常别用它</i></button>
+      <button class="kv-fill" data-fill="put"><b>新建 / 整条覆盖</b><i>没写的字段会被清空，日常别用它</i></button>
       <button class="kv-fill" data-fill="patch"><b>只改几个字段</b><i>其余原样保留，日常写数据用这个</i></button>
-      <button class="kv-fill" data-fill="inc"><b>原子加减</b><i>打 boss 用：并发几百人也不会丢更新</i></button>
-      <button class="kv-fill" data-fill="other"><b>改别人开给我的字段</b><i>那格 open_edit 开了什么才能改什么</i></button>
+      <button class="kv-fill" data-fill="inc"><b>原子加减</b><i>打 boss 用：几百人同时点也不丢数</i></button>
+      <button class="kv-fill" data-fill="other"><b>改别人的数据</b><i>对方 open_edit 里开了哪个字段，才改得动哪个</i></button>
     </div>
 
     <p class="kv-group">作者专属</p>
     <div class="kv-grid">
-      <button class="kv-fill" data-fill="admin"><b>建世界 boss</b><i>admin* 开头的 scope 只有作者能建</i></button>
-      <button class="kv-fill" data-fill="delrow"><b>删掉我一格</b><i>清空间，不用等过期；只能删自己的</i></button>
-      <button class="kv-fill" data-fill="delscope"><b>删整个 scope</b><i>清掉所有人的格，要显式带 ?all=1</i></button>
+      <button class="kv-fill" data-fill="admin"><b>建世界 boss</b><i>scope 以 admin 开头，只有作者建得了</i></button>
+      <button class="kv-fill" data-fill="delrow"><b>删掉我的一条数据</b><i>腾空间，不用等过期；只能删自己的</i></button>
+      <button class="kv-fill" data-fill="delscope"><b>删掉整个 scope</b><i>连别人的一起删，必须显式带 ?all=1</i></button>
     </div>
 
     <p class="kv-group">调试</p>
     <div class="kv-grid">
-      <button class="kv-fill" data-fill="bad"><b>参数违规</b><i>文本超长 / extra 超大 / 非法 open_edit，看 400</i></button>
+      <button class="kv-fill" data-fill="bad"><b>故意填错参数</b><i>文本超长 / extra 超大 / open_edit 里填了不许填的，看 400</i></button>
     </div>
 
     <p class="xm-small xm-mt">
-      涉及「别人」的那几条（公共板 / 看日志 / 换昵称）默认指向 <b class="xm-mono">466</b> ——
-      点一次上面的「初始化测试数据」会自动换成真实存在的 uid。
-      想看「非作者改未开放字段 → 403」得换个不是作者的身份，测试台上办不到（你就是作者），
-      这条在 e2e 里用三个令牌验过。
+      这几条动的是「别人的」数据（公共板、改动记录、换昵称），默认拿 <b class="xm-mono">466</b> 当那个人 ——
+      点一次上面的「初始化测试数据」会换成真实存在的 uid。
+      想亲眼看到「改别人没开放的字段 → 403」，得换个不是作者的身份；测试台上做不到（你自己就是作者），
+      这条在 e2e 测试里用三个令牌验过了。
     </p>
   </details>
 
@@ -209,7 +209,7 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
         <li><code>list</code> / <code>log</code> 都带 <code>hasNext</code>，分页不用自己算 <code>page * size &lt; total</code>。</li>
       </ul>
 
-      <h3 class="kv-h">Row —— 一行数据（<code>/api/kv</code> 里那个「格」）</h3>
+      <h3 class="kv-h">Row —— 一条数据</h3>
       <div class="kv-block">
         <span class="kv-block__lang">json</span>
         <pre class="xm-pre">{
@@ -233,7 +233,7 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
       <ul class="kv-list">
         <li><code>uid</code> / <code>scope</code> —— 这一格归谁、属于哪个业务。</li>
         <li><code>isPublic</code> —— <code>false</code> 时只有属主和作者看得见。</li>
-        <li><code>openEdit</code> —— 别人能改哪些字段的<b>白名单</b>，空数组 = 只读。</li>
+        <li><code>openEdit</code> —— 别人能改哪些字段的<b>白名单</b>，空数组 = 只读。只收这 7 个<b>数据库字段名</b>：<code>tag_tinyint</code> / <code>tag_int1</code> / <code>tag_int2</code> / <code>tag_bigint</code> / <code>text_1</code> / <code>text_2</code> / <code>text_long</code>；填 <code>extra</code>、<code>is_public</code> 之类的会 400。</li>
         <li><code>tagTinyint</code> / <code>tagInt1</code> / <code>tagInt2</code> / <code>tagBigint</code> —— 数字标签，给筛选用；也可以是「剩余血量」那种状态。</li>
         <li><code>text1</code> / <code>text2</code> / <code>textLong</code> —— 上限 128 / 512 / 1024 字符。</li>
         <li><code>extra</code> —— 任意 JSON，序列化后不超过 2048 字节；永远不在 <code>openEdit</code> 里，别人改不了。</li>
@@ -268,6 +268,7 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
       </div>
       <ul class="kv-list">
         <li>所有失败都是这个形状，<b>按 <code>code</code> 判断，别按 <code>message</code> 匹配</b>。</li>
+        <li><code>quota_exceeded</code>（409）—— 行数用满了：普通用户每个 toy 128 条，作者 512 条。</li>
       </ul>
 
       <p class="xm-small xm-mt">
