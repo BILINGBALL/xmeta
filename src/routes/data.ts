@@ -39,7 +39,7 @@ import {
  *   · 读也要令牌；非作者只看得见 `is_public` 的行
  *   · 写别人的行只能走 PATCH，且只动 `open_edit` 里列的字段
  *
- * 额度：普通用户每 toy 64 行，toy 作者 256 行（按**行的属主**算）。
+ * 额度：普通用户每 toy 128 行，toy 作者 512 行（按**行的属主**算）。
  */
 
 type Caller = { uid: string; toy: Toy; isOwner: boolean };
@@ -128,7 +128,7 @@ function toWire(row: ToyDataRow) {
   };
 }
 
-/** 额度：按这一行的属主算 —— 属主是 toy 作者给 256，其余 64 */
+/** 额度：按这一行的属主算 —— 属主是 toy 作者给 512，其余 128 */
 function quotaFor(caller: Caller, ownerUid: string): number {
   return caller.toy.owner_uid === ownerUid ? ROW_QUOTA.owner : ROW_QUOTA.user;
 }

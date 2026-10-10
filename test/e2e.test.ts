@@ -9,6 +9,7 @@ import { MemoryCache } from '../src/lib/cache.js';
 import { config } from '../src/config.js';
 import { pool } from '../src/db.js';
 import type { BiliDeps } from '../src/deps.js';
+import { ROW_QUOTA } from '../src/repos.js';
 import { runMigrations } from '../src/scripts/migrate.js';
 
 /**
@@ -609,19 +610,24 @@ test('数据：改动留日志，权限跟那一格走', async () => {
   assert.equal((await kv('GET', `/api/kv/private_log/${uid}/log`, stranger)).status, 403);
 });
 
-test('数据：额度 64 行，超了报 quota_exceeded', async () => {
+test(`数据：额度 ${ROW_QUOTA.user} 行，超了报 quota_exceeded`, async () => {
   // 用一个干净的人，别被前面几个用例建的行影响计数
   const fresh = await tokenFor(`quota_${RUN}_openid`);
+  const uid = uidOf(fresh);
 
-  for (let i = 0; i < 64; i++) {
-    const res = await kv('PUT', `/api/kv/bag${i}`, fresh, { tagInt1: i });
-    assert.equal(res.status, 200, `第 ${i + 1} 行应该能建`);
-  }
+  // 前置状态直接铺库，不一条条走 HTTP：写入限流是每分钟 120 次，低于这个额度，
+  // 用接口填满会先撞限流（那是另一条约束）。这里要验的是额度判定本身。
+  await pool.query(
+    `insert into toy_data (uid, toy_id, scope, expires_at)
+     select $1::bigint, $2::bigint, 'bag' || g, now() + interval '7 days'
+     from generate_series(0, $3::int - 1) as g`,
+    [uid, TOY_ID, ROW_QUOTA.user],
+  );
 
-  const over = await kv('PUT', '/api/kv/bag99', fresh, { tagInt1: 999 });
+  const over = await kv('PUT', `/api/kv/bag${ROW_QUOTA.user}`, fresh, { tagInt1: 999 });
   assert.equal(over.status, 409);
   assert.equal(over.json.error.code, 'quota_exceeded');
-  assert.ok(String(over.json.error.message).includes('64'));
+  assert.ok(String(over.json.error.message).includes(String(ROW_QUOTA.user)));
 });
 
 test('数据：删除只有作者能用，且分页有上限', async () => {

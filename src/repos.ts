@@ -521,8 +521,8 @@ const DATA_COLUMNS = `id, uid, toy_id, scope, is_public, open_edit,
   text_1, text_2, text_long, extra,
   expires_at, created_at, updated_at`;
 
-/** 行数额度：普通用户每 toy 64 行，toy 作者 256 行 */
-export const ROW_QUOTA = { user: 64, owner: 256 } as const;
+/** 行数额度：普通用户每 toy 128 行，toy 作者 512 行 */
+export const ROW_QUOTA = { user: 128, owner: 512 } as const;
 
 export async function getUserById(id: string): Promise<AppUser | null> {
   return queryOne<AppUser>(
