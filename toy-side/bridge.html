@@ -191,18 +191,25 @@ function writeShared(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch (e) { /* 忽略 */ }
 }
 
-if (!CID) {
-  const req = readShared(REQ_KEY)
-  if (req && req.cid) {
-    CID = req.cid
-    // 标记「已接手」。index.html 看到 claimed 就不再转发 ——
-    // 否则用户在这之后直接打开中心 toy，会被这个旧请求弹回过桥页。
+// 参数回落：地址上没有 cid（App 内原生的 toy.navigate 不透传 extra），
+// 就从共享槽里把它捞出来。
+const req = readShared(REQ_KEY)
+if (!CID && req && req.cid) CID = req.cid
+
+// 标记「已接手」：index.html 看到 claimed 就不再转发 —— 否则用户在这之后
+// 打开中心 toy 首页，会被这个旧请求又弹回过桥页。
+//
+// **这一步不能只在「cid 从共享槽回落」那条路上做。** Web 端 cid 是走 URL
+// 来的，本页一次都不会经过上面那个分支，于是请求一直显示「没人管」：用户
+// 在同意页点「留在 XMETA」回到中心 toy 首页，立刻被弹回过桥页 —— 而那一跳
+// 是在中心 toy 内部发生的，来源戳已经变成中心 toy 自己，于是报
+// source_toy_mismatch。授权请求本身根本没问题，纯属被这一弹冤枉的。
+if (CID && req && req.cid === CID) {
+  try {
     // 数据留着，这样刷新本页仍然可用。
-    try {
-      req.claimed = true
-      localStorage.setItem(REQ_KEY, JSON.stringify(req))
-    } catch (e) { /* 忽略 */ }
-  }
+    req.claimed = true
+    localStorage.setItem(REQ_KEY, JSON.stringify(req))
+  } catch (e) { /* 忽略 */ }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -211,7 +218,7 @@ if (!CID) {
 // 启动时写一个标记，第三方 toy 的诊断行里就能看到，一眼确认。
 //
 // 改了这一页就把它 +1。
-const BRIDGE_VERSION = 8
+const BRIDGE_VERSION = 9
 try {
   const qs0 = new URLSearchParams(location.search)
   localStorage.setItem('xmeta:bridge', JSON.stringify({
