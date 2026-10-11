@@ -83,7 +83,7 @@ npm run dev               # http://127.0.0.1:8787
 | GET | `/api/kv/:scope` | 读自己那一格（作者可 `?uid=` 读别人的） |
 | GET | `/api/kv/:scope/list` | 列一个 scope 下所有人的格（分页） |
 | PUT | `/api/kv/:scope` | 整行覆盖（属主 / 作者） |
-| PATCH | `/api/kv/:scope` | 部分改（别人的行受 `open_edit` 限制） |
+| PATCH | `/api/kv/:scope` | 部分改（别人的行受 `openEdit` 限制） |
 | POST | `/api/user/profiles` | 按 uid 批量取昵称/头像（只给本 toy 出现过的人） |
 | GET | `/api/kv/:scope/:uid/log` | 改动日志（分页） |
 | DELETE | `/api/kv/:scope/:uid` | 删一行（属主删自己的腾地方；作者删任何一格） |
@@ -133,13 +133,13 @@ toy**，行数就是 `toyServices`，`sum(uses)` 是 `tokens`，`sum(seconds)` �
 | 概念 | 说明 |
 |---|---|
 | `scope` | 业务分类，如 `package`/`bag`/`roles`/`weapon`。`admin*` 开头是保留的，只有作者能建 |
-| `is_public` | 默认 `false`：只有属主和作者看得见。`true` 则本 toy 的用户都能读 |
-| `open_edit` | 别人能改哪些字段的**白名单**。空数组 = 只读。`extra` 永远不在名单里 |
+| `isPublic` | 默认 `false`：只有属主和作者看得见。`true` 则本 toy 的用户都能读 |
+| `openEdit` | 别人能改哪些字段的**白名单**。空数组 = 只读。`extra` 永远不在名单里 |
 | `inc`（PATCH 专用） | **原子加减**：`{ "inc": { "tagInt1": -10 } }`。客户端自己「读出来加一再写回去」在并发下必然丢更新，把增量交给服务端才不会。**不做任何业务边界** —— 血量能不能变负是玩具自己的事，前端把 `-100HP` 显示成 `0HP` 就行 |
-| 字段 | `tag_tinyint/tag_int1/tag_int2/tag_bigint`（数字，给筛选用）、`text_1`(128) / `text_2`(512) / `text_long`(1024)、`extra`（JSON，≤2048 字节的容器） |
+| 字段 | `tagTinyint/tagInt1/tagInt2/tagBigint`（数字，给筛选用）、`text1`(128) / `text2`(512) / `textLong`(1024)、`extra`（JSON，≤2048 字节的容器）。**名字一律驼峰**，写错会 400 而不是被静默丢掉 |
 
 权限：读要令牌（非作者只看公开的）；写自己的行全字段，写别人的行只能动
-`open_edit` 里的；删只有属主（自己那格）和作者。**作者对自己的 toy 有最高权限**——
+`openEdit` 里的；删只有属主（自己那格）和作者。**作者对自己的 toy 有最高权限**——
 含读玩家的私有行。
 
 **写操作的响应里带结果**：`PUT` / `PATCH` 回的 `data` 是**写完之后的整行**

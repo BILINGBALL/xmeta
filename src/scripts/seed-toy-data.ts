@@ -150,12 +150,12 @@ async function main(): Promise<void> {
       tagTinyint: i % 2, // 0/1 当 boolean 用
       tagInt1: [12, 30, 45, 60][i] ?? 1, // 等级
       text1: `角色-${uid}`,
-      text2: '一个测试角色，tag_int1 是等级，tag_tinyint 是是否出战',
+      text2: '一个测试角色，tagInt1 是等级，tagTinyint 是是否出战',
     });
     console.log(`  角色池 roles   uid=${uid}  公开`);
   }
 
-  // ③ 公共板：给**别人**（不是作者）一格公开的，开放 tag_int1 和 text_1，
+  // ③ 公共板：给**别人**（不是作者）一格公开的，开放 tagInt1 和 text1，
   // 这样「作者去改别人的格」才演示得出来
   const boardOwner = users[1] ?? users[0]!;
   const board = await putRow({
@@ -163,13 +163,13 @@ async function main(): Promise<void> {
     uid: boardOwner,
     scope: 'board',
     isPublic: true,
-    openEdit: ['tag_int1', 'text_1'],
+    openEdit: ['tagInt1', 'text1'],
     tagInt1: 1,
     text1: '大家好，这是公共板',
-    text2: '别人只能改 tag_int1 和 text_1，extra 永远改不了',
+    text2: '别人只能改 tagInt1 和 text1，extra 永远改不了',
     extra: { ownerOnly: '只有属主和作者能改这个' },
   });
-  console.log(`  公共板 board   uid=${boardOwner}  公开，开放 tag_int1/text_1`);
+  console.log(`  公共板 board   uid=${boardOwner}  公开，开放 tagInt1/text1`);
 
   // ④ 世界 boss：作者那一格，公开 + 开放血量给所有人打
   await putRow({
@@ -177,14 +177,14 @@ async function main(): Promise<void> {
     uid: authorUid,
     scope: 'admin_world',
     isPublic: true,
-    openEdit: ['tag_int1'],
+    openEdit: ['tagInt1'],
     ttlDays: 30,
     tagInt1: 1000,
     text1: '世界 Boss',
-    text2: 'tag_int1 是剩余血量，谁都能打',
+    text2: 'tagInt1 是剩余血量，谁都能打',
     extra: { respawn: '每天 20:00' },
   });
-  console.log(`  世界 boss admin_world  uid=${authorUid}  公开，开放 tag_int1`);
+  console.log(`  世界 boss admin_world  uid=${authorUid}  公开，开放 tagInt1`);
 
   // ⑤ 给公共板造两条日志，好让「看改动日志」有东西看
   await query(`delete from toy_data_log where data_id = $1`, [board]);

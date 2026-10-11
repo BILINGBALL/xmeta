@@ -114,7 +114,7 @@
       <button class="kv-fill" data-fill="put"><b>新建 / 整条覆盖</b><i>没写的字段会被清空，日常别用它</i></button>
       <button class="kv-fill" data-fill="patch"><b>只改几个字段</b><i>其余原样保留，日常写数据用这个</i></button>
       <button class="kv-fill" data-fill="inc"><b>原子加减</b><i>打 boss 用：几百人同时点也不丢数</i></button>
-      <button class="kv-fill" data-fill="other"><b>改别人的数据</b><i>对方 open_edit 里开了哪个字段，才改得动哪个</i></button>
+      <button class="kv-fill" data-fill="other"><b>改别人的数据</b><i>对方 openEdit 里开了哪个字段，才改得动哪个</i></button>
     </div>
 
     <p class="kv-group">作者专属</p>
@@ -126,7 +126,7 @@
 
     <p class="kv-group">调试</p>
     <div class="kv-grid">
-      <button class="kv-fill" data-fill="bad"><b>故意填错参数</b><i>文本超长 / extra 超大 / open_edit 里填了不许填的，看 400</i></button>
+      <button class="kv-fill" data-fill="bad"><b>故意填错参数</b><i>文本超长 / extra 超大 / openEdit 里填了不许填的，看 400</i></button>
     </div>
 
     <p class="xm-small xm-mt">
@@ -166,7 +166,7 @@
     </div>
     <textarea id="body" class="xm-input xm-mono xm-mt" rows="6" spellcheck="false"
       placeholder='请求体（PUT / PATCH 才用），例如：
-{ "ttlDays": 7, "isPublic": true, "openEdit": ["tag_int1"], "tagInt1": 100, "text1": "hi" }'></textarea>
+{ "ttlDays": 7, "isPublic": true, "openEdit": ["tagInt1"], "tagInt1": 100, "text1": "hi" }'></textarea>
     <div class="xm-actions" style="margin-top:10px">
       <button class="xm-btn xm-btn--primary" id="btnSend">发送</button>
       <button class="xm-btn xm-btn--quiet" id="btnClear">清空返回</button>
@@ -216,7 +216,7 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
   "uid": 42,
   "scope": "package",
   "isPublic": false,
-  "openEdit": ["tag_int1"],
+  "openEdit": ["tagInt1"],
   "tagTinyint": 1,
   "tagInt1": 100,
   "tagInt2": 0,
@@ -233,7 +233,7 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
       <ul class="kv-list">
         <li><code>uid</code> / <code>scope</code> —— 这一格归谁、属于哪个业务。</li>
         <li><code>isPublic</code> —— <code>false</code> 时只有属主和作者看得见。</li>
-        <li><code>openEdit</code> —— 别人能改哪些字段的<b>白名单</b>，空数组 = 只读。只收这 7 个<b>数据库字段名</b>：<code>tag_tinyint</code> / <code>tag_int1</code> / <code>tag_int2</code> / <code>tag_bigint</code> / <code>text_1</code> / <code>text_2</code> / <code>text_long</code>；填 <code>extra</code>、<code>is_public</code> 之类的会 400。</li>
+        <li><code>openEdit</code> —— 别人能改哪些字段的<b>白名单</b>，空数组 = 只读。只收这 7 个：<code>tagTinyint</code> / <code>tagInt1</code> / <code>tagInt2</code> / <code>tagBigint</code> / <code>text1</code> / <code>text2</code> / <code>textLong</code>。写 <code>extra</code>、<code>isPublic</code> 之类会 400。</li>
         <li><code>tagTinyint</code> / <code>tagInt1</code> / <code>tagInt2</code> / <code>tagBigint</code> —— 数字标签，给筛选用；也可以是「剩余血量」那种状态。</li>
         <li><code>text1</code> / <code>text2</code> / <code>textLong</code> —— 上限 128 / 512 / 1024 字符。</li>
         <li><code>extra</code> —— 任意 JSON，序列化后不超过 2048 字节；永远不在 <code>openEdit</code> 里，别人改不了。</li>
@@ -248,16 +248,16 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
   "dataId": 77,
   "actorUid": 42,
   "action": "update",
-  "changed": ["tag_int1", "text_1"],
-  "before": { "tag_int1": 100, "text_1": "旧值" },
-  "after":  { "tag_int1": 90,  "text_1": "新值" },
+  "changed": ["tagInt1", "text1"],
+  "before": { "tagInt1": 100, "text1": "旧值" },
+  "after":  { "tagInt1": 90,  "text1": "新值" },
   "createdAt": "2026-10-10T12:00:00.000Z"
 }</pre>
       </div>
       <ul class="kv-list">
         <li><code>actorUid</code> —— 真正动手的人（作者替玩家改时就是作者）。</li>
         <li><code>action</code> —— <code>"create"</code> 或 <code>"update"</code>。</li>
-        <li><code>changed</code> —— 这次动了哪几个字段，名字和 <code>openEdit</code> 一样。</li>
+        <li><code>changed</code> —— 这次动了哪几个字段，用的也是字段名。</li>
         <li><code>before</code> / <code>after</code> —— 只含被改字段的前后值，不是整行快照。</li>
       </ul>
 
@@ -272,8 +272,8 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
       </ul>
 
       <p class="xm-small xm-mt">
-        接口参数用驼峰（<code>tagInt1</code>），但 <code>openEdit</code> 和 <code>changed</code> 里装的是
-        <b>数据库字段名</b>（<code>tag_int1</code>）—— 这两个最容易写反。
+        字段名一律是驼峰（<code>tagInt1</code>、<code>text1</code>），请求和响应都一样。
+        <b>写错名字不会被静默放过</b> —— 会 400，而且报错里会点出是哪个字段。
       </p>
     </div>
   </details>
@@ -429,39 +429,39 @@ $('btnSeed').addEventListener('click', async () => {
       const role = await api('PUT', '/api/kv/roles' + q, {
         ttlDays: 30, isPublic: true, openEdit: [],
         tagTinyint: i % 2, tagInt1: tags[i] ?? 1,
-        text1: `角色-${uid}`, text2: 'tag_int1 是等级、tag_tinyint 是是否出战，给筛选用的'
+        text1: `角色-${uid}`, text2: 'tagInt1 是等级、tagTinyint 是是否出战，给筛选用的'
       })
       say(`角色池 roles   uid=${uid.padEnd(5)} 公开    → ${role.status}`)
       void mine
     }
 
-    // 别人一格公共板：开放 tag_int1 和 text_1 给大家改
+    // 别人一格公共板：开放 tagInt1 和 text1 给大家改
     const boardOwner = people[1] ?? people[0]
     const board = await api('PUT', `/api/kv/board?uid=${boardOwner}`, {
-      ttlDays: 30, isPublic: true, openEdit: ['tag_int1', 'text_1'],
-      tagInt1: 1, text1: '大家好，这是公共板', text2: '开放了 tag_int1 和 text_1；extra 永远改不了',
+      ttlDays: 30, isPublic: true, openEdit: ['tagInt1', 'text1'],
+      tagInt1: 1, text1: '大家好，这是公共板', text2: '开放了 tagInt1 和 text1；extra 永远改不了',
       extra: { ownerOnly: '只有属主和作者能改这一项' }
     })
     demoUid = boardOwner // 后面的填充要指向一个真实存在的「别人」
-    say(`公共板 board   uid=${boardOwner.padEnd(5)} 公开，开放 tag_int1/text_1 → ${board.status}`)
+    say(`公共板 board   uid=${boardOwner.padEnd(5)} 公开，开放 tagInt1/text1 → ${board.status}`)
 
     // 我自己来一格世界 boss：开放血量，谁都能打
     const boss = await api('PUT', '/api/kv/admin_world', {
-      ttlDays: 30, isPublic: true, openEdit: ['tag_int1'],
-      tagInt1: 1000, text1: '世界 Boss', text2: 'tag_int1 是剩余血量，谁都能打',
+      ttlDays: 30, isPublic: true, openEdit: ['tagInt1'],
+      tagInt1: 1000, text1: '世界 Boss', text2: 'tagInt1 是剩余血量，谁都能打',
       extra: { respawn: '每天 20:00' }
     })
-    say(`世界 boss      uid=${myUid.padEnd(5)} 公开，开放 tag_int1 → ${boss.status}`)
+    say(`世界 boss      uid=${myUid.padEnd(5)} 公开，开放 tagInt1 → ${boss.status}`)
 
     // 制造几条改动：打两下 boss、改一次公共板 —— 日志也就有了
     for (const dmg of [-37, -120]) {
       const hit = await api('PATCH', '/api/kv/admin_world', { inc: { tagInt1: dmg } })
-      say(`打一下 boss    inc ${dmg} → tag_int1 = ${hit.body && hit.body.data && hit.body.data.tagInt1}`)
+      say(`打一下 boss    inc ${dmg} → tagInt1 = ${hit.body && hit.body.data && hit.body.data.tagInt1}`)
     }
     const edited = await api('PATCH', `/api/kv/board?uid=${boardOwner}`, {
       inc: { tagInt1: 4 }, text1: '被作者改过一次'
     })
-    say(`改公共板       → ${edited.status}${edited.body && edited.body.data ? '，tag_int1 = ' + edited.body.data.tagInt1 : ''}`)
+    say(`改公共板       → ${edited.status}${edited.body && edited.body.data ? '，tagInt1 = ' + edited.body.data.tagInt1 : ''}`)
 
     say('')
     say('好了。接下来可以点上面的快捷填充：')
@@ -499,7 +499,7 @@ const FILLS = {
 
   // 作者专属
   admin: () => ['PUT', '/api/kv/admin_world', {
-    ttlDays: 30, isPublic: true, openEdit: ['tag_int1'], tagInt1: 1000, text1: '世界 Boss'
+    ttlDays: 30, isPublic: true, openEdit: ['tagInt1'], tagInt1: 1000, text1: '世界 Boss'
   }],
   delrow: () => ['DELETE', `/api/kv/package/${myUid || '<我的uid>'}`, null],
   delscope: () => ['DELETE', '/api/kv/package?all=1', null],

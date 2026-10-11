@@ -93,6 +93,22 @@ function scopeOf(req: FastifyRequest): string {
   return result.data;
 }
 
+/** 库里的列名换回 API 字段名（is_public / open_edit 不在 FIELD_TO_COLUMN 里，单独补） */
+function columnToApi(col: string): string {
+  return (
+    Object.entries(FIELD_TO_COLUMN).find(([, c]) => c === col)?.[0] ??
+    col.replace(/^is_public$/, 'isPublic').replace(/^open_edit$/, 'openEdit')
+  );
+}
+
+/** before / after 是 JSONB，键也是列名 —— 一起换掉，别让下划线漏出去 */
+function mapKeys(v: unknown, f: (k: string) => string): unknown {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
+  return Object.fromEntries(
+    Object.entries(v as Record<string, unknown>).map(([k, val]) => [f(k), val]),
+  );
+}
+
 /** 日志行也走 camelCase —— 跟别的接口保持一致，别一半驼峰一半下划线 */
 function toWireLog(row: ToyDataLogRow) {
   return {
@@ -100,9 +116,11 @@ function toWireLog(row: ToyDataLogRow) {
     dataId: row.data_id,
     actorUid: row.actor_uid,
     action: row.action,
-    changed: row.changed,
-    before: row.before,
-    after: row.after,
+    // 这三个在库里存的是列名，出网换回字段名 —— 和 PUT / PATCH 响应里的
+    // changed 用同一套名字，接入方不用记两套拼法
+    changed: row.changed.map(columnToApi),
+    before: mapKeys(row.before, columnToApi),
+    after: mapKeys(row.after, columnToApi),
     createdAt: row.created_at,
   };
 }
@@ -113,7 +131,8 @@ function toWire(row: ToyDataRow) {
     uid: row.uid,
     scope: row.scope,
     isPublic: row.is_public,
-    openEdit: row.open_edit,
+    // 库里存列名，出网给字段名 —— 和别的字段一套拼法
+    openEdit: row.open_edit.map(columnToApi),
     tagTinyint: row.tag_tinyint,
     tagInt1: row.tag_int1,
     tagInt2: row.tag_int2,
@@ -362,8 +381,8 @@ export async function dataRoutes(
       // 是玩具自己的事），只有「存不进去」这一条硬线。
       if ((e as { code?: string } | null)?.code === '22003') {
         throw Errors.invalidParam(
-          '加减之后超出了列能存的范围：tag_tinyint 是 0~255、tag_int1 是 ±32767、' +
-            'tag_int2 是 ±21 亿。想放更大的数用 tag_bigint',
+          '加减之后超出了列能存的范围：tagTinyint 是 0~255、tagInt1 是 ±32767、' +
+            'tagInt2 是 ±21 亿。想放更大的数用 tagBigint',
         );
       }
       throw e;
@@ -462,12 +481,4 @@ export async function dataRoutes(
     const n = await deleteToyScope(caller.toy.toy_id, scope);
     return { deleted: n, scope };
   });
-
-  /** 给前端看的时候把列名换回 API 字段名 */
-  function columnToApi(col: string): string {
-    return (
-      Object.entries(FIELD_TO_COLUMN).find(([, c]) => c === col)?.[0] ??
-      col.replace(/^is_public$/, 'isPublic').replace(/^open_edit$/, 'openEdit')
-    );
-  }
 }

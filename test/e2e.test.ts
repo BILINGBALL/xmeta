@@ -530,7 +530,7 @@ test('数据：open_edit 只放开口子里列的字段，extra 永远改不了'
 
   await kv('PUT', '/api/kv/board', owner, {
     isPublic: true,
-    openEdit: ['tag_int1'],
+    openEdit: ['tag_int1'],   // 列名写法：存量代码这么写，得继续认
     tagInt1: 10,
     text1: '原标题',
     extra: { by: 'owner' },
@@ -564,7 +564,7 @@ test('数据：admin* 只有作者能创建，但开放字段谁都能改', asyn
 
   const created = await kv('PUT', '/api/kv/admin_world', author, {
     isPublic: true,
-    openEdit: ['tag_int1'],
+    openEdit: ['tagInt1'],
     tagInt1: 100,
   });
   assert.equal(created.status, 200, '作者可以建 admin scope');
@@ -593,12 +593,14 @@ test('数据：改动留日志，权限跟那一格走', async () => {
     const item = mine.json.items[0];
     assert.ok(item.dataId && item.actorUid && item.createdAt, '日志字段是 camelCase');
     assert.equal(item.data_id, undefined, '不该把数据库列名漏出去');
+    assert.deepEqual(Object.keys(item.after).sort(), ['tagInt1', 'text1'], 'before/after 的键也是字段名');
+    assert.ok(!('tag_int1' in item.after), '不该把数据库列名漏出去');
   }
   const [latest, first] = mine.json.items;
   assert.equal(latest.action, 'update');
-  assert.deepEqual([...latest.changed].sort(), ['tag_int1', 'text_1']);
-  assert.equal(latest.before.text_1, '第一版', '日志存的是改动前后的值');
-  assert.equal(latest.after.text_1, '第二版');
+  assert.deepEqual([...latest.changed].sort(), ['tagInt1', 'text1']);
+  assert.equal(latest.before.text1, '第一版', '日志存的是改动前后的值');
+  assert.equal(latest.after.text1, '第二版');
   assert.equal(first.action, 'create');
 
   // 公开的格，别人看得到它的日志
@@ -689,7 +691,7 @@ test('数据：scope 不合法、extra 过大、text 过长都会被参数校验
   assert.equal(
     (await kv('PUT', '/api/kv/package', player, { text1: 'x'.repeat(129) })).status,
     400,
-    'text_1 超 128 字符',
+    'text1 超 128 字符',
   );
   assert.equal(
     (await kv('PUT', '/api/kv/package', player, { openEdit: ['extra'] })).status,
@@ -803,8 +805,40 @@ test('数据：inc 是原子加减 —— 并发写不会丢更新', async () =>
   const log = await kv('GET', `/api/kv/counter/${uid}/log?page=1&size=100`, player);
   const last = log.json.items[0];
   assert.equal(last.action, 'update');
-  assert.deepEqual(last.changed, ['tag_int1']);
-  assert.equal(last.after.tag_int1, 13);
+  assert.deepEqual(last.changed, ['tagInt1']);
+  assert.equal(last.after.tagInt1, 13);
+});
+
+test('数据：字段名写错会 400（不会被静默丢掉），openEdit 两种名字都收', async () => {
+  const owner = await tokenFor(PLAYER_OPENID);
+
+  // 把 tagInt1 写成数据库列名。以前这个请求会返回 200，而那一列是 null ——
+  // 查起来极费劲，所以两个写接口的 schema 都是 strict 的。
+  const bad = await kv('PUT', '/api/kv/typo', owner, { tag_int1: 5 });
+  assert.equal(bad.status, 400);
+  assert.ok(String(bad.json.error.message).includes('不认识的字段'), '报错要点出是哪个字段');
+  assert.ok(String(bad.json.error.message).includes('tag_int1'));
+
+  // openEdit 写字段名
+  const camel = await kv('PUT', '/api/kv/alias_camel', owner, {
+    isPublic: true,
+    openEdit: ['tagInt1'],
+    tagInt1: 1,
+  });
+  assert.equal(camel.status, 200);
+  assert.deepEqual(camel.json.data.openEdit, ['tagInt1'], '响应里的 openEdit 也是字段名');
+
+  // 老的列名写法照样能用，库里照旧存列名
+  const snake = await kv('PUT', '/api/kv/alias_snake', owner, {
+    isPublic: true,
+    openEdit: ['tag_int1', 'text_1'],
+    tagInt1: 1,
+  });
+  assert.equal(snake.status, 200);
+  assert.deepEqual([...snake.json.data.openEdit].sort(), ['tagInt1', 'text1']);
+
+  // extra 永远不开放
+  assert.equal((await kv('PUT', '/api/kv/alias_bad', owner, { openEdit: ['extra'] })).status, 400);
 });
 
 test('数据：inc 也受 open_edit 限制，且不能和赋值混用', async () => {
@@ -814,7 +848,7 @@ test('数据：inc 也受 open_edit 限制，且不能和赋值混用', async ()
 
   await kv('PUT', '/api/kv/incboard', owner, {
     isPublic: true,
-    openEdit: ['tag_int1'],
+    openEdit: ['tagInt1'],
     tagInt1: 100,
     tagInt2: 5,
   });
@@ -839,7 +873,7 @@ test('数据：inc 也受 open_edit 限制，且不能和赋值混用', async ()
   // 超出列范围：400，而且要说清范围
   const overflow = await kv('PATCH', target, owner, { inc: { tagInt1: 999999 } });
   assert.equal(overflow.status, 400);
-  assert.ok(String(overflow.json.error.message).includes('tag_int1'));
+  assert.ok(String(overflow.json.error.message).includes('tagInt1'));
 });
 
 test('资料：按 uid 批量取昵称头像，只给本 toy 出现过的人', async () => {

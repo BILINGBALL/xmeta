@@ -5,7 +5,19 @@ import { Errors } from './errors.js';
 export function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, any>, data: unknown): T {
   const result = schema.safeParse(data);
   if (!result.success) {
-    throw Errors.invalidParam('请求参数不合法', result.error.issues);
+    const issues = result.error.issues;
+    // 字段名写错是最容易踩的一处。写接口的 schema 都是 strict 的，所以这里
+    // 能把「你不认识的键」原样指出来 —— 光说「参数不合法」的话，接入方对着
+    // 一份 200 的响应根本看不出是哪个字段被丢掉了。
+    const unknown = issues.flatMap((i) => (i.code === 'unrecognized_keys' ? i.keys : []));
+    if (unknown.length > 0) {
+      throw Errors.invalidParam(
+        `不认识的字段：${unknown.join('、')}。` +
+          '字段名一律用驼峰（tagInt1 / text1 / tagBigint），没有下划线那种写法。',
+        issues,
+      );
+    }
+    throw Errors.invalidParam('请求参数不合法', issues);
   }
   return result.data;
 }
@@ -90,7 +102,7 @@ export const EDITABLE_FIELDS = [
   'text_long',
 ] as const;
 
-/** API 字段名 → 数据库列名（open_edit 里存的是列名） */
+/** API 字段名 → 数据库列名（库里一律存列名，出网一律给字段名） */
 export const FIELD_TO_COLUMN: Record<string, string> = {
   tagTinyint: 'tag_tinyint',
   tagInt1: 'tag_int1',
@@ -101,6 +113,39 @@ export const FIELD_TO_COLUMN: Record<string, string> = {
   textLong: 'text_long',
   extra: 'extra',
 };
+
+/**
+ * openEdit 的入参别名：**字段名和列名都收**。
+ *
+ * 这两套名字曾经混着用（请求体是驼峰、白名单是下划线），是文档里最容易写反
+ * 的一处。现在统一成「出网入网都认字段名」，老的 `tag_int1` 照样能用 ——
+ * 但库里存的一直是列名，所以两边都不用改存量数据。
+ *
+ * `extra` 不在里面：它永远不开放给别人改。
+ */
+const OPEN_EDIT_ALIAS: Record<string, string> = Object.fromEntries([
+  ...Object.entries(FIELD_TO_COLUMN)
+    .filter(([api]) => api !== 'extra')
+    .map(([api, col]) => [api, col] as [string, string]),
+  ...EDITABLE_FIELDS.map((col) => [col, col] as [string, string]),
+]);
+
+/** 报错时列给人看的那 7 个名字（字段名，不是列名） */
+const EDITABLE_FIELD_NAMES = Object.keys(FIELD_TO_COLUMN).filter((api) => api !== 'extra');
+
+const openEditSchema = z
+  .array(
+    z
+      .string()
+      .refine((v) => v in OPEN_EDIT_ALIAS, {
+        message:
+          `openEdit 里只能填这 ${EDITABLE_FIELD_NAMES.length} 个：` +
+          `${EDITABLE_FIELD_NAMES.join(' / ')}。` +
+          '老的列名写法（tag_int1）也认，但新写就用字段名；extra 永远不开放。',
+      })
+      .transform((v) => OPEN_EDIT_ALIAS[v]!),
+  )
+  .max(EDITABLE_FIELDS.length);
 
 /** 有效期（天）：1~30 之间的任意整数。不给按 7 天；超过 30 天会被数据库的 CHECK 顶回来 */
 const ttlSchema = z.coerce
@@ -117,9 +162,9 @@ const dataFields = {
   /** bigint 超出 JS 安全整数，所以收字符串（也收小整数） */
   tagBigint: z.union([z.string().regex(/^-?\d{1,19}$/), z.number().int()]).nullish(),
 
-  text1: z.string().max(128, 'text_1 最多 128 字符').nullish(),
-  text2: z.string().max(512, 'text_2 最多 512 字符').nullish(),
-  textLong: z.string().max(1024, 'text_long 最多 1024 字符，超长请放 extra').nullish(),
+  text1: z.string().max(128, 'text1 最多 128 字符').nullish(),
+  text2: z.string().max(512, 'text2 最多 512 字符').nullish(),
+  textLong: z.string().max(1024, 'textLong 最多 1024 字符，超长请放 extra').nullish(),
 
   /** 容器：放什么由作者定，只要序列化后不超过 2048 字节 */
   extra: z
@@ -132,13 +177,20 @@ const dataFields = {
     .nullish(),
 };
 
-/** 新建 / 整行覆盖（属主或作者）。字段缺省即清空 */
-export const kvPutSchema = z.object({
-  ttlDays: ttlSchema.default(7),
-  isPublic: z.boolean().default(false),
-  openEdit: z.array(z.enum(EDITABLE_FIELDS)).max(EDITABLE_FIELDS.length).default([]),
-  ...dataFields,
-});
+/**
+ * 新建 / 整行覆盖（属主或作者）。字段缺省即清空。
+ *
+ * `strict()`：不认识的字段直接 400。默认行为是**静默丢掉** —— 把 `tagInt1`
+ * 写成 `tag_int1` 会拿到 200，而那一列是 null，查起来极费劲。
+ */
+export const kvPutSchema = z
+  .object({
+    ttlDays: ttlSchema.default(7),
+    isPublic: z.boolean().default(false),
+    openEdit: openEditSchema.default([]),
+    ...dataFields,
+  })
+  .strict();
 
 /**
  * `inc`：原子加减，只认四个数字标签。
@@ -164,13 +216,15 @@ export const incSchema = z
  * 部分更新。**故意不用 default()** —— 缺省表示「这一项没动」，和显式传 null 是两回事。
  * 调用方用 `Object.hasOwn(parsed, 'text2')` 判断动了哪些。
  */
-export const kvPatchSchema = z.object({
-  inc: incSchema,
-  ttlDays: ttlSchema.optional(),
-  isPublic: z.boolean().optional(),
-  openEdit: z.array(z.enum(EDITABLE_FIELDS)).max(EDITABLE_FIELDS.length).optional(),
-  ...dataFields,
-});
+export const kvPatchSchema = z
+  .object({
+    inc: incSchema,
+    ttlDays: ttlSchema.optional(),
+    isPublic: z.boolean().optional(),
+    openEdit: openEditSchema.optional(),
+    ...dataFields,
+  })
+  .strict();
 
 /** 批量查资料：一次最多 50 个 uid */
 export const profilesSchema = z.object({
