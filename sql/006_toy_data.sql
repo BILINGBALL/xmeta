@@ -1,6 +1,6 @@
 -- 联机数据交换容器。
 --
--- 一行 = 一个用户在某个 scope 下的一格。这里**不是长期存储** —— 作者那边
+-- 一行 = 一个用户在某个 scope 下的一条数据。这里**不是长期存储** —— 作者那边
 -- 该有自己的持久化（toy 云存储 / 本地），xmeta 只负责「把数据从 A 交换到 B」。
 -- 所以有两条硬约束：额度（普通用户每 toy 128 行，作者 512 行）和强制过期。
 --
@@ -62,11 +62,11 @@ create table if not exists toy_data (
     expires_at > created_at and expires_at <= created_at + interval '30 days'
   ),
 
-  -- 一格一行
+  -- 一行一条
   unique (toy_id, scope, uid)
 );
 
-comment on table toy_data is '联机数据交换容器：一行 = 一个用户在一个 scope 下的一格';
+comment on table toy_data is '联机数据交换容器：一行 = 一个用户在一个 scope 下的一条数据';
 comment on column toy_data.uid        is '用户 id（JWT 的 sub）。作者可替玩家指定';
 comment on column toy_data.scope      is '业务分类，如 package/bag/roles/weapon；admin* 保留给作者';
 comment on column toy_data.is_public  is 'false = 只有属主和作者可见';
