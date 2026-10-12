@@ -4,7 +4,7 @@
  *   npm run seed:data                      # 默认挑第一个已认领的 toy
  *   npm run seed:data -- --toy=40017649195008
  *
- * 幂等：同一格重复跑是覆盖，不会堆数据。日志会重造（先清掉这几格的旧日志）。
+ * 幂等：同一条重复跑是覆盖，不会堆数据。日志会重造（先清掉这几条的旧日志）。
  */
 import { pool, query, queryOne } from '../db.js';
 
@@ -44,7 +44,7 @@ async function pickUsers(toyId: string, n: number): Promise<string[]> {
   return [...uids, ...more.rows.map((r) => r.id)];
 }
 
-/** upsert 一格（更新优先，别白吃自增号） */
+/** upsert 一条数据（更新优先，别白吃自增号） */
 async function putRow(input: {
   toyId: string;
   uid: string;
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
   );
   const authorUid = ownerRow?.owner_uid ?? users[0]!;
 
-  // ① 背包：每人一格，私有
+  // ① 背包：每人一条，私有
   for (const [i, uid] of users.entries()) {
     await putRow({
       toyId: toy.toy_id,
@@ -156,8 +156,8 @@ async function main(): Promise<void> {
     console.log(`  角色池 roles   uid=${uid}  公开`);
   }
 
-  // ③ 公共板：给**别人**（不是作者）一格公开的，开放 tagInt1 和 text1，
-  // 这样「作者去改别人的格」才演示得出来
+  // ③ 公共板：给**别人**（不是作者）一条公开的，开放 tagInt1 和 text1，
+  // 这样「作者去改别人的数据」才演示得出来
   const boardOwner = users[1] ?? users[0]!;
   const board = await putRow({
     toyId: toy.toy_id,
@@ -172,7 +172,7 @@ async function main(): Promise<void> {
   });
   console.log(`  公共板 board   uid=${boardOwner}  公开，开放 tagInt1/text1`);
 
-  // ④ 世界 boss：作者那一格，公开 + 开放血量给所有人打
+  // ④ 世界 boss：作者那条，公开 + 开放血量给所有人打
   await putRow({
     toyId: toy.toy_id,
     uid: authorUid,
@@ -204,7 +204,7 @@ async function main(): Promise<void> {
     `select count(*) as n from toy_data where toy_id = $1`,
     [toy.toy_id],
   );
-  console.log(`\n这个 toy 现在有 ${total?.n ?? 0} 格数据。`);
+  console.log(`\n这个 toy 现在有 ${total?.n ?? 0} 条数据。`);
   console.log('打开测试台，快捷填充 ③ 列 package / roles 的 list，就能看到它们。');
 }
 

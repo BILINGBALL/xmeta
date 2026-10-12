@@ -18,7 +18,7 @@ const schema = z.object({
    * 生产上建议绑在本机的 127.0.0.1，并开 AOF。
    */
   REDIS_URL: z.string().url().optional(),
-  /** 联机数据的读缓存 TTL（秒）。列表只靠它过期，单格是写完主动删 */
+  /** 联机数据的读缓存 TTL（秒）。列表只靠它过期，单条是写完主动删 */
   CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(30),
   CLAIM_NONCE_TTL_HOURS: z.coerce.number().int().positive().default(24),
   CLAIM_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),

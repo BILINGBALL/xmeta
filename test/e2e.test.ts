@@ -466,7 +466,7 @@ test('数据：没有令牌一律 401', async () => {
   assert.equal((await kv('PUT', '/api/kv/package', null, { text1: 'x' })).status, 401);
 });
 
-test('数据：PUT 建自己的格、GET 读回来，字段语义正确', async () => {
+test('数据：PUT 建自己那条、GET 读回来，字段语义正确', async () => {
   const token = await tokenFor(PLAYER_OPENID);
 
   const put = await kv('PUT', '/api/kv/package', token, {
@@ -494,7 +494,7 @@ test('数据：PUT 建自己的格、GET 读回来，字段语义正确', async 
   assert.ok(Math.abs(span - 3) < 0.01, `有效期应该是 3 天，实际 ${span}`);
 });
 
-test('数据：私有格别人读不到（作者除外）', async () => {
+test('数据：私有数据别人读不到（作者除外）', async () => {
   const player = await tokenFor(PLAYER_OPENID);
   const author = await tokenFor(AUTHOR_OPENID);
   const stranger = await tokenFor(`stranger_${RUN}_openid`);
@@ -510,7 +510,7 @@ test('数据：私有格别人读不到（作者除外）', async () => {
   assert.equal(denied.status, 403);
   assert.ok(String(denied.json.error.message).includes('私有'));
 
-  // 陌生人读自己那一格：不存在，但不是错误
+  // 陌生人读自己那条数据：不存在，但不是错误
   const own = await kv('GET', '/api/kv/secret', stranger);
   assert.equal(own.status, 200);
   assert.equal(own.json.data, null);
@@ -577,7 +577,7 @@ test('数据：admin* 只有作者能创建，但开放字段谁都能改', asyn
   assert.equal(hit.json.data.tagInt1, 99);
 });
 
-test('数据：改动留日志，权限跟那一格走', async () => {
+test('数据：改动留日志，权限跟那条走', async () => {
   const player = await tokenFor(PLAYER_OPENID);
   const stranger = await tokenFor(`nosy_${RUN}_openid`);
   const uid = uidOf(player);
@@ -603,10 +603,10 @@ test('数据：改动留日志，权限跟那一格走', async () => {
   assert.equal(latest.after.text1, '第二版');
   assert.equal(first.action, 'create');
 
-  // 公开的格，别人看得到它的日志
+  // 公开的数据，别人看得到它的日志
   assert.equal((await kv('GET', `/api/kv/logs/${uid}/log`, stranger)).status, 200);
 
-  // 私有格的日志，别人看不到
+  // 私有数据的日志，别人看不到
   await kv('PUT', '/api/kv/private_log', player, { text1: '私有' });
   await kv('PATCH', '/api/kv/private_log', player, { text1: '改了' });
   assert.equal((await kv('GET', `/api/kv/private_log/${uid}/log`, stranger)).status, 403);
@@ -638,10 +638,10 @@ test('数据：删除只有作者能用，且分页有上限', async () => {
   const uid = uidOf(player);
 
   // 玩家能删自己的（清空间），但删不了别人的
-  assert.equal((await kv('DELETE', `/api/kv/package/${uid}`, player)).status, 200, '属主能删自己那格');
+  assert.equal((await kv('DELETE', `/api/kv/package/${uid}`, player)).status, 200, '属主能删自己那条');
   await kv('PUT', '/api/kv/package', player, { text1: '再建一次' });
   const other = uidOf(await tokenFor(`victim_${RUN}_openid`));
-  await kv('PUT', `/api/kv/package?uid=${other}`, author, { text1: '别人的格' });
+  await kv('PUT', `/api/kv/package?uid=${other}`, author, { text1: '别人的数据' });
   assert.equal(
     (await kv('DELETE', `/api/kv/package/${other}`, player)).status,
     403,
@@ -790,7 +790,7 @@ test('CORS：数据接口的预检要放行方法和 Authorization 头', async (
   }
 });
 
-test('数据：单格读走缓存，写完（和删完）立刻失效', async () => {
+test('数据：单条读走缓存，写完（和删完）立刻失效', async () => {
   const player = await tokenFor(PLAYER_OPENID);
   const uid = uidOf(player);
 
@@ -808,7 +808,7 @@ test('数据：单格读走缓存，写完（和删完）立刻失效', async ()
     '直改库不该立刻反映出来，否则说明缓存根本没生效',
   );
 
-  // 走 API 写一次：单格缓存被删掉，立刻读到新值
+  // 走 API 写一次：单条缓存被删掉，立刻读到新值
   await kv('PATCH', '/api/kv/cachetest', player, { text1: '第二版' });
   assert.equal((await kv('GET', '/api/kv/cachetest', player)).json.data.text1, '第二版');
 

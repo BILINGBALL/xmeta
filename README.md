@@ -80,13 +80,13 @@ npm run dev               # http://127.0.0.1:8787
 | POST | `/api/oauth/token` | 用 code 换 JWT |
 | POST | `/api/oauth/introspect` | 查一枚 token 还有效吗 |
 | GET | `/api/stats` | 服务统计（公开只读，全是聚合数） |
-| GET | `/api/kv/:scope` | 读自己那一格（作者可 `?uid=` 读别人的） |
-| GET | `/api/kv/:scope/list` | 列一个 scope 下所有人的格（分页） |
+| GET | `/api/kv/:scope` | 读自己那条数据（作者可 `?uid=` 读别人的） |
+| GET | `/api/kv/:scope/list` | 列一个 scope 下所有人的数据（分页） |
 | PUT | `/api/kv/:scope` | 整行覆盖（属主 / 作者） |
 | PATCH | `/api/kv/:scope` | 部分改（别人的行受 `openEdit` 限制） |
 | POST | `/api/user/profiles` | 按 uid 批量取昵称/头像（只给本 toy 出现过的人） |
 | GET | `/api/kv/:scope/:uid/log` | 改动日志（分页） |
-| DELETE | `/api/kv/:scope/:uid` | 删一行（属主删自己的腾地方；作者删任何一格） |
+| DELETE | `/api/kv/:scope/:uid` | 删一行（属主删自己的腾地方；作者删任何一条） |
 | DELETE | `/api/kv/:scope?all=1` | 删整个 scope（作者） |
 | GET | `/.well-known/jwks.json` | 公钥，接入方拿来验签 |
 | GET | `/.well-known/xmeta-configuration` | 接入方元信息 |
@@ -125,7 +125,7 @@ toy**，行数就是 `toyServices`，`sum(uses)` 是 `tokens`，`sum(seconds)` �
 
 ### 联机数据（`/api/kv`）
 
-给接入方一个**数据交换**用的格子：一行 = 一个用户在某个 `scope` 下的一格。
+给接入方一个**数据交换**用的地方：一行 = 一个用户在某个 `scope` 下的一条数据。
 **它不是长期存储** —— 作者该有自己的持久化（云存储/本地），这里只负责交换。
 所以有两道硬约束：**额度**（普通用户每 toy 128 行，作者 512）和**强制过期**
 （单次最多 30 天；写入时带 `ttl`「秒」就从当前时刻重算 —— 续期是显式的，不带就不动）。
@@ -139,7 +139,7 @@ toy**，行数就是 `toyServices`，`sum(uses)` 是 `tokens`，`sum(seconds)` �
 | 字段 | `tagTinyint/tagInt1/tagInt2/tagBigint`（数字，给筛选用）、`text1`(128) / `text2`(512) / `textLong`(1024)、`extra`（JSON，≤2048 字节的容器）。**名字一律驼峰**，写错会 400 而不是被静默丢掉 |
 
 权限：读要令牌（非作者只看公开的）；写自己的行全字段，写别人的行只能动
-`openEdit` 里的；删只有属主（自己那格）和作者。**作者对自己的 toy 有最高权限**——
+`openEdit` 里的；删只有属主（自己那条）和作者。**作者对自己的 toy 有最高权限**——
 含读玩家的私有行。
 
 **写操作的响应里带结果**：`PUT` / `PATCH` 回的 `data` 是**写完之后的整行**
@@ -159,7 +159,7 @@ toy 出现过的人」** —— uid 是全平台唯一的，不限制就等于�
 想手动把这些接口点一遍：`demo-toy/kv.html` 是个现成的测试台（一堆现成的快捷填充，
 每条都写明这条接口在干什么）。
 
-> 读缓存：配了 `REDIS_URL` 就开（单格写完主动失效、列表靠 `CACHE_TTL_SECONDS`
+> 读缓存：配了 `REDIS_URL` 就开（单条写完主动失效、列表靠 `CACHE_TTL_SECONDS`
 > 过期，默认 30 秒）。**没配就纯走库**，功能一模一样。
 
 ### JWT

@@ -72,7 +72,7 @@ async function requireCaller(req: FastifyRequest): Promise<Caller> {
 }
 
 /**
- * 这一格属于谁。默认是自己；任何人都可以显式指定 `?uid=`，因为「改别人的行」
+ * 这条数据属于谁。默认是自己；任何人都可以显式指定 `?uid=`，因为「改别人的行」
  * 本来就是 open_edit 的用法（世界 boss 也是靠这个让大家一起打）。
  *
  * 指定成别人不会自动获得权限 —— 读仍然要求 is_public、写仍然受 open_edit 约束，
@@ -159,7 +159,7 @@ function quotaFor(caller: Caller, ownerUid: string): number {
 }
 
 /**
- * 缓存键。单格写完就删；列表只靠 TTL 过期（要枚举「哪些页/tag 受影响」才删得干净，
+ * 缓存键。单条写完就删；列表只靠 TTL 过期（要枚举「哪些页/tag 受影响」才删得干净，
  * 代价大于收益），所以键里必须把可见性、tag、分页都带上，别让不同视角互相踩。
  */
 function rowKey(toyId: string, scope: string, uid: string): string {
@@ -189,7 +189,7 @@ export async function dataRoutes(
     if (!r.ok) throw Errors.rateLimited(r.retryAfter);
   };
 
-  /** 读自己这一格。作者可以 ?uid= 读别人的（包括别人的私有行） */
+  /** 读自己这条数据。作者可以 ?uid= 读别人的（包括别人的私有行） */
   app.get('/api/kv/:scope', async (req) => {
     const caller = await requireCaller(req);
     limit(caller, 'read', 240);
@@ -209,12 +209,12 @@ export async function dataRoutes(
 
     // 非作者读别人的行：必须是公开的
     if (row.uid !== caller.uid && !caller.isOwner && !row.is_public) {
-      throw Errors.forbidden('这一格是私有的');
+      throw Errors.forbidden('这条数据是私有的');
     }
     return { data: toWire(row) };
   });
 
-  /** 列这个 scope 下所有人的格。非作者只看得见公开的那些 */
+  /** 列这个 scope 下所有人的数据。非作者只看得见公开的那些 */
   app.get('/api/kv/:scope/list', async (req) => {
     const caller = await requireCaller(req);
     limit(caller, 'list', 120);
@@ -266,7 +266,7 @@ export async function dataRoutes(
 
     if (!existing) {
       if (!isOwn && !caller.isOwner) {
-        throw Errors.forbidden('只能创建自己那一格');
+        throw Errors.forbidden('只能创建自己那条数据');
       }
       if (scope.startsWith('admin') && !caller.isOwner) {
         throw Errors.forbidden('admin 开头的 scope 只有 toy 作者能创建');
@@ -318,7 +318,7 @@ export async function dataRoutes(
     const body = parse(kvPatchSchema, req.body);
 
     const existing = await getToyData(caller.toy.toy_id, uid, scope);
-    if (!existing) throw Errors.notFound('这一格还不存在，请先用 PUT 创建');
+    if (!existing) throw Errors.notFound('这条数据还不存在，请先用 PUT 创建');
 
     const isOwn = uid === caller.uid;
     const incFields = Object.entries(body.inc ?? {}).filter(
@@ -343,8 +343,8 @@ export async function dataRoutes(
         throw Errors.forbidden(
           `这几个字段不允许你改：${denied.join(', ')}` +
             (existing.open_edit.length
-              ? `。这一格开放的是：${existing.open_edit.join(', ')}`
-              : '。这一格没有开放任何字段（只读）'),
+              ? `。这条数据开放的是：${existing.open_edit.join(', ')}`
+              : '。这条数据没有开放任何字段（只读）'),
         );
       }
     }
@@ -435,7 +435,7 @@ export async function dataRoutes(
     return { profiles: found.filter((p): p is UserProfile => p !== null) };
   });
 
-  /** 某一格的改动日志（读权限跟那一格走） */
+  /** 某一条数据的改动日志（读权限跟那条数据走） */
   app.get('/api/kv/:scope/:uid/log', async (req) => {
     const caller = await requireCaller(req);
     limit(caller, 'log', 120);
@@ -446,9 +446,9 @@ export async function dataRoutes(
     const { page, size } = parse(pageSchema, req.query);
 
     const row = await getToyData(caller.toy.toy_id, uid, scope);
-    if (!row) throw Errors.notFound('这一格不存在（或已过期）');
+    if (!row) throw Errors.notFound('这条数据不存在（或已过期）');
     if (row.uid !== caller.uid && !caller.isOwner && !row.is_public) {
-      throw Errors.forbidden('这一格是私有的，看不到它的日志');
+      throw Errors.forbidden('这条数据是私有的，看不到它的日志');
     }
 
     const result = await listToyDataLog(row.id, page, size);
@@ -461,7 +461,7 @@ export async function dataRoutes(
     };
   });
 
-  /** 删一行 —— 属主删自己那格（清空间，不用等过期），toy 作者能删任何一格 */
+  /** 删一行 —— 属主删自己那条（清空间，不用等过期），toy 作者能删任何一条 */
   app.delete('/api/kv/:scope/:uid', async (req) => {
     const caller = await requireCaller(req);
     limit(caller, 'delete', 30);
@@ -469,10 +469,10 @@ export async function dataRoutes(
     const scope = scopeOf(req);
     const uid = String((req.params as Record<string, unknown>).uid);
     if (!caller.isOwner && uid !== caller.uid) {
-      throw Errors.forbidden('只能删自己那一格（toy 作者能删这个 toy 里的任何一格）');
+      throw Errors.forbidden('只能删自己那条数据（toy 作者能删这个 toy 里的任何一条）');
     }
     const gone = await deleteToyData(caller.toy.toy_id, scope, uid);
-    if (!gone) throw Errors.notFound('没有这一格');
+    if (!gone) throw Errors.notFound('没有这条数据');
     await cache.del(rowKey(caller.toy.toy_id, scope, uid));
     // 回带删掉的那一行：客户端要显示「删掉了什么」，而且此刻已经查不到了
     return { deleted: 1, data: toWire(gone) };

@@ -27,7 +27,7 @@ async function main(): Promise<void> {
         .then(([r, data]) => {
           if (r.codes || r.claims || data) {
             console.log(
-              `[xmeta] 清理过期授权码 ${r.codes} 条 / 认领 ${r.claims} 条 / 联机数据 ${data} 格`,
+              `[xmeta] 清理过期授权码 ${r.codes} 条 / 认领 ${r.claims} 条 / 联机数据 ${data} 条`,
             );
           }
         })

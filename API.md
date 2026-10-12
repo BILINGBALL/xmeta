@@ -72,7 +72,7 @@ XMETA.onSession(s => console.log('uid =', s.uid, 'jwt =', s.jwt))
 {
   "error": {
     "code": "forbidden",
-    "message": "这一格是私有的",
+    "message": "这条数据是私有的",
     "detail": { }
   }
 }
@@ -104,7 +104,7 @@ XMETA.onSession(s => console.log('uid =', s.uid, 'jwt =', s.jwt))
 | `POST /api/oauth/introspect` | 120 | IP |
 | `POST /api/me` | 60 | IP |
 | `GET /api/stats` | 60 | IP |
-| `GET /api/kv/:scope`（读一格） | 240 | **uid** |
+| `GET /api/kv/:scope`（读一条数据） | 240 | **uid** |
 | `GET /api/kv/:scope/list` | 120 | **uid** |
 | `PUT` / `PATCH /api/kv/:scope`（写） | 120 | **uid** |
 | `GET /api/kv/:scope/:uid/log` | 120 | **uid** |
@@ -439,7 +439,7 @@ Payload：
 
 ## 5. 联机数据
 
-给接入方一个**数据交换**用的格子。一行 = 一个用户在一个 `scope` 下的一条数据。
+给接入方一个**数据交换**用的地方。一行 = 一个用户在一个 `scope` 下的一条数据。
 
 > **它不是长期存储。** 作者该有自己的持久化，xmeta 只负责「把数据从 A 交换到 B」。
 

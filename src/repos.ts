@@ -561,7 +561,7 @@ export async function countUserDataRows(toyId: string, uid: string): Promise<num
   return Number(row?.n ?? 0);
 }
 
-/** 读一格。**过期的当作不存在** —— 清理任务是定时的，别把过期的读出来 */
+/** 读一条数据。**过期的当作不存在** —— 清理任务是定时的，别把过期的读出来 */
 export async function getToyData(
   toyId: string,
   uid: string,
@@ -574,7 +574,7 @@ export async function getToyData(
   );
 }
 
-/** 列一个 scope 下所有人的格（分页） */
+/** 列一个 scope 下所有人的数据（分页） */
 export async function listToyData(input: {
   toyId: string;
   scope: string;
@@ -636,13 +636,13 @@ export async function listToyDataLog(
 }
 
 /**
- * 写一格，并记一条日志。**整个过程一个事务** —— 数据和日志必须同生同死，
+ * 写一条数据，并记一条日志。**整个过程一个事务** —— 数据和日志必须同生同死，
  * 否则会留下「日志说改了、数据没变」的条目。
  *
  * 权限已经在 routes/data.ts 判完了，这里只负责落库：
  *   mode 'put'   整行覆盖：没提到的数据列一律清空
  *   mode 'patch' 部分更新：只动 changes.columns 里提到的列
- *   createOnly   作者替玩家/公共格占位时用，已存在就报错
+ *   createOnly   作者替玩家/公共数据占位时用，已存在就报错
  */
 export async function writeToyData(input: {
   toyId: string;
@@ -663,7 +663,7 @@ export async function writeToyData(input: {
   createOnly?: boolean;
 }): Promise<{ row: ToyDataRow; created: boolean; changed: string[] }> {
   return withTransaction(async (client) => {
-    // 锁住这一格：并发写同一格要排队，否则会丢更新
+    // 锁住这条数据：并发写同一条要排队，否则会丢更新
     const found = await client.query<ToyDataRow>(
       `select ${DATA_COLUMNS} from toy_data
         where toy_id = $1 and scope = $2 and uid = $3 for update`,
@@ -672,7 +672,7 @@ export async function writeToyData(input: {
     const before = found.rows[0] ?? null;
 
     if (before && input.createOnly) {
-      throw Errors.quotaExceeded('这一格已经存在了，别重复创建');
+      throw Errors.quotaExceeded('这条数据已经存在了，别重复创建');
     }
 
     const inc = input.changes.inc ?? {};
@@ -702,7 +702,7 @@ export async function writeToyData(input: {
       );
       if (Number(n.rows[0]!.n) >= input.quota) {
         throw Errors.quotaExceeded(
-          `这一格放不下：每个用户在这个 toy 里最多 ${input.quota} 行。` +
+          `存不下了：每个用户在这个 toy 里最多 ${input.quota} 行。` +
             '只存 id 之类的必要信息、把展示用的名字留在本地，通常就够了',
         );
       }
@@ -839,7 +839,7 @@ async function writeLog(
 }
 
 /**
- * 删一格。日志靠 on delete cascade 跟着走（你定的「日志随记录删除」）。
+ * 删一条数据。日志靠 on delete cascade 跟着走（你定的「日志随记录删除」）。
  * 回带被删掉的那一行 —— 客户端要显示「删掉了什么」，不该再查一次（也查不到了）。
  */
 export async function deleteToyData(
