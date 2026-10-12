@@ -103,26 +103,30 @@
     <p class="kv-group">读</p>
     <div class="kv-grid">
       <button class="kv-fill" data-fill="get"><b>读我存的数据</b><i>还没存过返回 data:null，不是出错</i></button>
-      <button class="kv-fill" data-fill="list"><b>列出同一类的所有人</b><i>分页，默认 20 条；非作者只看得到公开的</i></button>
+      <button class="kv-fill" data-fill="list"><b>列出同一 scope 的所有用户的数据</b><i>分页，默认 20 条；管理员看得到全部，其他人只看公开的</i></button>
       <button class="kv-fill" data-fill="filter"><b>按标签筛人</b><i>那四个数字标签就是留给筛选用的</i></button>
-      <button class="kv-fill" data-fill="log"><b>看一条数据被改过什么</b><i>每次改动留一条，含前后值；只读</i></button>
+      <button class="kv-fill" data-fill="log"><b>看一条数据的修改记录</b><i>每次改动留一条，含前后值；只读</i></button>
       <button class="kv-fill" data-fill="profiles"><b>一串 uid 换昵称头像</b><i>数据里只存 uid，要显示名字时用这个换</i></button>
     </div>
 
     <p class="kv-group">写</p>
     <div class="kv-grid">
       <button class="kv-fill" data-fill="put"><b>新建 / 整条覆盖</b><i>没写的字段会被清空，日常别用它</i></button>
-      <button class="kv-fill" data-fill="patch"><b>只改几个字段</b><i>其余原样保留，日常写数据用这个</i></button>
-      <button class="kv-fill" data-fill="inc"><b>原子加减</b><i>打 boss 用：几百人同时点也不丢数</i></button>
+      <button class="kv-fill" data-fill="patch"><b>修改指定的数据</b><i>其余原样保留，日常写数据用这个</i></button>
+      <button class="kv-fill" data-fill="inc"><b>支持并发的数字修改</b><i>打 boss 用：几百人同时点也不丢数</i></button>
       <button class="kv-fill" data-fill="other"><b>改别人的数据</b><i>对方 openEdit 里开了哪个字段，才改得动哪个</i></button>
       <button class="kv-fill" data-fill="renew"><b>续期</b><i>ttl 是秒：过期时间从「现在」重新算起，单次最多 30 天</i></button>
     </div>
 
-    <p class="kv-group">作者专属</p>
+    <p class="kv-group">删</p>
     <div class="kv-grid">
-      <button class="kv-fill" data-fill="admin"><b>建世界 boss</b><i>scope 以 admin 开头，只有作者建得了</i></button>
-      <button class="kv-fill" data-fill="delrow"><b>删掉我的一条数据</b><i>腾空间，不用等过期；只能删自己的</i></button>
-      <button class="kv-fill" data-fill="delscope"><b>删掉整个 scope</b><i>连别人的一起删，必须显式带 ?all=1</i></button>
+      <button class="kv-fill" data-fill="delrow"><b>删掉我的一条数据</b><i>腾空间，不用等过期。<b>自己的数据谁都能删</b>，不用等管理员</i></button>
+    </div>
+
+    <p class="kv-group">管理员专属</p>
+    <div class="kv-grid">
+      <button class="kv-fill" data-fill="admin"><b>仅管理员可生成的 scope：如世界 boss</b><i>scope 以 admin 开头，只有管理员建得了</i></button>
+      <button class="kv-fill" data-fill="delscope"><b>删掉整个 scope</b><i>连别人的一起删 —— 所以只有管理员能做，且必须显式带 ?all=1</i></button>
     </div>
 
     <p class="kv-group">调试</p>
@@ -133,7 +137,7 @@
     <p class="xm-small xm-mt">
       这几条动的是「别人的」数据（公共板、改动记录、换昵称），默认拿 <b class="xm-mono">466</b> 当那个人 ——
       点一次上面的「初始化测试数据」会换成真实存在的 uid。
-      想亲眼看到「改别人没开放的字段 → 403」，得换个不是作者的身份；测试台上做不到（你自己就是作者），
+      想亲眼看到「改别人没开放的字段 → 403」，得换个不是管理员的身份；测试台上做不到（你自己就是管理员），
       这条在 e2e 测试里用三个令牌验过了。
     </p>
   </details>
@@ -234,7 +238,7 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
       </div>
       <ul class="kv-list">
         <li><code>uid</code> / <code>scope</code> —— 这条数据归谁、属于哪个业务。</li>
-        <li><code>isPublic</code> —— <code>false</code> 时只有属主和作者看得见。</li>
+        <li><code>isPublic</code> —— <code>false</code> 时只有属主和管理员看得见。</li>
         <li><code>openEdit</code> —— 别人能改哪些字段的<b>白名单</b>，空数组 = 只读。只收这 7 个：<code>tagTinyint</code> / <code>tagInt1</code> / <code>tagInt2</code> / <code>tagBigint</code> / <code>text1</code> / <code>text2</code> / <code>textLong</code>。写 <code>extra</code>、<code>isPublic</code> 之类会 400。</li>
         <li><code>tagTinyint</code> / <code>tagInt1</code> / <code>tagInt2</code> / <code>tagBigint</code> —— 数字标签，给筛选用；也可以是「剩余血量」那种状态。</li>
         <li><code>text1</code> / <code>text2</code> / <code>textLong</code> —— 上限 128 / 512 / 1024 字符。</li>
@@ -257,7 +261,7 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
 }</pre>
       </div>
       <ul class="kv-list">
-        <li><code>actorUid</code> —— 真正动手的人（作者替玩家改时就是作者）。</li>
+        <li><code>actorUid</code> —— 真正动手的人（管理员替玩家改时就是管理员）。</li>
         <li><code>action</code> —— <code>"create"</code> 或 <code>"update"</code>。</li>
         <li><code>changed</code> —— 这次动了哪几个字段，用的也是字段名。</li>
         <li><code>before</code> / <code>after</code> —— 只含被改字段的前后值，不是整行快照。</li>
@@ -270,7 +274,7 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
       </div>
       <ul class="kv-list">
         <li>所有失败都是这个形状，<b>按 <code>code</code> 判断，别按 <code>message</code> 匹配</b>。</li>
-        <li><code>quota_exceeded</code>（409）—— 行数用满了：普通用户每个 toy 128 条，作者 512 条。</li>
+        <li><code>quota_exceeded</code>（409）—— 行数用满了：普通用户每个 toy 128 条，管理员 512 条。</li>
       </ul>
 
       <p class="xm-small xm-mt">
@@ -414,7 +418,7 @@ $('btnSeed').addEventListener('click', async () => {
   try {
     if (!myUid) { say('先点上面的按钮拿一枚令牌'); return }
 
-    // 谁要造数据：列表里已经出现过的人（作者看得全）+ 我自己，最多 4 个
+    // 谁要造数据：列表里已经出现过的人（管理员看得全）+ 我自己，最多 4 个
     const listed = await api('GET', '/api/kv/package/list?page=1&size=100')
     const uids = [...new Set([myUid, ...((listed.body && listed.body.items) || []).map((r) => r.uid)])]
     const people = uids.slice(0, 4)
@@ -447,7 +451,7 @@ $('btnSeed').addEventListener('click', async () => {
     const board = await api('PUT', `/api/kv/board?uid=${boardOwner}`, {
       ttl: 30 * 24 * 3600, isPublic: true, openEdit: ['tagInt1', 'text1'],
       tagInt1: 1, text1: '大家好，这是公共板', text2: '开放了 tagInt1 和 text1；extra 永远改不了',
-      extra: { ownerOnly: '只有属主和作者能改这一项' }
+      extra: { ownerOnly: '只有属主和管理员能改这一项' }
     })
     demoUid = boardOwner // 后面的填充要指向一个真实存在的「别人」
     say(`公共板 board   uid=${boardOwner.padEnd(5)} 公开，开放 tagInt1/text1 → ${board.status}`)
@@ -466,7 +470,7 @@ $('btnSeed').addEventListener('click', async () => {
       say(`打一下 boss    inc ${dmg} → tagInt1 = ${hit.body && hit.body.data && hit.body.data.tagInt1}`)
     }
     const edited = await api('PATCH', `/api/kv/board?uid=${boardOwner}`, {
-      inc: { tagInt1: 4 }, text1: '被作者改过一次'
+      inc: { tagInt1: 4 }, text1: '被管理员改过一次'
     })
     say(`改公共板       → ${edited.status}${edited.body && edited.body.data ? '，tagInt1 = ' + edited.body.data.tagInt1 : ''}`)
 
@@ -506,7 +510,7 @@ const FILLS = {
   // ttl 的单位是秒，且从**当前时刻**重算 —— 这是续期，不是「最多活到创建 + 30 天」
   renew: () => ['PATCH', '/api/kv/package', { ttl: 30 * 24 * 3600 }],
 
-  // 作者专属
+  // 管理员专属
   admin: () => ['PUT', '/api/kv/admin_world', {
     ttl: 30 * 24 * 3600, isPublic: true, openEdit: ['tagInt1'], tagInt1: 1000, text1: '世界 Boss'
   }],
