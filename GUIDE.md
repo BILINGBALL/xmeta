@@ -116,7 +116,7 @@ const { items, hasNext } = await kv('GET', '/api/kv/home/list?page=1&size=20')
 
 // 显示房主名字（数据里只有 uid）
 const { profiles } = await kv('POST', '/api/user/profiles', {
-  uids: items.map(r => r.uid)          // 一次最多 50 个，翻页拿多了要分批
+  uids: items.map(r => r.uid)          // 一次最多 100 个，正好是一页的最大长度
 })
 const nameOf = Object.fromEntries(profiles.map(p => [p.uid, p.nickname]))
 ```

@@ -976,15 +976,24 @@ test('资料：按 uid 批量取昵称头像，只给本 toy 出现过的人', a
   assert.equal(got.profiles.length, 1, '没在这个 toy 出现过的人查不到');
   assert.equal(got.profiles[0]!.uid, playerUid);
 
-  // 没有令牌 → 401；一次超过 50 个 → 400
+  // 没有令牌 → 401；一次超过 100 个 → 400
   const noToken = await app.inject({ method: 'POST', url: '/api/user/profiles', payload: { uids: ['1'] } });
   assert.equal(noToken.statusCode, 401);
   const tooMany = await app.inject({
     method: 'POST',
     url: '/api/user/profiles',
     headers: { authorization: `Bearer ${player}` },
-    payload: { uids: Array.from({ length: 51 }, (_, i) => String(i + 1)) },
+    payload: { uids: Array.from({ length: 101 }, (_, i) => String(i + 1)) },
   });
   assert.equal(tooMany.statusCode, 400);
+
+  // 和列表一页的最大长度对齐：翻满一页能一次问完，不用自己分批
+  const fullPage = await app.inject({
+    method: 'POST',
+    url: '/api/user/profiles',
+    headers: { authorization: `Bearer ${player}` },
+    payload: { uids: Array.from({ length: 100 }, (_, i) => String(i + 1)) },
+  });
+  assert.equal(fullPage.statusCode, 200, '100 个（列表的最大页长）应该能一次问完');
   void res;
 });

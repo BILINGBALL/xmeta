@@ -239,12 +239,18 @@ export const kvPatchSchema = z
   })
   .strict();
 
-/** 批量查资料：一次最多 50 个 uid */
+/**
+ * 批量查资料：一次最多 100 个 uid。
+ *
+ * 100 = 列表一页的最大长度（见下面的 pageSchema），**故意对齐** —— 这样
+ * 「翻满一页的人」可以一次问完，不用自己拆批次。上限本身只是为了别让这个
+ * 接口变成枚举入口，反正也只回本 toy 出现过的人。
+ */
 export const profilesSchema = z.object({
   uids: z
     .array(z.string().regex(/^\d+$/, 'uid 只能是数字'))
     .min(1, '至少要给一个 uid')
-    .max(50, '一次最多查 50 个 uid'),
+    .max(100, '一次最多查 100 个 uid'),
 });
 
 /** 列表分页：一页最多 100，默认 20 */

@@ -147,7 +147,7 @@ toy**，行数就是 `toyServices`，`sum(uses)` 是 `tokens`，`sum(seconds)` �
 `changed` 列出这次动了哪几个字段。
 
 **昵称头像怎么来**：数据里只存 `uid`（作者那边也该只存 id、渲染在本地），要显示
-名字就 `POST /api/user/profiles { "uids": [...] }`（一次最多 50 个）。**只给「在本
+名字就 `POST /api/user/profiles { "uids": [...] }`（一次最多 100 个，和列表一页的上限对齐）。**只给「在本
 toy 出现过的人」** —— uid 是全平台唯一的，不限制就等于开了一个拿 uid 枚举全平台
 资料的入口。注意昵称/头像是**客户端上报的**（`getUserProfile` 来的），只当展示用，
 别拿它做鉴权或唯一性判断；头像 URL 是 B站 CDN 的，前端记得加
