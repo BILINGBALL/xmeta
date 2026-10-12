@@ -51,7 +51,8 @@ async function putRow(input: {
   scope: string;
   isPublic: boolean;
   openEdit?: string[];
-  ttlDays?: number;
+  /** 有效期（秒） */
+  ttlSeconds?: number;
   tagTinyint?: number | null;
   tagInt1?: number | null;
   tagInt2?: number | null;
@@ -60,7 +61,7 @@ async function putRow(input: {
   textLong?: string | null;
   extra?: unknown;
 }): Promise<string> {
-  const ttl = input.ttlDays ?? 7;
+  const ttl = input.ttlSeconds ?? 7 * 24 * 3600;
   const cols = {
     tag_tinyint: input.tagTinyint ?? null,
     tag_int1: input.tagInt1 ?? null,
@@ -83,7 +84,7 @@ async function putRow(input: {
          tag_tinyint = $1, tag_int1 = $2, tag_int2 = $3, tag_bigint = $4,
          text_1 = $5, text_2 = $6, text_long = $7, extra = $8::jsonb,
          is_public = $9, open_edit = $10,
-         expires_at = created_at + make_interval(days => $11),
+         expires_at = now() + make_interval(secs => $11),
          updated_at = now()
        where id = $12`,
       [
@@ -100,7 +101,7 @@ async function putRow(input: {
                            tag_tinyint, tag_int1, tag_int2, tag_bigint,
                            text_1, text_2, text_long, extra, expires_at)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb,
-             now() + make_interval(days => $14))
+             now() + make_interval(secs => $14))
      returning id`,
     [
       input.toyId, input.uid, input.scope, input.isPublic, input.openEdit ?? [],
@@ -146,7 +147,7 @@ async function main(): Promise<void> {
       uid,
       scope: 'roles',
       isPublic: true,
-      ttlDays: 30,
+      ttlSeconds: 30 * 24 * 3600,
       tagTinyint: i % 2, // 0/1 当 boolean 用
       tagInt1: [12, 30, 45, 60][i] ?? 1, // 等级
       text1: `角色-${uid}`,
@@ -178,7 +179,7 @@ async function main(): Promise<void> {
     scope: 'admin_world',
     isPublic: true,
     openEdit: ['tagInt1'],
-    ttlDays: 30,
+    ttlSeconds: 30 * 24 * 3600,
     tagInt1: 1000,
     text1: '世界 Boss',
     text2: 'tagInt1 是剩余血量，谁都能打',

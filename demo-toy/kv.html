@@ -115,6 +115,7 @@
       <button class="kv-fill" data-fill="patch"><b>只改几个字段</b><i>其余原样保留，日常写数据用这个</i></button>
       <button class="kv-fill" data-fill="inc"><b>原子加减</b><i>打 boss 用：几百人同时点也不丢数</i></button>
       <button class="kv-fill" data-fill="other"><b>改别人的数据</b><i>对方 openEdit 里开了哪个字段，才改得动哪个</i></button>
+      <button class="kv-fill" data-fill="renew"><b>续期</b><i>ttl 是秒：过期时间从「现在」重新算起，单次最多 30 天</i></button>
     </div>
 
     <p class="kv-group">作者专属</p>
@@ -166,7 +167,7 @@
     </div>
     <textarea id="body" class="xm-input xm-mono xm-mt" rows="6" spellcheck="false"
       placeholder='请求体（PUT / PATCH 才用），例如：
-{ "ttlDays": 7, "isPublic": true, "openEdit": ["tagInt1"], "tagInt1": 100, "text1": "hi" }'></textarea>
+{ "ttl": 604800, "isPublic": true, "openEdit": ["tagInt1"], "tagInt1": 100, "text1": "hi" }'></textarea>
     <div class="xm-actions" style="margin-top:10px">
       <button class="xm-btn xm-btn--primary" id="btnSend">发送</button>
       <button class="xm-btn xm-btn--quiet" id="btnClear">清空返回</button>
@@ -237,7 +238,7 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
         <li><code>tagTinyint</code> / <code>tagInt1</code> / <code>tagInt2</code> / <code>tagBigint</code> —— 数字标签，给筛选用；也可以是「剩余血量」那种状态。</li>
         <li><code>text1</code> / <code>text2</code> / <code>textLong</code> —— 上限 128 / 512 / 1024 字符。</li>
         <li><code>extra</code> —— 任意 JSON，序列化后不超过 2048 字节；永远不在 <code>openEdit</code> 里，别人改不了。</li>
-        <li><code>expiresAt</code> —— 创建时定死（1~30 天），任何编辑都不续期。</li>
+        <li><code>expiresAt</code> —— 过期时刻。写的时候带 <code>ttl</code>（<b>秒</b>，最多 30 天）就从当前时刻重算；不带就不动。</li>
       </ul>
 
       <h3 class="kv-h">Log —— 改一次留一条</h3>
@@ -419,7 +420,7 @@ $('btnSeed').addEventListener('click', async () => {
       const q = `?uid=${uid}`
 
       const pkg = await api('PUT', '/api/kv/package' + q, {
-        ttlDays: 7, isPublic: false, openEdit: [],
+        ttl: 7 * 24 * 3600, isPublic: false, openEdit: [],
         tagTinyint: i % 2, tagInt1: 100 + i * 10,
         text1: `玩家 ${uid} 的背包`, text2: '只存 id、渲染在本地的那种数据',
         extra: { items: [`道具-${i}-a`, `道具-${i}-b`], gold: 1000 + i * 137 }
@@ -427,7 +428,7 @@ $('btnSeed').addEventListener('click', async () => {
       say(`背包 package   uid=${uid.padEnd(5)} 私有    → ${pkg.status}`)
 
       const role = await api('PUT', '/api/kv/roles' + q, {
-        ttlDays: 30, isPublic: true, openEdit: [],
+        ttl: 30 * 24 * 3600, isPublic: true, openEdit: [],
         tagTinyint: i % 2, tagInt1: tags[i] ?? 1,
         text1: `角色-${uid}`, text2: 'tagInt1 是等级、tagTinyint 是是否出战，给筛选用的'
       })
@@ -438,7 +439,7 @@ $('btnSeed').addEventListener('click', async () => {
     // 别人一格公共板：开放 tagInt1 和 text1 给大家改
     const boardOwner = people[1] ?? people[0]
     const board = await api('PUT', `/api/kv/board?uid=${boardOwner}`, {
-      ttlDays: 30, isPublic: true, openEdit: ['tagInt1', 'text1'],
+      ttl: 30 * 24 * 3600, isPublic: true, openEdit: ['tagInt1', 'text1'],
       tagInt1: 1, text1: '大家好，这是公共板', text2: '开放了 tagInt1 和 text1；extra 永远改不了',
       extra: { ownerOnly: '只有属主和作者能改这一项' }
     })
@@ -447,7 +448,7 @@ $('btnSeed').addEventListener('click', async () => {
 
     // 我自己来一格世界 boss：开放血量，谁都能打
     const boss = await api('PUT', '/api/kv/admin_world', {
-      ttlDays: 30, isPublic: true, openEdit: ['tagInt1'],
+      ttl: 30 * 24 * 3600, isPublic: true, openEdit: ['tagInt1'],
       tagInt1: 1000, text1: '世界 Boss', text2: 'tagInt1 是剩余血量，谁都能打',
       extra: { respawn: '每天 20:00' }
     })
@@ -489,17 +490,19 @@ const FILLS = {
 
   // 写
   put: () => ['PUT', '/api/kv/package', {
-    ttlDays: 7, isPublic: false, openEdit: [],
+    ttl: 7 * 24 * 3600, isPublic: false, openEdit: [],
     tagTinyint: 1, tagInt1: 100, text1: '我的背包', text2: '摘要', extra: { items: ['sword'] }
   }],
   patch: () => ['PATCH', '/api/kv/package', { tagInt1: 101, text1: '只改这两项' }],
   // inc：增量交给服务端算（客户端自己「读出来加一再写回去」在并发下必然丢更新）
   inc: () => ['PATCH', '/api/kv/admin_world?uid=10', { inc: { tagInt1: -10 } }],
   other: () => ['PATCH', `/api/kv/board?uid=${demoUid}`, { tagInt1: 20, text1: '被别人改过了' }],
+  // ttl 的单位是秒，且从**当前时刻**重算 —— 这是续期，不是「最多活到创建 + 30 天」
+  renew: () => ['PATCH', '/api/kv/package', { ttl: 30 * 24 * 3600 }],
 
   // 作者专属
   admin: () => ['PUT', '/api/kv/admin_world', {
-    ttlDays: 30, isPublic: true, openEdit: ['tagInt1'], tagInt1: 1000, text1: '世界 Boss'
+    ttl: 30 * 24 * 3600, isPublic: true, openEdit: ['tagInt1'], tagInt1: 1000, text1: '世界 Boss'
   }],
   delrow: () => ['DELETE', `/api/kv/package/${myUid || '<我的uid>'}`, null],
   delscope: () => ['DELETE', '/api/kv/package?all=1', null],

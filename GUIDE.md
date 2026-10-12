@@ -12,7 +12,7 @@
 3. **默认是私有的。** 不给 `isPublic: true`，别人读不到；不给 `openEdit`，别人改不了。
 4. **改数据用 `PATCH`。** `PUT` 是整行覆盖，没写的字段会**清空**。
 5. **加数字用 `inc`。** 自己「读出来加一再写回去」在并发下必然丢更新。
-6. **不是长期存储。** 建的时候定 1~30 天，之后任何编辑都不续期。到点就没了 —— 自己的存档自己存。
+6. **不是长期存储。** 写的时候可以带 `ttl`（**秒**，单次最多 30 天）定有效期；带一次就从当前时刻重算一次（续期），不带就不动。到点就查不到了 —— 自己的存档自己存。
 7. **「私有」是对其他玩家私有，对作者不是。** 玩家写进来的东西作者看得到。
 8. **日志是白送的事件流。** 每次改动都留一条（谁、动了哪个字段、改前改后）。要记「谁干了什么」这种流水，从日志拿，**别一件事占一条数据**。
 
@@ -25,7 +25,7 @@
 ```js
 // 建 / 覆盖背包
 await kv('PUT', '/api/kv/bag', {
-  ttlDays: 30,
+  ttl: 30 * 24 * 3600,
   isPublic: false,          // 默认就是 false，写出来是为了明确
   openEdit: [],             // 不给任何人改
   tagInt1: 500,             // 金币
@@ -58,7 +58,7 @@ const { data } = await kv('GET', '/api/kv/bag')
 ```js
 // 作者：建 boss（admin 开头的 scope 只有作者建得了）
 await kv('PUT', '/api/kv/admin_world', {
-  ttlDays: 30,
+  ttl: 30 * 24 * 3600,
   isPublic: true,                 // 所有人都要读得到血量
   openEdit: ['tagInt2'],         // 只开血量这一个字段
   tagInt2: 100000,                // tagInt1 只有 ±32767，血量用 tagInt2
@@ -85,6 +85,9 @@ if (data.tagInt2 <= 0) showBossDead()
 
 **结算**：作者自己 `GET` 那一格看到 `tagInt2 <= 0`，就 `PATCH` 把血量写回满值、或者发奖励。走一次就够，不用轮询得太勤（读限流 240 次/分钟）。
 
+> **boss 要长期开着，记得续期。** 一格数据单次最多存 30 天，所以别让它到期消失 —— 作者自己（或者替玩家建行的 toy 作者）定期推一下：
+> `PATCH /api/kv/admin_world?uid=<作者uid> { "ttl": 2592000 }`。这一下不改数据，纯粹把过期时间从「现在」往后推 30 天。
+
 > **「谁打了多少」不用另开数据。** 每次 `inc` 都会在 boss 这一格的日志里留一条 —— 是谁打的、加减了多少，全在里面。伤害榜直接算出来就行，见[场景六](#场景六日志当事件流谁干了什么)。
 
 ---
@@ -96,7 +99,7 @@ if (data.tagInt2 <= 0) showBossDead()
 ```js
 // 房主：布置自己的家园
 await kv('PUT', '/api/kv/home', {
-  ttlDays: 30,
+  ttl: 30 * 24 * 3600,
   isPublic: true,
   openEdit: [],                                   // 开了公开，但谁都不许改
   text1: '我的小院子',
@@ -133,7 +136,7 @@ const nameOf = Object.fromEntries(profiles.map(p => [p.uid, p.nickname]))
 ```js
 // 房主：开一个留言位
 await kv('PUT', '/api/kv/board', {
-  ttlDays: 30,
+  ttl: 30 * 24 * 3600,
   isPublic: true,
   openEdit: ['text1'],        // 只开放 text1
   text1: '欢迎来玩',
@@ -166,7 +169,7 @@ await kv('PATCH', `/api/kv/board?uid=${HOST_UID}`, {
 ```js
 // 自己上报
 await kv('PUT', '/api/kv/rank', {
-  ttlDays: 30, isPublic: true,
+  ttl: 30 * 24 * 3600, isPublic: true,
   tagInt2: 982341,            // 分数；tagInt1 只有 ±32767，分大就用 tagInt2
   text1: '第 3 关'
 })
@@ -272,6 +275,7 @@ async function kv(method, path, body) {
 | `403` 改不动别人的数据 | 对方没开 `openEdit`，或者没开你改的那个字段 |
 | `409 quota_exceeded` | 一个玩具里每人最多 128 条（作者 512 条）。删掉不用的腾地方 |
 | `401 unauthorized` | 令牌没了或过期了。重新走一次授权，最长 24 小时 |
+| 长期开着的东西突然查不到了 | 有效期到了。写的时候带 `ttl`（秒）续一次，单次最多 30 天 |
 | 玩家说「刚玩到一半就掉线了」 | 令牌到期了。把剩余时间显示给用户（`XMETA.getRemainingMs()`） |
 | 日志里没有我要的记录 | 只记 create / update，读不记；值没变也不记。确认你要的字段真的动了 |
 

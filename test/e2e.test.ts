@@ -470,7 +470,7 @@ test('数据：PUT 建自己的格、GET 读回来，字段语义正确', async 
   const token = await tokenFor(PLAYER_OPENID);
 
   const put = await kv('PUT', '/api/kv/package', token, {
-    ttlDays: 3,
+    ttl: 3 * 86400,
     text1: '我的背包',
     tagTinyint: 1,
     tagBigint: '123456789012345',
@@ -582,7 +582,7 @@ test('数据：改动留日志，权限跟那一格走', async () => {
   const stranger = await tokenFor(`nosy_${RUN}_openid`);
   const uid = uidOf(player);
 
-  await kv('PUT', '/api/kv/logs', player, { ttlDays: 1, isPublic: true, text1: '第一版' });
+  await kv('PUT', '/api/kv/logs', player, { ttl: 86400, isPublic: true, text1: '第一版' });
   await kv('PATCH', '/api/kv/logs', player, { text1: '第二版', tagInt1: 7 });
 
   const mine = await kv('GET', `/api/kv/logs/${uid}/log`, player);
@@ -661,22 +661,41 @@ test('数据：删除只有作者能用，且分页有上限', async () => {
   assert.equal((await kv('GET', '/api/kv/package/list?size=200', player)).status, 400);
 });
 
-test('数据：有效期是 1~30 的任意整数，越界被挡', async () => {
+test('数据：ttl 是秒，1 秒~30 天；带了就续期，不带就不动', async () => {
   const player = await tokenFor(`ttl_${RUN}_openid`);
+  const secs = (r: { json: any }) =>
+    (new Date(r.json.data.expiresAt).getTime() - new Date(r.json.data.createdAt).getTime()) / 1000;
 
-  for (const days of [1, 5, 17, 30]) {
-    const res = await kv('PUT', '/api/kv/package', player, { ttlDays: days, text1: 'x' });
-    assert.equal(res.status, 200, `${days} 天应该可以`);
-    const span =
-      (new Date(res.json.data.expiresAt).getTime() - new Date(res.json.data.createdAt).getTime()) /
-      86400000;
-    assert.ok(Math.abs(span - days) < 0.01, `${days} 天，实际 ${span}`);
+  for (const ttl of [1, 3600, 5 * 86400, 30 * 86400]) {
+    const res = await kv('PUT', '/api/kv/ttl', player, { ttl, text1: 'x' });
+    assert.equal(res.status, 200, `${ttl} 秒应该可以`);
+    assert.ok(Math.abs(secs(res) - ttl) < 1, `${ttl} 秒，实际 ${secs(res)}`);
   }
 
-  for (const bad of [0, 31, 2.5]) {
-    const res = await kv('PUT', '/api/kv/package', player, { ttlDays: bad });
+  // 不传就按默认的 7 天
+  const fallback = await kv('PUT', '/api/kv/ttl', player, { text1: 'x' });
+  assert.ok(Math.abs(secs(fallback) - 7 * 86400) < 1, `不传 ttl 应该按 7 天，实际 ${secs(fallback)}`);
+
+  for (const bad of [0, 30 * 86400 + 1, 2.5]) {
+    const res = await kv('PUT', '/api/kv/ttl', player, { ttl: bad });
     assert.equal(res.status, 400, `${bad} 应该被拒`);
   }
+
+  // 不带 ttl 的 PATCH：只改字段，有效期一动不动
+  const put = await kv('PUT', '/api/kv/ttl', player, { ttl: 3600, text1: 'x' });
+  const before = put.json.data.expiresAt;
+  const patch = await kv('PATCH', '/api/kv/ttl', player, { text1: 'y' });
+  assert.equal(patch.json.data.expiresAt, before, '不带 ttl 不该动有效期');
+
+  // 带 ttl 的 PATCH：从**当前时刻**重算 —— 这就是续期
+  const renewed = await kv('PATCH', '/api/kv/ttl', player, { ttl: 30 * 86400 });
+  const left = (new Date(renewed.json.data.expiresAt).getTime() - Date.now()) / 1000;
+  assert.ok(Math.abs(left - 30 * 86400) < 5, `续期该从当前时刻算，实际还剩 ${left} 秒`);
+  assert.ok(
+    new Date(renewed.json.data.expiresAt).getTime() >
+      new Date(renewed.json.data.createdAt).getTime() + 30 * 86400000,
+    '续期必须能越过「创建 + 30 天」那条老约束',
+  );
 });
 
 test('数据：scope 不合法、extra 过大、text 过长都会被参数校验挡下', async () => {

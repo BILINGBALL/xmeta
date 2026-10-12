@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ALLOWED_TOKEN_TTL_HOURS } from './config.js';
+import { ALLOWED_TOKEN_TTL_HOURS, TTL_SECONDS_DEFAULT, TTL_SECONDS_MAX } from './config.js';
 import { Errors } from './errors.js';
 
 export function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, any>, data: unknown): T {
@@ -147,12 +147,20 @@ const openEditSchema = z
   )
   .max(EDITABLE_FIELDS.length);
 
-/** 有效期（天）：1~30 之间的任意整数。不给按 7 天；超过 30 天会被数据库的 CHECK 顶回来 */
+/**
+ * 有效期（**秒**）：1 秒 ~ 30 天。
+ *
+ * 语义是「从写这一刻起再活这么久」—— 带上它就把过期时刻重算一遍（续期），
+ * 不带就一动不动。所以 PATCH 只改一个字段时，不会顺手把有效期也改掉。
+ *
+ * 「单次最多 30 天」只由这里把关：续期不封顶，数据库那条 CHECK 表达不了
+ * now()（不是 immutable），见 sql/007。
+ */
 const ttlSchema = z.coerce
   .number()
-  .int('有效期要整数天')
-  .min(1, '有效期最少 1 天')
-  .max(30, '有效期最多 30 天');
+  .int('ttl 要整数秒')
+  .min(1, 'ttl 最少 1 秒')
+  .max(TTL_SECONDS_MAX, '单次最多存 30 天（2592000 秒）');
 
 const dataFields = {
   /** 0..255；当 boolean 用就传 0/1 */
@@ -185,7 +193,7 @@ const dataFields = {
  */
 export const kvPutSchema = z
   .object({
-    ttlDays: ttlSchema.default(7),
+    ttl: ttlSchema.default(TTL_SECONDS_DEFAULT),
     isPublic: z.boolean().default(false),
     openEdit: openEditSchema.default([]),
     ...dataFields,
@@ -219,7 +227,7 @@ export const incSchema = z
 export const kvPatchSchema = z
   .object({
     inc: incSchema,
-    ttlDays: ttlSchema.optional(),
+    ttl: ttlSchema.optional(),
     isPublic: z.boolean().optional(),
     openEdit: openEditSchema.optional(),
     ...dataFields,

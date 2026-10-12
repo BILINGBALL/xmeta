@@ -1,6 +1,6 @@
 import type pg from 'pg';
 import { query, queryOne, withTransaction } from './db.js';
-import { config } from './config.js';
+import { TTL_SECONDS_DEFAULT, config } from './config.js';
 import { Errors } from './errors.js';
 import { fetchToyDetail, type ToyDetail } from './lib/bili.js';
 
@@ -656,7 +656,8 @@ export async function writeToyData(input: {
     inc?: Record<string, number>;
     isPublic?: boolean;
     openEdit?: string[];
-    ttlDays?: number;
+    /** 有效期（秒）。带了就续期，不带就不动 */
+    ttlSeconds?: number;
   };
   quota: number;
   createOnly?: boolean;
@@ -691,7 +692,7 @@ export async function writeToyData(input: {
       }
     }
 
-    const ttlDays = input.changes.ttlDays ?? 7;
+    const ttlSeconds = input.changes.ttlSeconds ?? TTL_SECONDS_DEFAULT;
 
     if (!before) {
       // 额度检查放在事务里，避免并发把额度顶爆
@@ -714,14 +715,14 @@ export async function writeToyData(input: {
         ...DATA_FIELDS.map((c) => values[c] ?? null),
         input.changes.isPublic ?? false,
         input.changes.openEdit ?? [],
-        ttlDays,
+        ttlSeconds,
       ];
       const row = (
         await client.query<ToyDataRow>(
           `insert into toy_data (toy_id, uid, scope, ${cols.join(', ')}, expires_at)
            values ($1, $2, $3,
                    ${cols.map((_, i) => `$${i + 4}`).join(', ')},
-                   now() + make_interval(days => $${cols.length + 4}))
+                   now() + make_interval(secs => $${cols.length + 4}))
            returning ${DATA_COLUMNS}`,
           params,
         )
@@ -739,14 +740,15 @@ export async function writeToyData(input: {
       return { row, created: true, changed: created2 };
     }
 
-    // 更新：expires_at 一律重算成 created_at + ttlDays，**不接受续期**
+    // 更新：带了 ttl 就从**当前时刻**重算（续期），不带就一动不动 ——
+    // 顺手改个字段不该把有效期也一起改掉。
     const isPublic = input.changes.isPublic ?? before.is_public;
     const openEdit = input.changes.openEdit ?? before.open_edit;
     const params: unknown[] = [
       ...DATA_FIELDS.map((c) => values[c] ?? null),
       isPublic,
       openEdit,
-      ttlDays,
+      input.changes.ttlSeconds ?? null,
       input.toyId,
       input.scope,
       input.uid,
@@ -761,7 +763,9 @@ export async function writeToyData(input: {
            ).join(', ')},
            is_public  = $${DATA_FIELDS.length + 1},
            open_edit  = $${DATA_FIELDS.length + 2},
-           expires_at = created_at + make_interval(days => $${DATA_FIELDS.length + 3}),
+           expires_at = case when $${DATA_FIELDS.length + 3}::int is null
+                             then expires_at
+                             else now() + make_interval(secs => $${DATA_FIELDS.length + 3}) end,
            updated_at = now()
          where toy_id = $${DATA_FIELDS.length + 4}
            and scope = $${DATA_FIELDS.length + 5}

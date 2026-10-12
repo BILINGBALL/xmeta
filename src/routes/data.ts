@@ -286,7 +286,7 @@ export async function dataRoutes(
         columns,
         isPublic: body.isPublic,
         openEdit: body.openEdit,
-        ttlDays: body.ttlDays,
+        ttlSeconds: body.ttl,
       },
       quota: quotaFor(caller, uid),
     });
@@ -318,7 +318,7 @@ export async function dataRoutes(
     ) as [string, number][];
     const touched = [
       ...Object.keys(body).filter(
-        (k) => k in FIELD_TO_COLUMN || k === 'isPublic' || k === 'openEdit' || k === 'ttlDays',
+        (k) => k in FIELD_TO_COLUMN || k === 'isPublic' || k === 'openEdit' || k === 'ttl',
       ),
       // inc 动的字段也要算进来，否则「别人 inc 一个未开放的字段」就绕过 open_edit 了
       ...incFields.map(([k]) => k),
@@ -327,7 +327,7 @@ export async function dataRoutes(
     if (!isOwn && !caller.isOwner) {
       const denied = touched.filter((k) => {
         // 可见性、open_edit、有效期都不归别人管
-        if (k === 'isPublic' || k === 'openEdit' || k === 'ttlDays') return true;
+        if (k === 'isPublic' || k === 'openEdit' || k === 'ttl') return true;
         const col = FIELD_TO_COLUMN[k];
         return !col || !existing.open_edit.includes(col);
       });
@@ -372,7 +372,7 @@ export async function dataRoutes(
           inc: incColumns,
           isPublic: body.isPublic,
           openEdit: body.openEdit,
-          ttlDays: body.ttlDays,
+          ttlSeconds: body.ttl,
         },
         quota: quotaFor(caller, uid),
       });

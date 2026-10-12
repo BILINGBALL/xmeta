@@ -81,3 +81,13 @@ export const config = {
 export const ALLOWED_TOKEN_TTL_HOURS = [3, 6, 12, 24] as const;
 
 export const DEFAULT_TOKEN_TTL_HOURS = 6;
+
+/**
+ * 联机数据的有效期（秒）。
+ *
+ * 单次写入最多 30 天 —— 但每次写都可以重新算，**续期本身不封顶**：一直写就能
+ * 一直活着。它仍然不是长期存储，作者该有自己的持久化。
+ */
+export const TTL_SECONDS_MAX = 30 * 24 * 3600;
+/** 不传 ttl 时的默认值（7 天）。只有 PUT 用得到 —— PATCH 不带就是不动 */
+export const TTL_SECONDS_DEFAULT = 7 * 24 * 3600;
