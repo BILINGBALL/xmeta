@@ -672,9 +672,15 @@ test('数据：ttl 是秒，1 秒~30 天；带了就续期，不带就不动', a
     assert.ok(Math.abs(secs(res) - ttl) < 1, `${ttl} 秒，实际 ${secs(res)}`);
   }
 
-  // 不传就按默认的 7 天
-  const fallback = await kv('PUT', '/api/kv/ttl', player, { text1: 'x' });
-  assert.ok(Math.abs(secs(fallback) - 7 * 86400) < 1, `不传 ttl 应该按 7 天，实际 ${secs(fallback)}`);
+  // 新建时不传 ttl → 回落默认的 7 天
+  const fresh = await kv('PUT', '/api/kv/ttl_fresh', player, { text1: 'x' });
+  assert.equal(fresh.json.created, true);
+  assert.ok(Math.abs(secs(fresh) - 7 * 86400) < 1, `新建不传 ttl 该按 7 天，实际 ${secs(fresh)}`);
+
+  // 已存在的那条不传 ttl → 一动不动。**不是**被重置回 7 天
+  const keep = await kv('PUT', '/api/kv/ttl', player, { text1: 'x' });
+  const kept = (new Date(keep.json.data.expiresAt).getTime() - Date.now()) / 1000;
+  assert.ok(Math.abs(kept - 30 * 86400) < 5, `已存在的行不该被重置，实际还剩 ${kept} 秒`);
 
   for (const bad of [0, 30 * 86400 + 1, 2.5]) {
     const res = await kv('PUT', '/api/kv/ttl', player, { ttl: bad });
@@ -696,6 +702,42 @@ test('数据：ttl 是秒，1 秒~30 天；带了就续期，不带就不动', a
       new Date(renewed.json.data.createdAt).getTime() + 30 * 86400000,
     '续期必须能越过「创建 + 30 天」那条老约束',
   );
+});
+
+test('数据：一个字段都没变时返回 modified: false，且不留日志', async () => {
+  const owner = await tokenFor(PLAYER_OPENID);
+  const uid = uidOf(owner);
+  const body = { text1: '一模一样的', tagInt1: 3 };
+
+  const first = await kv('PUT', '/api/kv/noop', owner, body);
+  assert.equal(first.status, 200);
+  assert.equal(first.json.created, true);
+  assert.equal(first.json.modified, true, '新建当然算改过');
+
+  // 原样再 PUT 一遍：没有任何字段变化
+  const again = await kv('PUT', '/api/kv/noop', owner, body);
+  assert.equal(again.status, 200);
+  assert.equal(again.json.created, false);
+  assert.equal(again.json.modified, false, '一个字都没改，必须说清楚');
+  assert.deepEqual(again.json.changed, []);
+  assert.equal(again.json.data.expiresAt, first.json.data.expiresAt, '不带 ttl 不该动有效期');
+
+  // PATCH 提交同一个值也一样
+  const same = await kv('PATCH', '/api/kv/noop', owner, { text1: '一模一样的' });
+  assert.equal(same.json.modified, false);
+
+  // 两次空写都不该留下日志 —— 只有 create 那一条
+  assert.equal(
+    (await kv('GET', `/api/kv/noop/${uid}/log`, owner)).json.total,
+    1,
+    '没改动就不记日志',
+  );
+
+  // 续期是一次真实的改动：过期时刻动了，既是 modified，也要留痕
+  const renewed = await kv('PATCH', '/api/kv/noop', owner, { ttl: 30 * 86400 });
+  assert.equal(renewed.json.modified, true);
+  assert.deepEqual(renewed.json.changed, ['expiresAt']);
+  assert.equal((await kv('GET', `/api/kv/noop/${uid}/log`, owner)).json.total, 2, '续期要留日志');
 });
 
 test('数据：scope 不合法、extra 过大、text 过长都会被参数校验挡下', async () => {

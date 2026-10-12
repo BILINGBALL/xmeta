@@ -145,7 +145,7 @@
       <button class="xm-btn xm-btn--primary xm-btn--sm kv-right" id="btnSeed">初始化测试数据</button>
     </div>
     <p class="xm-small xm-mt">
-      造一批能跑通所有接口的样本：每人一格私有背包 + 一格公开角色池、别人一格开放的公共板、
+      造一批能跑通所有接口的样本：每人一条私有背包 + 一条公开角色池、别人一条开放的公共板、
       我自己的世界 boss，外加几条改动日志。<b>全部走上面这些公开接口</b>，不碰数据库。
       重复点会覆盖，不会越堆越多。
     </p>
@@ -193,8 +193,8 @@
       <div class="kv-block">
         <span class="kv-block__lang">http</span>
         <pre class="xm-pre">GET     /api/kv/:scope           → { "data": Row | null }
-PUT     /api/kv/:scope           → { "data": Row, "created": true, "changed": ["tagInt1"] }
-PATCH   /api/kv/:scope           → { "data": Row, "changed": ["tagInt1"] }
+PUT     /api/kv/:scope           → { "data": Row, "created": true, "modified": true, "changed": ["tagInt1"] }
+PATCH   /api/kv/:scope           → { "data": Row, "modified": true, "changed": ["tagInt1"] }
 DELETE  /api/kv/:scope/:uid      → { "deleted": 1,  "data": Row }
 DELETE  /api/kv/:scope?all=1     → { "deleted": 12, "scope": "package" }
 GET     /api/kv/:scope/list      → { "items": [Row], "page": 1, "size": 20, "total": 3, "hasNext": false }
@@ -205,8 +205,9 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
         <li><code>GET</code> 没建过回 <code>data: null</code>，不是报错 —— 别当成失败处理。</li>
         <li><code>PUT</code> 是整行覆盖，没写的字段会被清空；日常改数据用 <code>PATCH</code>。</li>
         <li><code>PATCH</code> 的 <code>inc</code> 也一样，新值直接就在 <code>data</code> 里，不用再查一次。</li>
+        <li>一个字段都没变时 <code>modified</code> 是 <code>false</code>、<code>changed</code> 是空数组，<b>日志也不会记</b> —— 那不是出错，是「你提交的内容和原来一模一样」。</li>
         <li><code>DELETE /:uid</code> 回带被删掉的那一行，客户端可以据此撤销。</li>
-        <li><code>?all=1</code> 删的是整个 scope（<b>所有人</b>的格），必须显式带上。</li>
+        <li><code>?all=1</code> 删的是整个 scope（<b>所有人</b>的数据），必须显式带上。</li>
         <li><code>list</code> / <code>log</code> 都带 <code>hasNext</code>，分页不用自己算 <code>page * size &lt; total</code>。</li>
       </ul>
 
@@ -232,7 +233,7 @@ POST    /api/user/profiles       → { "profiles": [ { "uid": 42, "nickname": "�
 }</pre>
       </div>
       <ul class="kv-list">
-        <li><code>uid</code> / <code>scope</code> —— 这一格归谁、属于哪个业务。</li>
+        <li><code>uid</code> / <code>scope</code> —— 这条数据归谁、属于哪个业务。</li>
         <li><code>isPublic</code> —— <code>false</code> 时只有属主和作者看得见。</li>
         <li><code>openEdit</code> —— 别人能改哪些字段的<b>白名单</b>，空数组 = 只读。只收这 7 个：<code>tagTinyint</code> / <code>tagInt1</code> / <code>tagInt2</code> / <code>tagBigint</code> / <code>text1</code> / <code>text2</code> / <code>textLong</code>。写 <code>extra</code>、<code>isPublic</code> 之类会 400。</li>
         <li><code>tagTinyint</code> / <code>tagInt1</code> / <code>tagInt2</code> / <code>tagBigint</code> —— 数字标签，给筛选用；也可以是「剩余血量」那种状态。</li>
@@ -389,6 +390,11 @@ $('btnSend').addEventListener('click', async () => {
   try {
     const res = await api(method, path, body)
     out(res.status, res.body ?? { '(没有 JSON 返回)' : true })
+    // 一个字段都没改：明说一句，别让人以为写进去了
+    if (res.body && res.body.modified === false) {
+      $('out').textContent +=
+        '\n\n// ↑ modified: false —— 你提交的和原来一模一样，没有任何字段被改动，日志也没记。'
+    }
   } catch (e) {
     out('网络错误', { message: e.message || String(e) })
   } finally {
@@ -436,7 +442,7 @@ $('btnSeed').addEventListener('click', async () => {
       void mine
     }
 
-    // 别人一格公共板：开放 tagInt1 和 text1 给大家改
+    // 别人一条公共板：开放 tagInt1 和 text1 给大家改
     const boardOwner = people[1] ?? people[0]
     const board = await api('PUT', `/api/kv/board?uid=${boardOwner}`, {
       ttl: 30 * 24 * 3600, isPublic: true, openEdit: ['tagInt1', 'text1'],
@@ -446,7 +452,7 @@ $('btnSeed').addEventListener('click', async () => {
     demoUid = boardOwner // 后面的填充要指向一个真实存在的「别人」
     say(`公共板 board   uid=${boardOwner.padEnd(5)} 公开，开放 tagInt1/text1 → ${board.status}`)
 
-    // 我自己来一格世界 boss：开放血量，谁都能打
+    // 我自己来一条世界 boss：开放血量，谁都能打
     const boss = await api('PUT', '/api/kv/admin_world', {
       ttl: 30 * 24 * 3600, isPublic: true, openEdit: ['tagInt1'],
       tagInt1: 1000, text1: '世界 Boss', text2: 'tagInt1 是剩余血量，谁都能打',
@@ -468,7 +474,7 @@ $('btnSeed').addEventListener('click', async () => {
     say('好了。接下来可以点上面的快捷填充：')
     say('  · 「列这个 scope 的所有人」看 package / roles')
     say('  · 「uid 换昵称头像」拿这一批人换昵称')
-    say('  · 「看某一格改过什么」看的就是公共板那一格（' + boardOwner + '）')
+    say('  · 「看一条数据被改过什么」看的就是公共板那一条（' + boardOwner + '）')
     say('  · 「原子加减」打 boss，看新的血量当场返回')
   } catch (e) {
     say('出错：' + (e.message || e))

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ALLOWED_TOKEN_TTL_HOURS, TTL_SECONDS_DEFAULT, TTL_SECONDS_MAX } from './config.js';
+import { ALLOWED_TOKEN_TTL_HOURS, TTL_SECONDS_MAX } from './config.js';
 import { Errors } from './errors.js';
 
 export function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, any>, data: unknown): T {
@@ -193,7 +193,12 @@ const dataFields = {
  */
 export const kvPutSchema = z
   .object({
-    ttl: ttlSchema.default(TTL_SECONDS_DEFAULT),
+    /**
+     * 不传就不动 —— 和 PATCH 一样。**只有新建那一次**才回落到默认 7 天
+     * （那一步在 repos 里）。所以「原样 PUT 一遍」是真的什么都没改，
+     * 不会顺手把过期时间推走。
+     */
+    ttl: ttlSchema.optional(),
     isPublic: z.boolean().default(false),
     openEdit: openEditSchema.default([]),
     ...dataFields,

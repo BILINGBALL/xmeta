@@ -93,11 +93,17 @@ function scopeOf(req: FastifyRequest): string {
   return result.data;
 }
 
-/** 库里的列名换回 API 字段名（is_public / open_edit 不在 FIELD_TO_COLUMN 里，单独补） */
+/** 这三列不在 FIELD_TO_COLUMN 里（那个只收数据列），单独补上 */
+const NON_DATA_COLUMNS: Record<string, string> = {
+  is_public: 'isPublic',
+  open_edit: 'openEdit',
+  expires_at: 'expiresAt',
+};
+
+/** 库里的列名换回 API 字段名 */
 function columnToApi(col: string): string {
   return (
-    Object.entries(FIELD_TO_COLUMN).find(([, c]) => c === col)?.[0] ??
-    col.replace(/^is_public$/, 'isPublic').replace(/^open_edit$/, 'openEdit')
+    Object.entries(FIELD_TO_COLUMN).find(([, c]) => c === col)?.[0] ?? NON_DATA_COLUMNS[col] ?? col
   );
 }
 
@@ -296,6 +302,8 @@ export async function dataRoutes(
     return {
       data: toWire(result.row),
       created: result.created,
+      /** 有没有字段真的被改动。提交了一模一样的内容时是 false，日志也不会记 */
+      modified: result.changed.length > 0,
       changed: result.changed.map(columnToApi),
     };
   });
@@ -392,6 +400,8 @@ export async function dataRoutes(
 
     return {
       data: toWire(result.row),
+      /** 有没有字段真的被改动。提交了一模一样的内容时是 false，日志也不会记 */
+      modified: result.changed.length > 0,
       changed: result.changed.map(columnToApi),
     };
   });

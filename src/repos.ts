@@ -789,9 +789,14 @@ export async function writeToyData(input: {
   });
 }
 
-/** 哪些列真的变了（数据列 + 可见性 + 开放编辑） */
+/**
+ * 哪些列真的变了（数据列 + 可见性 + 开放编辑 + 过期时刻）。
+ *
+ * expires_at 也算进来：续期是一次真实的改动，得留在日志里 —— 否则
+ * 「PATCH 只带 ttl」会变成一次什么都查不到的静默写入。
+ */
 function diffColumns(before: unknown, after: unknown): string[] {
-  const cols = [...DATA_FIELDS, 'is_public', 'open_edit'];
+  const cols = [...DATA_FIELDS, 'is_public', 'open_edit', 'expires_at'];
   return cols.filter(
     (c) =>
       JSON.stringify((before as Record<string, unknown> | null)?.[c] ?? null) !==
