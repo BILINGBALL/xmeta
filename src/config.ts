@@ -10,7 +10,16 @@ const schema = z.object({
   /** 我的 toy 的 toy_id；所有身份都锚定在它的 toyOpenId 上 */
   MY_TOY_ID: z.string().regex(/^\d+$/, 'MY_TOY_ID 必须是数字'),
   MY_TOY_SLUG: z.string().min(1),
-  ALLOWED_ORIGINS: z.string().default('https://www.bilibilitoy.com'),
+  /**
+   * 允许跨域调用本 API 的前端源，逗号分隔。
+   *
+   * toy 页面的源不止一个：内层 iframe 是 www.bilibilitoy.com，而从平台
+   * 外壳打开时可能是 www.bilibili.com。少写一个就是浏览器直接不发请求
+   * （日志里只剩一排 OPTIONS），所以默认把这两个域都放上。
+   */
+  ALLOWED_ORIGINS: z.string().default(
+    'https://www.bilibilitoy.com,https://bilibilitoy.com,https://www.bilibili.com,https://bilibili.com',
+  ),
   JWT_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   AUTH_CODE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
   /**

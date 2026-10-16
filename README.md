@@ -58,7 +58,7 @@ npm run dev               # http://127.0.0.1:8787
 | `PUBLIC_BASE_URL` | 对外可访问的地址，会写进 JWT 的 `iss`，**必须和真实部署一致** |
 | `MY_TOY_ID` | 中心 toy 的 toy_id。所有身份都锚定在它的 `toyOpenId` 上 |
 | `MY_TOY_SLUG` | 中心 toy 的 slug |
-| `ALLOWED_ORIGINS` | 默认 `https://www.bilibilitoy.com`（toy 内层 iframe 的源） |
+| `ALLOWED_ORIGINS` | 允许跨域的前端源，默认放行 `bilibilitoy.com` 和 `bilibili.com` 两个域（toy 内层 iframe 和平台外壳各自的源） |
 | `TRUST_PROXY` | 只有在反向代理后面才设 `true`，否则可伪造 IP 绕过限流 |
 
 `MY_TOY_ID` 从哪来：

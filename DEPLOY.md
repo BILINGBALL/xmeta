@@ -9,7 +9,7 @@
 | PostgreSQL | 已经在用阿里云 RDS |
 | 域名解析 | 例：`api.xmeta.xxx.com` → 服务器 IP |
 
-> toy 访问你的 API 是**跨域**的，服务已经放开了 `ALLOWED_ORIGINS=https://www.bilibilitoy.com`。
+> toy 访问你的 API 是**跨域**的，默认已经放开了 `bilibilitoy.com` 和 `bilibili.com` 两个域。
 > 如果换成自己托管的 toy 域，记得同步改。
 
 ---
@@ -62,7 +62,7 @@ PORT=8787
 PUBLIC_BASE_URL=https://api.你的域名.com
 MY_TOY_ID=39945062320128
 MY_TOY_SLUG=xmeta
-ALLOWED_ORIGINS=https://www.bilibilitoy.com
+ALLOWED_ORIGINS=https://www.bilibilitoy.com,https://bilibilitoy.com,https://www.bilibili.com,https://bilibili.com
 JWT_TTL_SECONDS=900
 AUTH_CODE_TTL_SECONDS=60
 CLAIM_NONCE_TTL_HOURS=24

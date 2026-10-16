@@ -117,7 +117,7 @@ XMETA.onSession(s => console.log('uid =', s.uid, 'jwt =', s.jwt))
 
 ### 1.6 CORS
 
-默认只放行 `https://www.bilibilitoy.com`（toy 内层 iframe 的源）。要加就改 `ALLOWED_ORIGINS`（逗号分隔）。预检缓存 10 分钟。
+默认放行 `bilibilitoy.com` 和 `bilibili.com` 两个域（toy 页面的源不止一个：内层 iframe 是前者，从平台外壳打开可能是后者）。要加就改 `ALLOWED_ORIGINS`（逗号分隔）。预检缓存 10 分钟。
 
 ---
 
