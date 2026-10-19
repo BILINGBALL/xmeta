@@ -94,7 +94,20 @@ export class MemoryCache implements Cache {
   }
 
   async del(...keys: string[]): Promise<void> {
-    for (const k of keys) this.store.delete(k);
+    for (const k of keys) {
+      // **先等在途回源落地，再删。**
+      // 否则顺序可能是：回源读到旧行 → 写接口删缓存 → 回源把旧行写回缓存，
+      // 接下来 30 秒都读到旧值。单条写完的「立刻能看到」就失效了。
+      const running = this.inflight.get(k);
+      if (running) {
+        try {
+          await running;
+        } catch {
+          /* 回源失败无所谓，下面照样删 */
+        }
+      }
+      this.store.delete(k);
+    }
   }
 
   async warmup(): Promise<void> {}
@@ -192,7 +205,20 @@ export function redisCache(url: string): Cache {
     async del(...keys: string[]): Promise<void> {
       if (!(await ready())) return;
       try {
-        if (keys.length > 0) await redis.del(...keys);
+        if (keys.length === 0) return;
+        // 和 MemoryCache 同一个道理：先等在途回源把结果写完，再删。
+        // 否则它在删完之后 set 一次，旧值就又被缓存起来了。
+        for (const k of keys) {
+          const running = inflight.get(k);
+          if (running) {
+            try {
+              await running;
+            } catch {
+              /* 回源失败无所谓，下面照样删 */
+            }
+          }
+        }
+        await redis.del(...keys);
       } catch {
         /* 同上 */
       }

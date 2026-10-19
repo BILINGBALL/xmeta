@@ -146,6 +146,11 @@ toy**，行数就是 `toyServices`，`sum(uses)` 是 `tokens`，`sum(seconds)` �
 （`inc` 也一样，新值直接就在里面，不用再查一次）；`DELETE` 回带被删掉的那一行。
 `changed` 列出这次动了哪几个字段。
 
+**排行榜和聊天流别翻全量。** 列表支持 `?sort=tagInt2&order=desc`（只收数字列和
+`updatedAt`）取前 N 条；日志支持 `?changed=text1` 只回动过某个字段的记录。
+前者让排行榜的请求量跟「玩家数」有关、跟「攻击次数」无关；后者让聊天翻页不被
+同一条数据上的心跳挤掉。世界 Boss 的伤害建议一人一条汇总行，不要从日志聚合。
+
 **昵称头像怎么来**：数据里只存 `uid`（作者那边也该只存 id、渲染在本地），要显示
 名字就 `POST /api/user/profiles { "uids": [...] }`（一次最多 100 个，和列表一页的上限对齐）。**只给「在本
 toy 出现过的人」** —— uid 是全平台唯一的，不限制就等于开了一个拿 uid 枚举全平台
@@ -294,7 +299,8 @@ toy 页面本身跑在 https 上，调 http 接口会被浏览器按混合内容
 ## 测试
 
 ```bash
-npm test        # test/client.test.ts（SDK 单测）+ test/e2e.test.ts（整条链路）
+npm test        # test/cache.test.ts（读缓存竞态）+ test/client.test.ts（SDK 单测）
+                # + test/e2e.test.ts（整条链路）
 npm run typecheck
 ```
 

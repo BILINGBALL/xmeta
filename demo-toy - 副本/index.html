@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>联机 Demo</title>
+
+<!--
+  认领用。把 content 换成认领页给你的 nonce，保存发布，然后回去点「开始验证」。
+  认领完成后这行可以删掉 —— 它只在认领那一刻被读一次。
+-->
+<meta name="xmeta-verify" content="PUT_NONCE_HERE">
+
+<link rel="stylesheet" href="xmeta-ui.css">
+
+<style>
+  /* 清除按钮：不要边框，靠虚下划线 + 手型光标表明它可点 */
+  .xm-linkbtn {
+    align-self: center;
+    background: none; border: 0; padding: 4px 8px; font: inherit;
+    font-size: 13px; color: var(--xm-ink-3);
+    text-decoration: underline; text-decoration-style: dotted;
+    text-underline-offset: 4px; cursor: pointer;
+  }
+  .xm-linkbtn:hover { color: var(--xm-pink); }
+</style>
+
+<script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
+<script src="https://www.oxth.com:8443/xmeta-client.js"></script>
+</head>
+<body class="xm">
+<div class="xm-page">
+
+  <div class="xm-hero" style="text-align:left">
+    <p class="xm-kicker">xmeta 联机</p>
+    <h1 class="xm-display">联机 Demo</h1>
+  </div>
+
+  <!-- 没配 client_id 时的接入指引 -->
+  <div class="xm-alert xm-alert--warn xm-hidden xm-mt-lg" id="cfgWarn">
+    <b>还没配置 client_id</b> —— 需要先认领这款 toy：
+    <ol style="margin:8px 0 0;padding-left:18px">
+      <li>打开中心 toy xmeta 的「认领 toy」页</li>
+      <li>填入本 toy 的 slug，拿到验证码</li>
+      <li>把验证码填到本文件顶部的 meta 里，保存发布</li>
+      <li>回到认领页点「开始验证」，拿到 client_id</li>
+      <li>把 client_id 填到下方 <span class="xm-mono">CONFIG.clientId</span>，再次发布</li>
+    </ol>
+  </div>
+
+  <div class="xm-card xm-mt-lg xm-rise">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <span class="xm-label" style="margin:0">联机状态</span>
+      <span class="xm-live" id="vState">未连接</span>
+    </div>
+    <!-- client_id 不给玩家看；这行占的是下面那条分隔线，别删 -->
+    <div class="xm-kv"></div>
+    <div class="xm-kv xm-hidden" id="rowUid">
+      <span class="xm-kv__k">身份 uid</span>
+      <span class="xm-kv__v xm-mono" id="vUid">—</span>
+    </div>
+    <div class="xm-kv xm-hidden" id="rowLeft">
+      <span class="xm-kv__k">有效期</span>
+      <span class="xm-kv__v" id="vLeft">—</span>
+    </div>
+  </div>
+
+  <!-- 就一个按钮：申请联机凭证，占满整行。拿到 code 后自动兑换，
+       没有第二个「连接」按钮要用户点。 -->
+  <div class="xm-actions xm-mt-lg">
+    <button class="xm-btn xm-btn--primary" id="btnLogin">申请联机凭证</button>
+  </div>
+  <div class="xm-actions" style="margin-top:6px">
+    <button class="xm-linkbtn" id="btnReset">清除本地凭证（安全）</button>
+  </div>
+
+  <div class="xm-alert xm-alert--error xm-hidden xm-mt-lg" id="errBox"></div>
+
+  <div class="xm-foot">
+    <span class="xm-brand"><span class="xm-brand__dot"></span>由
+      <span class="xm-brand-link" id="xmetaLink">XMETA</span> 提供身份服务</span>
+  </div>
+
+  <!-- xmeta 介绍弹窗 -->
+  <div id="xmetaModal" class="xm-modal xm-hidden">
+    <div class="xm-modal__mask" data-close-xmeta></div>
+    <div class="xm-modal__card">
+      <button class="xm-modal__close" data-close-xmeta aria-label="关闭">×</button>
+      <div class="xm-modal__brand"><span class="xm-brand__dot"></span>xmeta</div>
+      <p class="xm-modal__title">什么是 xmeta？</p>
+      <p class="xm-modal__body">
+        xmeta 是一个独立的<b>联机身份服务 toy</b>。
+        你在 xmeta 里的 toyOpenId 会作为你的匿名身份 —— 它和你在其它 toy 里的
+        toyOpenId 没有关系，xmeta 也看不到它们。
+      </p>
+      <p class="xm-modal__body">
+        你授权给某个 toy 时，xmeta 给它签发一张<b>只对这个 toy 有效</b>的凭证；
+        不同 toy 拿到的凭证互不通用，A toy 的凭证访问不了 B toy 的数据。
+      </p>
+      <p class="xm-modal__body">xmeta 完全免费，不收集任何个人信息。</p>
+      <p class="xm-modal__body" style="font-size:12px;color:var(--xm-ink-3)">
+        xmeta 属自发电项目，暂无服务质量和稳定性承诺，感谢理解~ 让我们一起建设美好未来！
+      </p>
+      <button class="xm-btn xm-btn--primary" data-close-xmeta style="width:100%;margin-top:8px">知道了</button>
+      <button class="xm-btn xm-btn--ghost" id="btnGoXmeta" style="width:100%;margin-top:8px">跳转到 xmeta</button>
+      <p style="margin:14px 0 0;text-align:center;font-size:11px;color:var(--xm-ink-3);opacity:.75">
+        © 南通异元科技有限公司
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// 配置：认领拿到 client_id 后填到这里
+// ─────────────────────────────────────────────
+const CONFIG = {
+  apiBase:       'https://www.oxth.com:8443',
+  centerToySlug: 'xmeta',
+  // 中心 toy 的 toy_id。SDK 用它认「这一跳是不是刚从中心 toy 跳回来的」——
+  // App 内 toy→toy 跳转，原生会在地址上拼 from_spmid=toy.toy-detail.<它>.0。
+  centerToyId:   '39945062320128',
+  clientId:      'xmeta_OXSY7nxlpKooXGd0oS95Cg'
+}
+
+const $ = (id) => document.getElementById(id)
+
+function showErr(msg) { $('errBox').textContent = msg; $('errBox').classList.remove('xm-hidden') }
+function clearErr() { $('errBox').classList.add('xm-hidden') }
+
+// ── 申请联机凭证（必须在用户手势里调用，toy.navigate 需要手势）──
+//
+// 防连点**不用 disabled**：disabled 一旦设上就得有人把它清掉，而跳走之后
+// 这段代码可能根本跑不到（用户手动返回、页面没重载），按钮就会一直灰着，
+// 只能刷新页面 —— 实测踩过。改成按时间判：1.5 秒内的重复点击忽略，
+// 时间一过自然放开，没有任何需要清理的状态。
+let lastApplyAt = 0
+
+$('btnLogin').addEventListener('click', async () => {
+  const now = Date.now()
+  if (now - lastApplyAt < 1500) return
+  lastApplyAt = now
+
+  clearErr()
+  try {
+    await XMETA.login()
+    // 成功的话页面就被跳走了，这行不会执行到
+  } catch (e) {
+    showErr('申请失败：' + (e.message || e))
+  }
+})
+
+// ── 兑换：SDK 一检测到 code，就在这里换掉 ──
+//
+// 没有「连接」按钮了 —— 中心 toy 把 code 带回来，onCodeReady 一响就
+// 自动兑换。
+//
+// 「跳走再跳回来」会留下两个页面实例（用户点的那个还在后台跑），两边
+// 都可能触发兑换。code 一次性，只有一个能成功；输的那边收到 code_used，
+// SDK 会去读赢家写在同源 localStorage 里的会话当成成功。所以谁先谁后
+// 都不影响结果。
+async function redeem() {
+  clearErr()
+  try {
+    await XMETA.completeLogin()
+  } catch (e) {
+    // 槽里的 code 还在（网络抖动这类可重试的失败不会清槽），刷新页面
+    // 就会重新检测、重新兑换。
+    showErr('兑换凭证失败：' + (e.message || e) + '（刷新页面可重试）')
+  }
+}
+
+// ── 清除凭证（调试用）──
+//
+// 只清本地那一份：SDK 的 logout() 会把会话、发起记录、待兑换的码
+// 一起清掉。云存储本来就没在用，没有第二份要清。
+$('btnReset').addEventListener('click', () => {
+  clearErr()
+  if (typeof XMETA === 'undefined') {
+    showErr('xmeta-client.js 没加载，清不了本地凭证。')
+    return
+  }
+  XMETA.logout()   // 会话没了 → 下一次心跳把状态刷回未连接
+})
+
+// ── xmeta 介绍弹窗 ──
+//
+// 页脚那个粉色的 XMETA 点开就是它。这里只是介绍 xmeta 是什么，
+// 和授权流程没有关系 —— 所以放在最后，不掺进上面那条链路。
+const xmetaModal = $('xmetaModal')
+
+function openXmetaModal() { xmetaModal.classList.remove('xm-hidden') }
+function closeXmetaModal() { xmetaModal.classList.add('xm-hidden') }
+
+$('xmetaLink').addEventListener('click', openXmetaModal)
+xmetaModal.querySelectorAll('[data-close-xmeta]').forEach((el) => {
+  el.addEventListener('click', closeXmetaModal)
+})
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !xmetaModal.classList.contains('xm-hidden')) closeXmetaModal()
+})
+
+// 「跳转到 xmeta」：去看中心 toy 本身，不是过桥（没带 cid，落点是它的首页）。
+//
+// navigate 必须在用户手势里「同步」发出 —— 这里紧贴点击，中间不跨 await。
+// 它内部会检查瞬时手势，实机上出现过「明明是用户点的、检查却是 false」，
+// 而它自己的 window.open 兜底在那个检查之后就永远走不到，所以自己再兜一次。
+$('btnGoXmeta').addEventListener('click', () => {
+  closeXmetaModal()
+
+  const go = (typeof toy !== 'undefined' && toy.navigate)
+    ? toy.navigate({ type: 'toy', id: CONFIG.centerToySlug, extra: {} })
+    : Promise.reject(new Error('toy SDK 没加载'))
+
+  go.catch((e) => {
+    const url = location.protocol + '//www.bilibili.com/toy/' +
+      encodeURIComponent(CONFIG.centerToySlug) + '/index.html'
+    let opened = null
+    try { opened = window.open(url, '_blank') } catch (err) { /* 忽略 */ }
+    if (opened) return // 兜底成功了
+    showErr('跳转没有成功（' + (e.message || e) + '）。请再点一次。')
+  })
+})
+
+// ── 剩余时间 ──
+// 用户自己选的时长，过期后要回中心 toy 再授权一次。把它显示出来，
+// 别让人玩到一半突然掉线还不知道为什么。
+function fmtLeft(ms) {
+  const s = Math.floor(ms / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h > 0) return h + ' 小时 ' + m + ' 分'
+  if (m > 0) return m + ' 分 ' + (s % 60) + ' 秒'
+  return (s % 60) + ' 秒'
+}
+
+// ── 状态渲染 ────────────────────────────────────────────────────
+//
+// 指示灯两态：有会话 → 已连接，没有 → 未连接。「拿到码还没兑换」不再是
+// 一个要用户处理的中间态 —— 它自己会过去。
+const STATE_TEXT = { idle: '未连接', online: '已连接' }
+const STATE_CLS = {
+  idle: 'xm-live',
+  online: 'xm-live xm-live--on'
+}
+
+function render() {
+  if (typeof XMETA === 'undefined' || !configured) return
+  const s = XMETA.getSession()
+  const st = s ? 'online' : 'idle'
+
+  // 指示灯
+  $('vState').textContent = STATE_TEXT[st]
+  $('vState').className = STATE_CLS[st]
+
+  // 身份 / 有效期
+  $('rowUid').classList.toggle('xm-hidden', !s)
+  $('rowLeft').classList.toggle('xm-hidden', !s)
+  if (s) {
+    $('vUid').textContent = s.uid || '—'
+    $('vLeft').textContent = '还剩 ' + fmtLeft(XMETA.getRemainingMs())
+  }
+
+  // 已经连上了就是「重新申请」
+  $('btnLogin').textContent = s ? '重新申请凭证' : '申请联机凭证'
+}
+
+// 每秒重画一次：有效期倒计时本来就每秒在变，顺带把状态也刷新了
+// （token 过期 → 已连接退回未连接）
+setInterval(render, 1000)
+
+// ── 云存储不用了 ──
+//
+// toy.getCloudStorage 是 async 的（1-2 秒），在 click handler 里 await 它
+// 会让 navigator.userActivation 失效，不 await 又会截胡 toy.navigate。
+// 凭证只存 SDK 自己的 localStorage（key 带 clientId 前缀），跨设备恢复
+// 那套就不要了。
+
+let configured = false
+
+if (!CONFIG.clientId || CONFIG.clientId === 'PUT_CLIENT_ID_HERE') {
+  $('cfgWarn').classList.remove('xm-hidden')
+  $('btnLogin').disabled = true
+} else {
+  if (typeof XMETA === 'undefined') {
+    // xmeta-client.js 是从中心服务器加载的，服务器挂了就拿不到 XMETA。
+    // 此时联机功能不可用，但 toy 本身还能跑，别把整个页面搞崩。
+    showErr('xmeta 服务暂时不可用，联机功能无法初始化。请稍后重试。')
+    $('btnLogin').disabled = true
+  } else {
+    try {
+      XMETA.configure(CONFIG)
+      configured = true
+    } catch (e) {
+      showErr('初始化失败：' + e.message)
+      $('btnLogin').disabled = true
+    }
+  }
+}
+
+if (configured) {
+  // 状态一变就重画。每秒那趟心跳兜底，这里只是为了不用等到下一秒。
+  XMETA.onSession(() => {
+    render()
+    clearErr()
+  })
+
+  // 检测到待兑换的授权码 —— 直接兑换，不等用户点。
+  //
+  // 先确认 SDK 是新版：它是从中心服务器分发的，改了仓库没重启服务端的话
+  // 这里拿到的是旧脚本。旧脚本没有 onCodeReady，回跳之后就什么都不会发生，
+  // 表现是「申请完回来还是未连接」，而下面那行还会抛 TypeError 把后面的
+  // 注册全带走，极难排查。
+  if (typeof XMETA.onCodeReady !== 'function') {
+    showErr('xmeta-client.js 还是旧版本（没有 onCodeReady）。' +
+      '需要先部署服务端并重启，或强制刷新页面。')
+    $('btnLogin').disabled = true
+  } else {
+    XMETA.onCodeReady(redeem)
+  }
+}
+
+render()   // 别等第一次心跳，进来就先画一遍
+</script>
+</body>
+</html>

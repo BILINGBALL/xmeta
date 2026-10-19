@@ -4,6 +4,7 @@ import {
   FIELD_TO_COLUMN,
   kvPatchSchema,
   kvPutSchema,
+  logQuerySchema,
   pageSchema,
   parse,
   profilesSchema,
@@ -159,6 +160,18 @@ function quotaFor(caller: Caller, ownerUid: string): number {
 }
 
 /**
+ * 列表能按哪些字段排序。只给数字列和 updatedAt —— 文本/JSON 排序没有意义，
+ * 也避免把任意列名拼进 SQL。
+ */
+const LIST_SORTABLE: Record<string, string> = {
+  tagTinyint: 'tag_tinyint',
+  tagInt1: 'tag_int1',
+  tagInt2: 'tag_int2',
+  tagBigint: 'tag_bigint',
+  updatedAt: 'updated_at',
+};
+
+/**
  * 缓存键。单条写完就删；列表只靠 TTL 过期（要枚举「哪些页/tag 受影响」才删得干净，
  * 代价大于收益），所以键里必须把可见性、tag、分页都带上，别让不同视角互相踩。
  */
@@ -173,8 +186,10 @@ function listKey(
   tagTinyint: number | null,
   page: number,
   size: number,
+  sort: { column: string; dir: string } | null,
 ): string {
-  return `kv:list:${toyId}:${scope}:${publicOnly ? 'pub' : 'all'}:${tagTinyint ?? '-'}:${page}:${size}`;
+  const sortKey = sort ? sort.column + ':' + sort.dir : '-';
+  return `kv:list:${toyId}:${scope}:${publicOnly ? 'pub' : 'all'}:${tagTinyint ?? '-'}:${page}:${size}:${sortKey}`;
 }
 
 export async function dataRoutes(
@@ -226,8 +241,19 @@ export async function dataRoutes(
       rawTag === undefined || rawTag === '' ? null : Number.parseInt(String(rawTag), 10);
 
     const tag = Number.isNaN(tagTinyint) ? null : tagTinyint;
+    const rawSort = String((req.query as Record<string, unknown> | undefined)?.sort ?? '');
+    const rawOrder = String((req.query as Record<string, unknown> | undefined)?.order ?? 'desc').toLowerCase();
+    const sortColumn = rawSort ? LIST_SORTABLE[rawSort] : null;
+    if (rawSort && !sortColumn) {
+      throw Errors.invalidParam(
+        `sort 只支持这些字段：${Object.keys(LIST_SORTABLE).join(' / ')}`,
+      );
+    }
+    const sort: { column: string; dir: 'asc' | 'desc' } | null = sortColumn
+      ? { column: sortColumn, dir: rawOrder === 'asc' ? 'asc' : 'desc' }
+      : null;
     const publicOnly = !caller.isOwner;
-    const key = listKey(caller.toy.toy_id, scope, publicOnly, tag, page, size);
+    const key = listKey(caller.toy.toy_id, scope, publicOnly, tag, page, size, sort);
 
     const result = await cache.getOrFill<{ items: ToyDataRow[]; total: number }>(
       key,
@@ -240,6 +266,7 @@ export async function dataRoutes(
           size,
           tagTinyint: tag,
           publicOnly,
+          sort,
         }),
     );
     return {
@@ -443,7 +470,7 @@ export async function dataRoutes(
     const scope = scopeOf(req);
     const rawUid = (req.params as Record<string, unknown>).uid;
     const uid = String(rawUid);
-    const { page, size } = parse(pageSchema, req.query);
+    const { page, size, changed } = parse(logQuerySchema, req.query);
 
     const row = await getToyData(caller.toy.toy_id, uid, scope);
     if (!row) throw Errors.notFound('这条数据不存在（或已过期）');
@@ -451,7 +478,9 @@ export async function dataRoutes(
       throw Errors.forbidden('这条数据是私有的，看不到它的日志');
     }
 
-    const result = await listToyDataLog(row.id, page, size);
+    // 路由层收的是字段名（text1），库里存的是列名（text_1）
+    const changedColumn = changed ? FIELD_TO_COLUMN[changed] : null;
+    const result = await listToyDataLog(row.id, page, size, changedColumn);
     return {
       items: result.items.map(toWireLog),
       page,

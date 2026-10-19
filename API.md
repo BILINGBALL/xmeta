@@ -518,12 +518,24 @@ Payload：
 | `page` | 1 | |
 | `size` | 20 | 一页最多 100 |
 | `tagTinyint` | — | 按这个数字标签精确筛选 |
+| `sort` | — | 按字段排序：`tagTinyint` / `tagInt1` / `tagInt2` / `tagBigint` / `updatedAt`。**只收这几个**，别的不收 |
+| `order` | `desc` | `asc` / `desc` |
 
 **响应**
 
 ```json
 { "items": [ /* Row */ ], "page": 1, "size": 20, "total": 3, "hasNext": false }
 ```
+
+> **排行榜用 `sort` 取前 N 条，别把所有人的行翻出来在客户端排。**
+> 例如世界 Boss 的伤害一人一条公开数据：
+>
+> ```http
+> GET /api/kv/damage/list?page=1&size=100&sort=tagInt2&order=desc
+> ```
+>
+> 这样请求次数只跟「要取多少名」有关，跟「一共打了多少次」无关。
+> 列表仍然最多缓存 30 秒；刚写入的那一行以写接口的返回为准。
 
 ---
 
@@ -651,7 +663,18 @@ Payload：
 
 某一条数据的改动记录。**读权限跟那条数据走**（私有数据的日志只有属主和作者看得到）。
 
-**Query**：`page`(默认 1)、`size`(默认 20，最多 100)
+**Query**：`page`(默认 1)、`size`(默认 20，最多 100)、`changed`(可选)
+
+`changed=text1` 只回「动过 `text1`」的记录。聊天历史、某类事件流靠它翻页，
+不会被同一条数据上的心跳 / 其它字段的改动挤掉。参数收**字段名**（驼峰），
+只支持数据字段（`tagInt1` / `text1` / `extra` …）。
+
+```http
+GET /api/kv/lobby/<uid>/log?page=1&size=100&changed=text1
+```
+
+> 分页是 offset 的：翻页期间如果又来了新消息，页边界会移动，可能出现一两条
+> 重复或漏掉。按 `id` 去重即可；要严格游标分页得另加参数。
 
 **响应**
 

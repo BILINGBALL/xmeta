@@ -1,0 +1,888 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>联机 Demo · xmeta</title>
+
+<!--
+  这个页面是一个可以直接发布到 B站 toy 的「联机 Demo」。
+  client_id 在 demo.js 顶部的 CONFIG 里，认领换 toy 时改那一处就行。
+-->
+<link rel="stylesheet" href="xmeta-ui.css">
+<style>
+  /* ── 这个 Demo 自己的几块，其余全用 xmeta-ui.css 的类 ── */
+
+  .demo-head {
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+    margin-bottom: 18px;
+  }
+  .demo-head__text { min-width: 0; }
+  .demo-head .xm-display { margin: 0; }
+
+  .demo-avatar {
+    width: 44px; height: 44px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; border-radius: 50%;
+    background: var(--xm-pink-light); color: var(--xm-pink-dark);
+    font-weight: 700; font-size: 17px;
+    border: 2px solid var(--xm-surface);
+    box-shadow: var(--xm-lift-2);
+  }
+  .demo-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  [data-mode="guest"] .demo-head__me { display: none; }
+
+  /* 顶部状态条 */
+  .demo-status {
+    display: block;
+    padding: 10px 14px; margin-bottom: 12px;
+    background: var(--xm-surface); border: 1px solid var(--xm-line);
+    border-radius: var(--xm-r); box-shadow: var(--xm-lift-1);
+    font-size: 13px;
+  }
+  .demo-status__row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .demo-status__sep { color: var(--xm-line-strong); }
+  .demo-status .xm-live { font-size: 13px; }
+  .demo-status .is-warn { color: var(--xm-danger); }
+
+  /* 凭证有效期：每 200ms 走一格，transition 把它抹平 */
+  .demo-tokenbar {
+    height: 4px; margin-top: 9px; border-radius: 999px;
+    background: var(--xm-sunken); overflow: hidden;
+  }
+  .demo-tokenbar i {
+    display: block; height: 100%; width: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--xm-pink), #ff9a6c);
+    transition: width .22s linear;
+  }
+  .demo-tokenbar i.is-warn {
+    background: linear-gradient(90deg, #ef4444, #b91c1c);
+  }
+
+  /* 标签 */
+  .demo-tabs {
+    display: flex; gap: 6px; margin: 0 0 14px;
+    padding: 4px; border-radius: var(--xm-r-full);
+    background: var(--xm-sunken);
+  }
+  .demo-tab {
+    flex: 1; border: 0; background: transparent; cursor: pointer;
+    padding: 8px 4px; border-radius: var(--xm-r-full);
+    font: inherit; font-size: 13px; font-weight: 600; color: var(--xm-ink-2);
+    transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .demo-tab.is-active {
+    background: var(--xm-surface); color: var(--xm-pink-dark);
+    box-shadow: var(--xm-lift-1);
+  }
+  [data-mode="guest"] .demo-tabs { display: none; }
+
+  .demo-section-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 12px;
+  }
+  .demo-section-title {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 15px; font-weight: 600; color: var(--xm-ink);
+  }
+  .demo-section-title b { color: var(--xm-pink-dark); }
+
+  .demo-pulse {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--xm-ok);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, .5);
+    animation: demo-pulse 2s infinite;
+  }
+  @keyframes demo-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, .45); }
+    70% { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+
+  .demo-badge {
+    padding: 2px 8px; border-radius: var(--xm-r-full);
+    font-size: 11px; font-weight: 600;
+    background: var(--xm-sunken); color: var(--xm-ink-3);
+  }
+  .demo-badge--ok { background: var(--xm-ok-wash); color: var(--xm-ok); }
+
+  /* 未连接：首屏 */
+  .demo-hero {
+    position: relative; overflow: hidden;
+    padding: 26px 20px 20px; margin-bottom: 14px;
+    border-radius: var(--xm-r-lg);
+    background:
+      radial-gradient(120% 90% at 100% 0%, rgba(251, 114, 153, .20), transparent 55%),
+      radial-gradient(80% 70% at 0% 100%, rgba(255, 210, 120, .18), transparent 60%),
+      var(--xm-surface);
+    border: 1px solid var(--xm-line);
+    box-shadow: var(--xm-lift-2);
+  }
+  .demo-hero__orb {
+    position: absolute; border-radius: 50%; filter: blur(2px); pointer-events: none;
+  }
+  .demo-hero__orb--1 {
+    width: 120px; height: 120px; right: -34px; top: -30px;
+    background: rgba(251, 114, 153, .16);
+  }
+  .demo-hero__orb--2 {
+    width: 90px; height: 90px; right: 44px; top: 64px;
+    background: rgba(255, 196, 87, .14);
+  }
+  .demo-hero__badge {
+    position: relative; display: inline-block;
+    padding: 4px 10px; border-radius: var(--xm-r-full);
+    background: var(--xm-pink-wash); color: var(--xm-pink-dark);
+    font-size: 11.5px; font-weight: 700; letter-spacing: .04em;
+  }
+  .demo-hero__title {
+    position: relative;
+    margin: 14px 0 10px; font-size: 30px; line-height: 1.22;
+    letter-spacing: -.02em; color: var(--xm-ink);
+  }
+  .demo-hero__lead {
+    position: relative;
+    margin: 0 0 18px; font-size: 14px; line-height: 1.7; color: var(--xm-ink-2);
+  }
+  .demo-features {
+    position: relative;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    margin-bottom: 18px;
+  }
+  .demo-features > div {
+    display: grid; grid-template-columns: 24px 1fr; grid-template-rows: auto auto;
+    column-gap: 6px; align-items: center;
+    padding: 10px; border-radius: 12px;
+    background: rgba(255, 255, 255, .55); border: 1px solid var(--xm-line);
+  }
+  @media (prefers-color-scheme: dark) {
+    .demo-features > div { background: rgba(255, 255, 255, .04); }
+  }
+  .demo-features > div > span { grid-row: 1 / 3; font-size: 20px; }
+  .demo-features b { font-size: 12.5px; font-weight: 600; color: var(--xm-ink); }
+  .demo-features i { font-style: normal; font-size: 11px; color: var(--xm-ink-3); }
+
+  .demo-hero__btn { width: 100%; margin-top: 8px; position: relative; }
+  .demo-hero__foot {
+    position: relative; margin: 12px 0 0; text-align: center;
+    font-size: 11.5px; color: var(--xm-ink-3);
+  }
+
+  .demo-preview { margin-bottom: 14px; }
+  .demo-list { margin: 0; padding-left: 18px; }
+  .demo-list li {
+    font-size: 13px; line-height: 1.7; color: var(--xm-ink-2); margin-bottom: 7px;
+  }
+  .demo-list b { color: var(--xm-ink); }
+
+  /* 在线的人 */
+  .demo-players { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .demo-player {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 11px; border-radius: 12px;
+    background: var(--xm-sunken);
+  }
+  .demo-player.is-me {
+    background: var(--xm-pink-wash);
+    box-shadow: inset 0 0 0 1px rgba(251, 114, 153, .18);
+  }
+  .demo-player__avatar {
+    width: 38px; height: 38px; flex: none; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; background: var(--xm-surface); color: var(--xm-pink-dark);
+    font-weight: 700; font-size: 15px;
+  }
+  .demo-player__avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .demo-player__main { min-width: 0; flex: 1; }
+  .demo-player__name { display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
+  .demo-player__name b {
+    max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .demo-player__uid, .demo-player__meta {
+    display: block; font-size: 11px; color: var(--xm-ink-3);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .demo-player__meta { margin-top: 2px; }
+  .demo-tag {
+    padding: 1px 6px; border-radius: var(--xm-r-full);
+    background: var(--xm-pink); color: #fff; font-size: 10px; font-weight: 700;
+  }
+  .demo-player__visit { flex: none; }
+
+  .demo-roominfo { margin: 12px 0 0; color: var(--xm-ink-3); }
+
+  /* 聊天 */
+  .demo-chatlist {
+    height: 300px; overflow-y: auto; overscroll-behavior: contain;
+    padding: 4px 2px 8px; margin: 0 -2px;
+    scroll-behavior: smooth;
+  }
+  .demo-msg { display: flex; gap: 8px; margin-bottom: 12px; }
+  .demo-msg.is-me { flex-direction: row-reverse; }
+  .demo-msg__avatar {
+    width: 30px; height: 30px; flex: none; border-radius: 50%;
+    overflow: hidden; display: flex; align-items: center; justify-content: center;
+    background: var(--xm-sunken); color: var(--xm-ink-2);
+    font-size: 12px; font-weight: 700;
+  }
+  .demo-msg__avatar--blank { background: transparent; }
+  .demo-msg__avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .demo-msg__body { max-width: 78%; }
+  .demo-msg.is-me .demo-msg__body { text-align: right; }
+  .demo-msg__head {
+    display: flex; align-items: baseline; gap: 7px; margin: 0 0 3px 2px;
+  }
+  .demo-msg.is-me .demo-msg__head { justify-content: flex-end; margin: 0 2px 3px 0; }
+  .demo-msg__head b {
+    font-size: 11.5px; font-weight: 600; color: var(--xm-ink-2);
+    max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .demo-msg__head span { font-size: 10.5px; color: var(--xm-ink-3); }
+  .demo-msg__text {
+    display: inline-block; margin: 0; padding: 8px 11px;
+    border-radius: 12px 12px 12px 4px;
+    background: var(--xm-sunken); color: var(--xm-ink);
+    font-size: 13.5px; line-height: 1.55; text-align: left;
+    overflow-wrap: anywhere; white-space: pre-wrap;
+  }
+  .demo-msg.is-me .demo-msg__text {
+    border-radius: 12px 12px 4px 12px;
+    background: var(--xm-pink); color: #fff;
+  }
+  .demo-chatbar { display: flex; align-items: center; gap: 8px; margin-top: 8px; width: 100%; }
+  /* .xm-input / .xm-btn 在共用样式里都是 width:100%，这里必须显式改回
+     flex 的尺寸，否则按钮会占满整行、把输入框挤没。 */
+  .demo-chatbar input {
+    flex: 1 1 0%; width: auto; min-width: 0;
+    padding-top: 10px; padding-bottom: 10px;
+  }
+  .demo-chatbar button {
+    flex: 0 0 auto; width: auto; min-width: 64px;
+    padding: 10px 16px; font-size: 14px;
+  }
+  .demo-chat-older { margin: 0 0 8px; }
+
+  /* 小窝人气榜 */
+  .demo-home-row {
+    display: flex; align-items: center; gap: 9px;
+    padding: 9px 2px; border-bottom: 1px solid var(--xm-line);
+  }
+  .demo-home-row:last-child { border-bottom: 0; }
+  .demo-home-row__rank {
+    width: 20px; flex: none; text-align: center;
+    font-size: 12px; font-weight: 700; color: var(--xm-ink-3);
+  }
+  .demo-home-row__avatar {
+    width: 32px; height: 32px; flex: none; border-radius: 50%; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--xm-sunken); color: var(--xm-ink-2); font-size: 12px; font-weight: 700;
+  }
+  .demo-home-row__avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .demo-home-row__main { flex: 1; min-width: 0; }
+  .demo-home-row__main b {
+    display: block; font-size: 13px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .demo-home-row__meta { font-size: 11px; color: var(--xm-ink-3); }
+
+  /* 世界 Boss */
+  .demo-boss {
+    position: relative; overflow: hidden; text-align: center;
+    padding: 22px 18px 20px;
+    background:
+      radial-gradient(90% 70% at 50% 0%, rgba(200, 60, 80, .16), transparent 60%),
+      var(--xm-surface);
+  }
+  .demo-boss__glow {
+    position: absolute; width: 180px; height: 180px; border-radius: 50%;
+    left: 50%; top: 18px; transform: translateX(-50%);
+    background: rgba(251, 114, 153, .16); filter: blur(28px); pointer-events: none;
+  }
+  .demo-boss__face {
+    position: relative; font-size: 56px; line-height: 1;
+    margin-bottom: 8px; animation: demo-bob 3.2s ease-in-out infinite;
+  }
+  @keyframes demo-bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+  }
+  .demo-boss.is-dead .demo-boss__face { animation: none; filter: grayscale(1); }
+  .demo-boss__title { position: relative; margin: 0 0 4px; font-size: 18px; }
+  .demo-boss__sub { position: relative; margin: 0 0 16px; font-size: 12px; color: var(--xm-ink-3); }
+  .demo-hp { position: relative; }
+  .demo-hp__bar {
+    height: 16px; border-radius: var(--xm-r-full); overflow: hidden;
+    background: var(--xm-sunken); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .08);
+  }
+  .demo-hp__bar i {
+    display: block; height: 100%; width: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #fb7299, #ff9a6c);
+    transition: width .45s cubic-bezier(.22, 1, .36, 1), background .3s ease;
+  }
+  .demo-hp__bar i.is-warn { background: linear-gradient(90deg, #f59e0b, #f97316); }
+  .demo-hp__bar i.is-low { background: linear-gradient(90deg, #ef4444, #b91c1c); }
+  .demo-hp__text { margin-top: 8px; font-size: 13px; color: var(--xm-ink-2); }
+  .demo-hp__text b { font-size: 18px; color: var(--xm-ink); font-variant-numeric: tabular-nums; }
+  .demo-boss__actions {
+    position: relative; display: flex; gap: 8px; margin-top: 16px;
+  }
+  .demo-boss__actions .xm-btn { flex: 1; }
+  .demo-boss__hint { position: relative; margin: 12px 0 0; color: var(--xm-ink-3); }
+
+  .demo-dmg {
+    position: absolute; left: 0; right: 0; top: 88px; height: 0;
+    display: flex; justify-content: center; pointer-events: none;
+  }
+  .demo-dmg__num {
+    position: absolute; font-size: 26px; font-weight: 800; color: var(--xm-pink-dark);
+    text-shadow: 0 2px 0 var(--xm-surface);
+    animation: demo-float 1s ease-out forwards;
+  }
+  .demo-dmg__num.is-crit { font-size: 36px; color: #f97316; }
+  @keyframes demo-float {
+    0% { opacity: 0; transform: translateY(12px) scale(.7); }
+    25% { opacity: 1; transform: translateY(0) scale(1.08); }
+    100% { opacity: 0; transform: translateY(-42px) scale(1); }
+  }
+
+  .demo-board { list-style: none; margin: 0; padding: 0; }
+  .demo-board__row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 2px; border-bottom: 1px solid var(--xm-line);
+  }
+  .demo-board__row:last-child { border-bottom: 0; }
+  .demo-board__row.is-me { background: var(--xm-pink-wash); border-radius: 8px; padding-left: 8px; }
+  .demo-board__rank { width: 22px; flex: none; text-align: center; font-size: 13px; }
+  .demo-board__avatar {
+    width: 28px; height: 28px; flex: none; border-radius: 50%; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--xm-sunken); font-size: 11px; font-weight: 700; color: var(--xm-ink-2);
+  }
+  .demo-board__avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .demo-board__name {
+    flex: 1; min-width: 0; font-size: 13px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .demo-board__dmg { font-size: 13px; color: var(--xm-pink-dark); font-variant-numeric: tabular-nums; }
+
+  /* 我的 */
+  .demo-me { display: flex; align-items: center; gap: 14px; }
+  .demo-me__avatar {
+    width: 60px; height: 60px; flex: none; border-radius: 50%; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--xm-pink-light); color: var(--xm-pink-dark);
+    font-size: 24px; font-weight: 700;
+  }
+  .demo-me__avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .demo-me__info { min-width: 0; }
+  .demo-me__info b {
+    display: block; font-size: 17px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .demo-me__info span { display: block; font-size: 12px; color: var(--xm-ink-3); margin-top: 3px; }
+
+  .demo-gold {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px;
+  }
+  .demo-gold > span:first-child { font-size: 26px; }
+  .demo-gold b { font-size: 30px; line-height: 1; color: var(--xm-ink); font-variant-numeric: tabular-nums; }
+
+  .demo-items { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
+  .demo-item {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 9px; border-radius: var(--xm-r-full);
+    background: var(--xm-sunken); font-size: 12px; color: var(--xm-ink-2);
+  }
+  .demo-item__emoji { font-size: 14px; }
+
+  .demo-gap { margin-top: 10px; }
+  .demo-block { width: 100%; display: block; margin-top: 10px; }
+
+  .demo-label {
+    display: block; margin: 14px 0 6px;
+    font-size: 12px; font-weight: 600; color: var(--xm-ink-2);
+  }
+  .demo-home-preview {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px; margin-bottom: 4px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--xm-pink-wash), var(--xm-sunken));
+    border: 1px solid var(--xm-line);
+  }
+  .demo-home-preview__emoji { font-size: 34px; }
+  .demo-home-preview__text b { display: block; font-size: 14px; }
+  .demo-home-preview__text span { display: block; font-size: 12px; color: var(--xm-ink-3); margin-top: 2px; }
+
+  .demo-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+  .demo-chip {
+    padding: 6px 11px; border-radius: var(--xm-r-full); cursor: pointer;
+    background: var(--xm-sunken); border: 1px solid transparent;
+    font: inherit; font-size: 12px; color: var(--xm-ink-2);
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .demo-chip.is-active {
+    background: var(--xm-pink-wash); border-color: var(--xm-pink);
+    color: var(--xm-pink-dark); font-weight: 600;
+  }
+  .demo-visits { margin: 12px 0 0; color: var(--xm-ink-3); }
+
+  /* 改动记录 */
+  .demo-log {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 8px 0; border-bottom: 1px solid var(--xm-line);
+    font-size: 12px;
+  }
+  .demo-log:last-child { border-bottom: 0; }
+  .demo-log__who { flex: none; max-width: 90px; color: var(--xm-ink-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .demo-log__what { flex: 1; min-width: 0; color: var(--xm-ink-2); overflow-wrap: anywhere; }
+  .demo-log__when { flex: none; color: var(--xm-ink-3); font-size: 11px; }
+
+  /* 调试 */
+  .demo-reqs { max-height: 360px; overflow: auto; }
+  .demo-req {
+    display: flex; align-items: center; gap: 7px;
+    padding: 6px 0; border-bottom: 1px solid var(--xm-line);
+    font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .demo-req:last-child { border-bottom: 0; }
+  .demo-req__method { flex: none; width: 46px; font-weight: 700; color: var(--xm-ink-2); }
+  .demo-req__path { flex: 1; min-width: 0; color: var(--xm-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .demo-req__status { flex: none; font-weight: 700; color: var(--xm-ink-3); }
+  .demo-req__status.is-ok { color: var(--xm-ok); }
+  .demo-req__status.is-bad { color: var(--xm-danger); }
+  .demo-req__ms { flex: none; width: 48px; text-align: right; color: var(--xm-ink-3); }
+
+  .demo-pre { max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+  .demo-summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--xm-ink-2); }
+
+  /* 提示 */
+  .demo-toast {
+    position: fixed; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    max-width: min(88vw, 420px);
+    padding: 10px 16px; border-radius: var(--xm-r-full);
+    background: rgba(24, 25, 28, .88); color: #fff;
+    font-size: 13px; line-height: 1.5; text-align: center;
+    box-shadow: var(--xm-lift-3); z-index: 90;
+    animation: demo-toast-in .2s ease-out;
+    backdrop-filter: blur(8px);
+  }
+  @keyframes demo-toast-in {
+    from { opacity: 0; transform: translate(-50%, 8px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
+
+  .demo-brandlink {
+    border: 0; background: none; padding: 0; font: inherit; cursor: pointer;
+    color: var(--xm-pink); font-weight: 600;
+  }
+
+  .demo-modal__note { font-size: 12px; color: var(--xm-ink-3); }
+  .demo-modal__copy {
+    margin: 14px 0 0; text-align: center;
+    font-size: 11px; color: var(--xm-ink-3); opacity: .75;
+  }
+
+  /* 串门弹窗 */
+  .demo-home-modal { text-align: left; overflow: hidden; }
+  .demo-home-modal__hero { display: flex; align-items: center; gap: 14px; }
+  .demo-home-modal__emoji {
+    font-size: 50px; line-height: 1;
+    animation: demo-bob 2.6s ease-in-out infinite;
+  }
+  .demo-home-modal__who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .demo-home-modal__avatar {
+    width: 46px; height: 46px; flex: none; border-radius: 50%; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--xm-pink-light); color: var(--xm-pink-dark);
+    font-size: 18px; font-weight: 700;
+  }
+  .demo-home-modal__avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .demo-home-modal__who-text { min-width: 0; }
+  .demo-home-modal__who-text b {
+    display: block; font-size: 16px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .demo-home-modal__who-text span { display: block; font-size: 12px; color: var(--xm-ink-3); }
+  .demo-home-modal__bell {
+    margin: 16px 0 8px; font-size: 13px; font-weight: 600; color: var(--xm-pink-dark);
+  }
+  .demo-home-modal__home {
+    padding: 16px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--xm-pink-wash), var(--xm-sunken));
+    border: 1px solid var(--xm-line);
+  }
+  .demo-home-modal__home b { display: block; font-size: 14px; }
+  .demo-home-modal__home p {
+    margin: 6px 0 0; font-size: 15px; line-height: 1.6;
+    color: var(--xm-ink); overflow-wrap: anywhere;
+  }
+  .demo-home-modal__visits { margin: 14px 0 16px; font-size: 13px; color: var(--xm-ink-2); }
+  .demo-home-modal__visits b {
+    display: inline-block; font-size: 20px; color: var(--xm-pink-dark);
+    font-variant-numeric: tabular-nums;
+  }
+  .demo-home-modal__visits b.is-pop { animation: demo-pop .45s cubic-bezier(.22, 1, .36, 1); }
+  @keyframes demo-pop {
+    0% { transform: scale(1); }
+    45% { transform: scale(1.45); }
+    100% { transform: scale(1); }
+  }
+
+  .demo-player__nohome { flex: none; font-size: 11px; color: var(--xm-ink-3); }
+
+  #authBanner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #authBanner .xm-btn { margin-left: auto; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .demo-pulse, .demo-boss__face, .demo-dmg__num, .demo-toast,
+    .demo-home-modal__emoji, .demo-home-modal__visits b { animation: none !important; }
+    .demo-hp__bar i { transition: none; }
+    .demo-tokenbar i { transition: none; }
+    .demo-chatlist { scroll-behavior: auto; }
+  }
+</style>
+
+<script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
+<script src="https://www.oxth.com:8443/xmeta-client.js"></script>
+</head>
+
+<body class="xm">
+<div class="xm-page" id="app" data-mode="guest">
+
+  <header class="demo-head">
+    <div class="demo-head__text">
+      <p class="xm-kicker">xmeta 联机</p>
+      <h1 class="xm-display">联机 Demo</h1>
+    </div>
+    <div class="demo-head__me">
+      <div class="demo-avatar" id="meAvatar"></div>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════ 未连接 ═══════════════════════════ -->
+  <section id="viewGuest">
+
+    <div class="demo-hero">
+      <div class="demo-hero__orb demo-hero__orb--1"></div>
+      <div class="demo-hero__orb demo-hero__orb--2"></div>
+      <span class="demo-hero__badge">B站 Toy · 联机身份</span>
+      <h2 class="demo-hero__title">一起玩，<br>不用交换账号。</h2>
+      <p class="demo-hero__lead">
+        申请一张只对这个 toy 有效的联机凭证。大厅、聊天、世界 Boss 里，
+        你只是一个匿名 uid —— 和其它 toy 里的身份互不相通。
+      </p>
+
+      <div class="demo-features">
+        <div><span>🪪</span><b>独立身份</b><i>不在 toy 之间串号</i></div>
+        <div><span>⚔️</span><b>一起打 Boss</b><i>inc 原子扣血</i></div>
+        <div><span>💬</span><b>大厅聊天</b><i>日志当消息流</i></div>
+        <div><span>🏠</span><b>串门</b><i>公开小窝 + 人气榜</i></div>
+      </div>
+
+      <button id="btnLogin" class="xm-btn xm-btn--primary demo-hero__btn">申请联机凭证</button>
+      <button id="btnKnow" class="xm-btn xm-btn--ghost demo-hero__btn">什么是 xmeta？</button>
+      <p class="demo-hero__foot">在中心 toy 里可以选 3 / 6 / 12 / 24 小时有效期</p>
+    </div>
+
+    <div class="xm-card demo-preview">
+      <div class="demo-section-head">
+        <div class="demo-section-title">进来之后能做什么</div>
+      </div>
+      <ul class="demo-list">
+        <li><b>大厅</b>：每 12 秒留一次心跳，在线状态从改动日志里读，不额外占数据。</li>
+        <li><b>聊天</b>：所有人写同一条数据的 <span class="xm-mono">text1</span>，历史就是这条数据的日志。</li>
+        <li><b>世界 Boss</b>：用 <span class="xm-mono">inc</span> 原子扣血，多少人同时点都不丢伤害。</li>
+        <li><b>背包</b>：私有数据；金币用 inc 加，道具放 <span class="xm-mono">extra</span>。</li>
+        <li><b>小窝</b>：公开只读，只把「串门次数」开放给别人加。</li>
+      </ul>
+    </div>
+
+    <div class="xm-alert xm-alert--error xm-hidden" id="guestErr"></div>
+  </section>
+
+  <!-- ═══════════════════════════ 已连接 ═══════════════════════════ -->
+  <section id="viewGame" class="xm-hidden">
+
+    <div class="demo-status">
+      <div class="demo-status__row">
+        <span class="xm-live" id="vState">未连接</span>
+        <span class="demo-status__sep">·</span>
+        <span class="xm-small">uid <b class="xm-mono" id="vUid">—</b></span>
+        <span class="demo-status__sep">·</span>
+        <span class="xm-small" title="凭证剩余有效时间"><b class="xm-mono" id="vLeft">—</b></span>
+      </div>
+      <div class="demo-tokenbar" aria-hidden="true"><i id="vTokenBar"></i></div>
+    </div>
+
+    <div class="xm-alert xm-alert--warn xm-hidden" id="authBanner">
+      <span><b>凭证过期了</b> —— 重新申请一次就能接着玩。</span>
+      <button id="btnReauthTop" class="xm-btn xm-btn--primary xm-btn--sm">重新申请</button>
+    </div>
+
+    <div class="xm-card xm-hidden" id="gameLoading" style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span class="xm-spinner"></span>
+      <span class="xm-small">正在进入大厅…</span>
+    </div>
+
+    <nav class="demo-tabs" role="tablist" aria-label="联机 Demo 功能">
+      <button class="demo-tab is-active" data-tab-btn="lobby" role="tab" aria-selected="true">大厅</button>
+      <button class="demo-tab" data-tab-btn="boss" role="tab" aria-selected="false">世界 Boss</button>
+      <button class="demo-tab" data-tab-btn="me" role="tab" aria-selected="false">我的</button>
+      <button class="demo-tab" data-tab-btn="debug" role="tab" aria-selected="false">调试</button>
+    </nav>
+
+    <!-- 大厅 -->
+    <section data-tab-panel="lobby">
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title"><span class="demo-pulse"></span> 在线 <b id="onlineCount">0</b></div>
+          <button id="btnRefresh" class="xm-btn xm-btn--ghost xm-btn--sm">刷新</button>
+        </div>
+        <div id="playerList" class="demo-players"></div>
+        <p class="demo-roominfo xm-small" id="roomInfo">正在找大厅…</p>
+      </div>
+
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title">大厅消息</div>
+          <span class="xm-small" id="chatHint">正在连接…</span>
+        </div>
+        <div id="chatList" class="demo-chatlist"></div>
+        <button id="btnOlderChat" class="xm-btn xm-btn--quiet xm-btn--sm demo-chat-older xm-hidden" type="button">加载更早的消息</button>
+        <form id="chatForm" class="demo-chatbar">
+          <input id="chatInput" class="xm-input" maxlength="100" placeholder="说点什么…" autocomplete="off">
+          <button id="btnSend" class="xm-btn xm-btn--primary" type="submit">发送</button>
+        </form>
+      </div>
+
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title">小窝人气榜</div>
+          <span class="xm-small">点「去看看」串个门</span>
+        </div>
+        <div id="homeBoard"></div>
+      </div>
+    </section>
+
+    <!-- 世界 Boss -->
+    <section data-tab-panel="boss" class="xm-hidden">
+      <div class="xm-card demo-boss" id="bossCard">
+        <div class="demo-boss__glow"></div>
+        <div class="demo-boss__face" id="bossFace">👹</div>
+        <h2 class="demo-boss__title">世界 Boss · 大魔王</h2>
+        <p class="demo-boss__sub">全服共用一条血量，每一下都是一次原子加减。</p>
+
+        <div class="demo-hp">
+          <div class="demo-hp__bar"><i id="hpBar"></i></div>
+          <div class="demo-hp__text">
+            <b id="hpNow">—</b><span> / </span><span id="hpMax">—</span> HP
+          </div>
+        </div>
+
+        <div class="demo-dmg" id="dmgFloat"></div>
+
+        <div class="demo-boss__actions">
+          <button id="btnAttack" class="xm-btn xm-btn--primary">攻击</button>
+          <button id="btnResetBoss" class="xm-btn xm-btn--ghost xm-hidden">重置 Boss</button>
+        </div>
+        <p id="bossHint" class="xm-small demo-boss__hint"></p>
+      </div>
+
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title">伤害榜（累计）</div>
+          <span class="xm-small" id="boardHint">统计中…</span>
+        </div>
+        <ol id="board" class="demo-board"></ol>
+      </div>
+    </section>
+
+    <!-- 我的 -->
+    <section data-tab-panel="me" class="xm-hidden">
+      <div class="xm-card demo-me">
+        <div class="demo-me__avatar" id="meBigAvatar"></div>
+        <div class="demo-me__info">
+          <b id="meName">玩家</b>
+          <span class="xm-mono">uid <span id="meUid">—</span></span>
+          <span>凭证剩余 <b id="meLeft">—</b></span>
+        </div>
+      </div>
+
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title">我的背包</div>
+          <span class="demo-badge">私有</span>
+        </div>
+        <div class="demo-gold">
+          <span>🪙</span><b id="gold">—</b><span class="xm-small">金币</span>
+        </div>
+        <div id="bagItems" class="demo-items"></div>
+        <div class="xm-actions xm-actions--row demo-gap">
+          <button id="btnWork" class="xm-btn xm-btn--outline">打工 +金币</button>
+          <button id="btnFind" class="xm-btn xm-btn--outline">捡一件道具</button>
+        </div>
+        <button id="btnClearBag" class="xm-btn xm-btn--quiet xm-btn--sm demo-block">删掉背包，重新开始</button>
+      </div>
+
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title">我的小窝</div>
+          <span class="demo-badge demo-badge--ok">公开</span>
+        </div>
+        <div id="homePreview" class="demo-home-preview"></div>
+
+        <label class="demo-label" for="homeMotto">门牌</label>
+        <input id="homeMotto" class="xm-input" maxlength="40" placeholder="写一句欢迎语" autocomplete="off">
+        <div id="themeChips" class="demo-chips"></div>
+        <button id="btnSaveHome" class="xm-btn xm-btn--primary demo-block">保存小窝</button>
+        <p class="demo-visits">
+          被串门 <b id="homeVisits">0</b> 次 · 别人只能加这个数字，改不了门牌和装扮
+        </p>
+      </div>
+
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title">最近改动</div>
+          <span class="xm-small">背包 / 小窝的日志</span>
+        </div>
+        <div id="myLogs"></div>
+      </div>
+
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title">联机凭证</div>
+        </div>
+        <p class="xm-small" style="margin-top:0">
+          凭证存在本地，刷新页面不用重新授权；到期后要回中心 toy 再申请一次。
+        </p>
+        <div class="xm-actions xm-actions--row">
+          <button id="btnReauth" class="xm-btn xm-btn--primary">重新申请凭证</button>
+          <button id="btnLogout" class="xm-btn xm-btn--ghost">清除本地凭证</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 调试 -->
+    <section data-tab-panel="debug" class="xm-hidden">
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title">请求日志</div>
+          <button id="btnClearReq" class="xm-btn xm-btn--quiet xm-btn--sm">清空</button>
+        </div>
+        <div id="reqList" class="demo-reqs"></div>
+      </div>
+
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title">凭证内容</div>
+          <span class="xm-small">payload 是明文，签名由服务端验</span>
+        </div>
+        <pre id="claims" class="xm-pre demo-pre"></pre>
+      </div>
+
+      <details class="xm-card">
+        <summary class="demo-summary">原始数据（大厅 / 背包 / 小窝）</summary>
+        <pre id="rawData" class="xm-pre demo-pre"></pre>
+      </details>
+
+      <div class="xm-card">
+        <div class="demo-section-head">
+          <div class="demo-section-title">调试动作</div>
+        </div>
+        <button id="btnRebuildLobby" class="xm-btn xm-btn--outline demo-block">换一个大厅</button>
+        <p class="xm-small" style="margin-bottom:0">
+          如果和朋友没进到同一间大厅，点这个会重新按「最早创建」挑一间。
+        </p>
+        <button id="btnOwnLobby" class="xm-btn xm-btn--outline demo-block">开一间自己的大厅（单人测试）</button>
+        <p class="xm-small" style="margin-bottom:0">
+          单人测试时用这个：大厅那条数据归你，打 Boss 只会改你自己的数据。
+          朋友进来时不会自动跟到这里，除非他们从「换一个大厅」挑到同一间。
+        </p>
+      </div>
+    </section>
+  </section>
+
+  <div class="xm-alert xm-alert--error xm-hidden" id="errBox"></div>
+
+  <div class="xm-foot">
+    <span class="xm-brand">
+      <span class="xm-brand__dot"></span>由
+      <button class="demo-brandlink" id="xmetaLink" type="button">XMETA</button>
+      提供身份服务
+    </span>
+  </div>
+
+  <div id="toast" class="demo-toast xm-hidden" role="status"></div>
+
+  <!-- xmeta 介绍 -->
+  <div id="xmetaModal" class="xm-modal xm-hidden">
+    <div class="xm-modal__mask" data-close-modal></div>
+    <div class="xm-modal__card">
+      <button class="xm-modal__close" data-close-modal aria-label="关闭">×</button>
+      <div class="xm-modal__brand"><span class="xm-brand__dot"></span>xmeta</div>
+      <p class="xm-modal__title">什么是 xmeta？</p>
+      <p class="xm-modal__body">
+        xmeta 是一个独立的<b>联机身份服务 toy</b>。
+        你在 xmeta 里的 toyOpenId 会作为你的匿名身份 —— 它和你在其它 toy 里的
+        toyOpenId 没有关系，xmeta 也看不到它们。
+      </p>
+      <p class="xm-modal__body">
+        你授权给某个 toy 时，xmeta 给它签发一张<b>只对这个 toy 有效</b>的凭证；
+        不同 toy 拿到的凭证互不通用，A toy 的凭证访问不了 B toy 的数据。
+      </p>
+      <p class="xm-modal__body">
+        授权时你可以选凭证的有效期：<b>3 / 6 / 12 / 24 小时</b>。
+        到期后回中心 toy 再申请一次。
+      </p>
+      <p class="xm-modal__body">xmeta 完全免费，不收集任何个人信息。</p>
+      <p class="xm-modal__body demo-modal__note">
+        xmeta 属自发电项目，暂无服务质量和稳定性承诺，感谢理解~ 让我们一起建设美好未来！
+      </p>
+      <button class="xm-btn xm-btn--primary demo-block" data-close-modal>知道了</button>
+      <button class="xm-btn xm-btn--ghost demo-block" id="btnGoXmeta">跳转到 xmeta</button>
+      <p class="demo-modal__copy">© 南通异元科技有限公司</p>
+    </div>
+  </div>
+
+  <!-- 串门：看一眼对方的小窝 -->
+  <div id="homeModal" class="xm-modal xm-hidden">
+    <div class="xm-modal__mask" data-close-home></div>
+    <div class="xm-modal__card demo-home-modal">
+      <button class="xm-modal__close" data-close-home aria-label="关闭">×</button>
+
+      <div class="demo-home-modal__hero">
+        <div class="demo-home-modal__emoji" id="homeModalEmoji">🏠</div>
+        <div class="demo-home-modal__who">
+          <div class="demo-home-modal__avatar" id="homeModalAvatar"></div>
+          <div class="demo-home-modal__who-text">
+            <b id="homeModalName">玩家</b>
+            <span class="xm-mono" id="homeModalUid">uid —</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="demo-home-modal__bell">叮咚～ 来串门啦</p>
+
+      <div class="demo-home-modal__home">
+        <b id="homeModalTheme">小窝</b>
+        <p id="homeModalMotto">欢迎来坐坐</p>
+      </div>
+
+      <p class="demo-home-modal__visits">
+        这是 TA 第 <b id="homeModalVisits">0</b> 次被串门
+      </p>
+
+      <button class="xm-btn xm-btn--primary demo-block" data-close-home>知道啦</button>
+    </div>
+  </div>
+</div>
+
+<script src="demo.js"></script>
+</body>
+</html>

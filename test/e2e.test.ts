@@ -603,6 +603,20 @@ test('数据：改动留日志，权限跟那条走', async () => {
   assert.equal(latest.after.text1, '第二版');
   assert.equal(first.action, 'create');
 
+  // 只回动过某个字段的记录：聊天历史靠它翻页，不会被心跳挤掉
+  const onlyText = await kv('GET', `/api/kv/logs/${uid}/log?changed=text1`, player);
+  assert.equal(onlyText.status, 200);
+  assert.equal(onlyText.json.total, 2, 'create 和 update 都动过 text1');
+  assert.ok(onlyText.json.items.every((e: any) => e.changed.includes('text1')));
+
+  const onlyTag = await kv('GET', `/api/kv/logs/${uid}/log?changed=tagInt1`, player);
+  assert.equal(onlyTag.status, 200);
+  assert.equal(onlyTag.json.total, 1);
+  assert.ok(onlyTag.json.items[0].changed.includes('tagInt1'), '筛的是「动过这个字段的记录」');
+
+  const badChanged = await kv('GET', `/api/kv/logs/${uid}/log?changed=nope`, player);
+  assert.equal(badChanged.status, 400, 'changed 只收字段名');
+
   // 公开的数据，别人看得到它的日志
   assert.equal((await kv('GET', `/api/kv/logs/${uid}/log`, stranger)).status, 200);
 
@@ -610,6 +624,32 @@ test('数据：改动留日志，权限跟那条走', async () => {
   await kv('PUT', '/api/kv/private_log', player, { text1: '私有' });
   await kv('PATCH', '/api/kv/private_log', player, { text1: '改了' });
   assert.equal((await kv('GET', `/api/kv/private_log/${uid}/log`, stranger)).status, 403);
+});
+
+test('数据：列表能按数字标签排序（排行榜），排序字段只收白名单', async () => {
+  const a = await tokenFor(`sorta_${RUN}_openid`);
+  const b = await tokenFor(`sortb_${RUN}_openid`);
+  const c = await tokenFor(`sortc_${RUN}_openid`);
+
+  await kv('PUT', '/api/kv/sortrank', a, { isPublic: true, tagInt2: 30, text1: 'a' });
+  await kv('PUT', '/api/kv/sortrank', b, { isPublic: true, tagInt2: 90, text1: 'b' });
+  await kv('PUT', '/api/kv/sortrank', c, { isPublic: true, tagInt2: 60, text1: 'c' });
+
+  const desc = await kv('GET', '/api/kv/sortrank/list?page=1&size=10&sort=tagInt2&order=desc', a);
+  assert.equal(desc.status, 200);
+  assert.deepEqual(desc.json.items.map((r: any) => r.tagInt2), [90, 60, 30]);
+
+  const asc = await kv('GET', '/api/kv/sortrank/list?page=1&size=10&sort=tagInt2&order=asc', a);
+  assert.equal(asc.status, 200);
+  assert.deepEqual(asc.json.items.map((r: any) => r.tagInt2), [30, 60, 90]);
+
+  // 只给 top N 也不用翻全量：size 就是页大小，排序在 SQL 里做
+  const top2 = await kv('GET', '/api/kv/sortrank/list?page=1&size=2&sort=tagInt2&order=desc', a);
+  assert.deepEqual(top2.json.items.map((r: any) => r.tagInt2), [90, 60]);
+  assert.equal(top2.json.hasNext, true);
+
+  const bad = await kv('GET', '/api/kv/sortrank/list?sort=extra', a);
+  assert.equal(bad.status, 400, 'extra / 文本列不在排序白名单里');
 });
 
 test(`数据：额度 ${ROW_QUOTA.user} 行，超了报 quota_exceeded`, async () => {
@@ -704,7 +744,7 @@ test('数据：ttl 是秒，1 秒~30 天；带了就续期，不带就不动', a
   );
 });
 
-test('数据：一个字段都没变时返回 modified: false，且不留日志', async () => {
+test('数据：一个字段都没变 —— 仍然返回 modified: false，但照样留日志', async () => {
   const owner = await tokenFor(PLAYER_OPENID);
   const uid = uidOf(owner);
   const body = { text1: '一模一样的', tagInt1: 3 };
@@ -726,18 +766,26 @@ test('数据：一个字段都没变时返回 modified: false，且不留日志'
   const same = await kv('PATCH', '/api/kv/noop', owner, { text1: '一模一样的' });
   assert.equal(same.json.modified, false);
 
-  // 两次空写都不该留下日志 —— 只有 create 那一条
-  assert.equal(
-    (await kv('GET', `/api/kv/noop/${uid}/log`, owner)).json.total,
-    1,
-    '没改动就不记日志',
-  );
+  // 但两次「没改动」的提交**都要留日志**：同一行可以被很多人写（问卷场景），
+  // 两个人填一样的答案也是两票 —— 只按 diff 记会把后一个人吞掉
+  let log = await kv('GET', `/api/kv/noop/${uid}/log`, owner);
+  assert.equal(log.json.total, 3, 'create + 两次原样提交，一条都不能少');
+
+  const [patchNoop, putNoop] = log.json.items;
+  assert.equal(patchNoop.action, 'update');
+  assert.deepEqual(patchNoop.changed, ['text1'], '记的是这次提交的字段');
+  assert.equal(patchNoop.after.text1, '一模一样的', '值要留下来，否则不知道他填了什么');
+  assert.deepEqual(patchNoop.before, patchNoop.after, '没变化时 before 和 after 相同');
+
+  assert.deepEqual([...putNoop.changed].sort(), ['tagInt1', 'text1'], 'PUT 提交了两个字段');
+  assert.equal(putNoop.after.text1, '一模一样的');
 
   // 续期是一次真实的改动：过期时刻动了，既是 modified，也要留痕
   const renewed = await kv('PATCH', '/api/kv/noop', owner, { ttl: 30 * 86400 });
   assert.equal(renewed.json.modified, true);
   assert.deepEqual(renewed.json.changed, ['expiresAt']);
-  assert.equal((await kv('GET', `/api/kv/noop/${uid}/log`, owner)).json.total, 2, '续期要留日志');
+  log = await kv('GET', `/api/kv/noop/${uid}/log`, owner);
+  assert.equal(log.json.total, 4, '续期也是一条');
 });
 
 test('数据：scope 不合法、extra 过大、text 过长都会被参数校验挡下', async () => {

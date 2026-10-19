@@ -1,0 +1,804 @@
+/* ==========================================================================
+   xmeta UI —— toy 端页面共用的设计系统
+   主题：B站粉 · 简洁大气
+   主色 #FB7299，白底 + 柔和阴影，顶部返回栏 + 底部导航。
+   ========================================================================== */
+
+:root {
+  /* 主色：B站粉 */
+  --xm-pink: #fb7299;
+  --xm-pink-dark: #e85a80;
+  --xm-pink-light: #ffe3ec;
+  --xm-pink-wash: #fff5f8;
+
+  /* 中性色 */
+  --xm-bg: #f6f7f8;
+  --xm-surface: #ffffff;
+  --xm-sunken: #f2f3f5;
+  --xm-line: #eceef0;
+  --xm-line-strong: #d8dadd;
+
+  --xm-ink: #18191c;
+  --xm-ink-2: #61666d;
+  --xm-ink-3: #9499a0;
+
+  /* 状态色 */
+  --xm-ok: #10b981;
+  --xm-ok-wash: #ecfdf5;
+  --xm-warn-bg: #fffbeb;
+  --xm-warn-line: #fde68a;
+  --xm-warn-ink: #b45309;
+  --xm-danger: #ef4444;
+  --xm-danger-wash: #fef2f2;
+
+  /* 圆角 */
+  --xm-r-sm: 8px;
+  --xm-r: 12px;
+  --xm-r-lg: 16px;
+  --xm-r-full: 999px;
+
+  /* 阴影 */
+  --xm-lift-1: 0 1px 2px rgba(24, 25, 28, .04);
+  --xm-lift-2: 0 2px 12px rgba(24, 25, 28, .06), 0 1px 3px rgba(24, 25, 28, .04);
+  --xm-lift-3: 0 8px 30px rgba(24, 25, 28, .10);
+  --xm-pink-glow: 0 6px 18px rgba(251, 114, 153, .28);
+
+  /* 布局尺寸 */
+  --xm-topbar-h: 48px;
+  --xm-bottomnav-h: 58px;
+  --xm-page-pad-x: 18px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --xm-bg: #0f0f10;
+    --xm-surface: #1a1a1c;
+    --xm-sunken: #222225;
+    --xm-line: #2a2a2e;
+    --xm-line-strong: #3a3a40;
+
+    --xm-ink: #f2f3f5;
+    --xm-ink-2: #a0a3a8;
+    --xm-ink-3: #6a6d73;
+
+    --xm-pink: #ff85ad;
+    --xm-pink-dark: #fb7299;
+    --xm-pink-light: #3d1f2a;
+    --xm-pink-wash: #1f1418;
+
+    --xm-ok: #34d399;
+    --xm-ok-wash: #0f2820;
+    --xm-warn-bg: #1f1a0f;
+    --xm-warn-line: #463618;
+    --xm-warn-ink: #fbbf24;
+    --xm-danger: #f87171;
+    --xm-danger-wash: #2a1414;
+
+    --xm-lift-1: 0 1px 2px rgba(0, 0, 0, .3);
+    --xm-lift-2: 0 2px 12px rgba(0, 0, 0, .4);
+    --xm-lift-3: 0 8px 30px rgba(0, 0, 0, .5);
+    --xm-pink-glow: 0 6px 18px rgba(251, 114, 153, .3);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body.xm {
+  margin: 0;
+  color: var(--xm-ink);
+  background: var(--xm-bg);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
+/* ================================================================ 顶部栏 */
+.xm-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  height: var(--xm-topbar-h);
+  padding: 0 8px;
+  padding-top: env(safe-area-inset-top, 0px);
+  background: var(--xm-surface);
+  border-bottom: 1px solid var(--xm-line);
+}
+.xm-topbar__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--xm-r-full);
+  cursor: pointer;
+  color: var(--xm-ink);
+  transition: background-color .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.xm-topbar__back:hover { background: var(--xm-sunken); }
+.xm-topbar__back svg { width: 22px; height: 22px; }
+.xm-topbar__title {
+  flex: 1;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  margin: 0;
+  /* 左右按钮各占 40px，标题用 flex:1 自然居中，不需要额外 padding */
+}
+.xm-topbar__right {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ================================================================ 底部导航 */
+.xm-bottomnav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  align-items: stretch;
+  height: calc(var(--xm-bottomnav-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--xm-surface);
+  border-top: 1px solid var(--xm-line);
+}
+.xm-bottomnav__item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px 0 4px;
+  color: var(--xm-ink-3);
+  text-decoration: none;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: color .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.xm-bottomnav__item svg {
+  width: 24px;
+  height: 24px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.xm-bottomnav__item.is-active { color: var(--xm-pink); }
+.xm-bottomnav__item:active { opacity: .6; }
+
+/* 有底部导航时，页面内容底部留白 */
+body.xm--with-nav .xm-page {
+  padding-bottom: calc(var(--xm-bottomnav-h) + 24px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ================================================================ 布局 */
+.xm-page {
+  max-width: 480px;
+  margin: 0 auto;
+  padding:
+    calc(20px + env(safe-area-inset-top, 0px))
+    calc(var(--xm-page-pad-x) + env(safe-area-inset-right, 0px))
+    calc(28px + env(safe-area-inset-bottom, 0px))
+    calc(var(--xm-page-pad-x) + env(safe-area-inset-left, 0px));
+}
+
+.xm-page--center {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* ================================================================ 字阶 */
+.xm-kicker {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--xm-pink);
+  margin: 0 0 10px;
+}
+.xm-display {
+  font-size: 26px;
+  font-weight: 750;
+  line-height: 1.24;
+  letter-spacing: -0.024em;
+  margin: 0;
+}
+.xm-title {
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.011em;
+  margin: 0;
+}
+.xm-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--xm-ink-3);
+  margin: 0 0 10px;
+}
+.xm-body { font-size: 14.5px; color: var(--xm-ink-2); margin: 0; }
+.xm-small { font-size: 13px; color: var(--xm-ink-3); margin: 0; line-height: 1.65; }
+.xm-note {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--xm-ink-3);
+  margin: 0;
+}
+.xm-mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.xm-center { text-align: center; }
+.xm-dot { color: var(--xm-ink-3); padding: 0 6px; }
+
+/* ================================================================ 品牌标记 */
+.xm-brandmark {
+  width: 76px; height: 76px;
+  margin: 0 auto;
+  border-radius: 22px;
+  background: linear-gradient(135deg, var(--xm-pink) 0%, var(--xm-pink-dark) 100%);
+  box-shadow: var(--xm-pink-glow);
+  display: flex; align-items: center; justify-content: center;
+}
+.xm-brandmark svg { width: 38px; height: 38px; display: block; }
+
+/* ================================================================ 主视觉 */
+.xm-hero { text-align: center; }
+
+.xm-hero__ring {
+  width: 92px; height: 92px;
+  margin: 0 auto;
+  padding: 5px;
+  border-radius: var(--xm-r-full);
+  background:
+    linear-gradient(var(--xm-surface), var(--xm-surface)) padding-box,
+    linear-gradient(135deg, var(--xm-pink), var(--xm-pink-dark)) border-box;
+  border: 2px solid transparent;
+  box-shadow: var(--xm-pink-glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.xm-hero__ring img {
+  width: 100%; height: 100%;
+  border-radius: var(--xm-r-full);
+  object-fit: cover;
+  display: block;
+  background: var(--xm-sunken);
+}
+.xm-hero__ring--empty {
+  background: var(--xm-pink-light);
+  border-color: transparent;
+  color: var(--xm-pink);
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.xm-hero__name {
+  margin: 18px 0 0;
+  font-size: 24px;
+  font-weight: 750;
+  line-height: 1.26;
+  letter-spacing: -0.022em;
+}
+.xm-hero__ask {
+  margin: 6px 0 0;
+  font-size: 14.5px;
+  color: var(--xm-ink-2);
+}
+
+/* ================================================================ 步骤指示 */
+.xm-steps {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 22px;
+}
+.xm-step {
+  flex: 1;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--xm-line);
+  transition: background .25s ease;
+}
+.xm-step.is-active {
+  background: linear-gradient(90deg, var(--xm-pink), var(--xm-pink-dark));
+}
+
+/* ================================================================ 对照表 */
+.xm-facts { margin: 0; }
+.xm-fact {
+  display: flex;
+  gap: 16px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--xm-line);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.xm-fact:last-child { border-bottom: 0; }
+.xm-fact__k {
+  flex: none;
+  width: 78px;
+  color: var(--xm-ink-3);
+  font-size: 13px;
+  padding-top: 1px;
+}
+.xm-fact__v { flex: 1; color: var(--xm-ink); }
+.xm-fact__v b { font-weight: 600; }
+.xm-fact--deny .xm-fact__v { color: var(--xm-ink-2); }
+
+/* ================================================================ 卡片 */
+.xm-card {
+  background: var(--xm-surface);
+  border: 1px solid var(--xm-line);
+  border-radius: var(--xm-r-lg);
+  box-shadow: var(--xm-lift-1);
+  padding: 18px;
+  margin-bottom: 14px;
+}
+.xm-card--quiet { box-shadow: none; background: var(--xm-sunken); border-color: transparent; }
+.xm-card--brand {
+  background: linear-gradient(135deg, var(--xm-pink) 0%, var(--xm-pink-dark) 100%);
+  color: #fff;
+  border: 0;
+}
+.xm-card--brand .xm-label,
+.xm-card--brand .xm-small { color: rgba(255, 255, 255, .78); }
+
+.xm-divider { height: 1px; background: var(--xm-line); margin: 16px 0; border: 0; }
+
+/* ================================================================ 键值行 */
+.xm-kv {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px; padding: 10px 0;
+  border-bottom: 1px solid var(--xm-line);
+}
+.xm-kv:first-child { padding-top: 0; }
+.xm-kv:last-child { border-bottom: 0; padding-bottom: 0; }
+.xm-kv__k { color: var(--xm-ink-3); flex: none; font-size: 13px; }
+.xm-kv__v { color: var(--xm-ink); font-size: 13.5px; text-align: right; word-break: break-all; }
+.xm-kv__v--ok { color: var(--xm-ok); font-weight: 600; }
+.xm-kv__v--muted { color: var(--xm-ink-3); }
+
+.xm-live {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600;
+}
+.xm-live::before {
+  content: "";
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--xm-ink-3); flex: none;
+}
+.xm-live--on::before {
+  background: var(--xm-ok);
+  box-shadow: 0 0 0 3px var(--xm-ok-wash);
+  animation: xm-pulse 2s ease-in-out infinite;
+}
+
+/* 中间态：授权码拿到了，但还没兑换成 JWT —— 等用户点一下 */
+.xm-live--ready::before {
+  background: var(--xm-pink);
+  box-shadow: 0 0 0 3px var(--xm-pink-wash);
+}
+@keyframes xm-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--xm-ok-wash); }
+  50% { box-shadow: 0 0 0 6px transparent; }
+}
+
+/* ================================================================ 列表项 */
+.xm-avatar {
+  width: 52px; height: 52px;
+  border-radius: var(--xm-r-full);
+  object-fit: cover; flex: none;
+  background: var(--xm-sunken);
+  box-shadow: 0 0 0 1px var(--xm-line);
+}
+
+.xm-item {
+  display: flex; align-items: center; gap: 13px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--xm-line);
+}
+.xm-item:first-child { padding-top: 0; }
+.xm-item:last-child { border-bottom: 0; padding-bottom: 0; }
+
+.xm-item__icon {
+  width: 44px; height: 44px;
+  border-radius: 12px; object-fit: cover; flex: none;
+  background: var(--xm-sunken);
+  box-shadow: 0 0 0 1px var(--xm-line);
+}
+.xm-item__body { flex: 1; min-width: 0; }
+.xm-item__title {
+  font-size: 14.5px; font-weight: 650; line-height: 1.35; margin-bottom: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.xm-item__meta {
+  font-size: 12.5px; color: var(--xm-ink-3); line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.xm-tag {
+  display: inline-block; flex: none;
+  font-size: 11px; font-weight: 650; line-height: 1.7;
+  padding: 0 9px; border-radius: var(--xm-r-full);
+  background: var(--xm-pink-light); color: var(--xm-pink-dark);
+}
+.xm-tag--ok { background: var(--xm-ok-wash); color: var(--xm-ok); }
+.xm-tag--muted { background: var(--xm-sunken); color: var(--xm-ink-3); }
+
+.xm-tag--btn {
+  border: 1px solid var(--xm-line-strong);
+  background: transparent;
+  color: var(--xm-ink-2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.6;
+  padding: 3px 10px;
+  cursor: pointer;
+  border-radius: var(--xm-r-full);
+  transition: border-color .15s ease, color .15s ease, background-color .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.xm-tag--btn:hover:not(:disabled) { border-color: var(--xm-danger); color: var(--xm-danger); background: var(--xm-danger-wash); }
+.xm-tag--btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ================================================================ 输入框 */
+.xm-input {
+  display: block;
+  width: 100%;
+  padding: 13px 15px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--xm-ink);
+  background: var(--xm-surface);
+  border: 1px solid var(--xm-line-strong);
+  border-radius: var(--xm-r);
+  outline: none;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+.xm-input::placeholder { color: var(--xm-ink-3); }
+.xm-input:focus {
+  border-color: var(--xm-pink);
+  box-shadow: 0 0 0 4px var(--xm-pink-light);
+}
+
+/* ================================================================ 分段选择 */
+.xm-seg {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.xm-seg__opt {
+  position: relative;
+  display: block;
+  padding: 12px 4px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--xm-ink-2);
+  background: var(--xm-surface);
+  border: 1px solid var(--xm-line-strong);
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color .15s ease, background-color .15s ease, color .15s ease, box-shadow .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.xm-seg__opt input { position: absolute; opacity: 0; pointer-events: none; }
+.xm-seg__opt:hover { border-color: var(--xm-ink-3); }
+.xm-seg__opt[data-checked="true"] {
+  border-color: var(--xm-pink);
+  background: var(--xm-pink-light);
+  color: var(--xm-pink-dark);
+  box-shadow: inset 0 0 0 1px var(--xm-pink);
+}
+
+/* ================================================================ 按钮 */
+.xm-actions { display: flex; flex-direction: column; gap: 10px; }
+
+.xm-btn {
+  display: block; width: 100%;
+  padding: 14px 20px;
+  font: inherit; font-size: 16px; font-weight: 650; line-height: 1.3;
+  letter-spacing: -0.005em;
+  border: 1px solid transparent;
+  border-radius: var(--xm-r);
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  transition: transform .1s ease, box-shadow .16s ease, background-color .16s ease, border-color .16s ease, opacity .16s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.xm-btn:active:not(:disabled) { transform: scale(.98); }
+
+.xm-btn--primary {
+  background: linear-gradient(135deg, var(--xm-pink) 0%, var(--xm-pink-dark) 100%);
+  color: #fff;
+  box-shadow: var(--xm-pink-glow);
+}
+.xm-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+  box-shadow: 0 8px 22px rgba(251, 114, 153, .34);
+}
+
+.xm-btn--ghost {
+  background: var(--xm-surface);
+  color: var(--xm-ink-2);
+  border-color: var(--xm-line-strong);
+  box-shadow: var(--xm-lift-1);
+}
+.xm-btn--ghost:hover:not(:disabled) { background: var(--xm-sunken); }
+
+/* 空心主色按钮：红框白底红字。用于「还不能点，但告诉你下一步干嘛」那一半 */
+.xm-btn--outline {
+  background: var(--xm-surface);
+  color: var(--xm-pink);
+  border-color: var(--xm-pink);
+}
+.xm-btn--outline:hover:not(:disabled) { background: var(--xm-pink-wash); }
+
+.xm-btn--quiet {
+  background: transparent; color: var(--xm-ink-3);
+}
+.xm-btn--quiet:hover:not(:disabled) { color: var(--xm-ink-2); }
+
+/* 小按钮：用于了解 xmeta / 关注作者 等次要操作 */
+.xm-btn--sm {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 两个小按钮并排 */
+.xm-actions--row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.xm-actions--row .xm-btn { flex: 1; }
+
+.xm-btn:disabled { opacity: .42; cursor: not-allowed; box-shadow: none; }
+
+/* xmeta 信息展开面板 */
+.xm-about {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: var(--xm-r);
+  background: var(--xm-sunken);
+  border: 1px solid var(--xm-line);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--xm-ink-2);
+}
+.xm-about b { color: var(--xm-pink); }
+.xm-about__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--xm-ink);
+  margin-bottom: 6px;
+}
+.xm-about__brand .xm-brand__dot { margin: 0; }
+
+/* ================================================================ 提示 */
+.xm-alert {
+  border-radius: var(--xm-r);
+  padding: 13px 15px;
+  font-size: 13px;
+  line-height: 1.65;
+  margin-bottom: 12px;
+}
+.xm-alert--warn { background: var(--xm-warn-bg); border: 1px solid var(--xm-warn-line); color: var(--xm-warn-ink); }
+.xm-alert--error { background: var(--xm-danger-wash); border: 1px solid var(--xm-danger); color: var(--xm-danger); }
+.xm-alert--ok { background: var(--xm-ok-wash); border: 1px solid var(--xm-ok); color: var(--xm-ok); }
+.xm-alert code, .xm-alert .xm-mono { word-break: break-all; }
+
+.xm-empty {
+  text-align: center;
+  padding: 34px 20px;
+  color: var(--xm-ink-3);
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+.xm-empty__glyph {
+  width: 46px; height: 46px;
+  margin: 0 auto 14px;
+  border-radius: 15px;
+  background: var(--xm-sunken);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; color: var(--xm-ink-3);
+}
+
+/* ================================================================ 折叠面板 */
+.xm-details {
+  border: 1px solid var(--xm-line);
+  border-radius: var(--xm-r);
+  background: var(--xm-surface);
+  padding: 14px 16px;
+}
+.xm-details summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--xm-ink-2);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.xm-details summary:hover { color: var(--xm-pink); }
+.xm-details[open] summary { margin-bottom: 12px; }
+
+/* ================================================================ 代码 */
+.xm-pre {
+  background: var(--xm-sunken);
+  border: 1px solid var(--xm-line);
+  border-radius: var(--xm-r-sm);
+  padding: 12px 14px;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--xm-ink);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+}
+
+/* ================================================================ 加载 */
+.xm-loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 44px 0; color: var(--xm-ink-3); font-size: 14px;
+}
+.xm-spinner {
+  width: 16px; height: 16px; flex: none;
+  border: 2px solid var(--xm-line-strong);
+  border-top-color: var(--xm-pink);
+  border-radius: 50%;
+  animation: xm-spin .7s linear infinite;
+}
+@keyframes xm-spin { to { transform: rotate(360deg); } }
+
+/* ================================================================ 页脚 */
+.xm-foot {
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--xm-ink-3);
+  margin-top: 28px;
+}
+.xm-brand {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-weight: 600; color: var(--xm-ink-3);
+}
+.xm-brand__dot {
+  width: 8px; height: 8px; border-radius: 3px;
+  background: var(--xm-pink); flex: none;
+}
+
+/* ================================================================ 工具 */
+.xm-hidden { display: none !important; }
+.xm-mt { margin-top: 12px; }
+.xm-mt-lg { margin-top: 24px; }
+
+/* ================================================================ 动效 */
+.xm-rise {
+  animation: xm-rise .4s cubic-bezier(.2, .7, .3, 1) both;
+}
+.xm-rise--2 { animation-delay: .05s; }
+.xm-rise--3 { animation-delay: .1s; }
+@keyframes xm-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xm-spinner { animation-duration: 2.4s; }
+  .xm-live--on::before { animation: none; }
+  .xm-btn { transition: none; }
+  .xm-rise { animation: none; }
+  .xm-step { transition: none; }
+}
+
+/* ================================================================ xmeta 介绍弹窗 */
+/* 和中心 toy 那边的 xmeta-ui.css 是同一套，demo 这份精简版只留了用得上的这几块 */
+
+.xm-brand-link {
+  color: var(--xm-pink);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.xm-brand-link:hover {
+  background: var(--xm-pink-light);
+  color: var(--xm-pink-dark);
+}
+
+.xm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.xm-modal__mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .5);
+  backdrop-filter: blur(2px);
+}
+.xm-modal__card {
+  position: relative;
+  background: var(--xm-surface);
+  border-radius: var(--xm-r-lg);
+  padding: 24px 20px 20px;
+  max-width: 360px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
+  animation: xm-rise .25s cubic-bezier(.2, .7, .3, 1) both;
+}
+.xm-modal__close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--xm-ink-3);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.xm-modal__close:hover { background: var(--xm-sunken); color: var(--xm-ink); }
+.xm-modal__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--xm-pink);
+  margin-bottom: 12px;
+}
+.xm-modal__title {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--xm-ink);
+}
+.xm-modal__body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--xm-ink-2);
+  margin: 0 0 10px;
+}
+.xm-modal__body b { color: var(--xm-ink); font-weight: 600; }

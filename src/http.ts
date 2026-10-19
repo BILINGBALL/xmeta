@@ -258,3 +258,20 @@ export const pageSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   size: z.coerce.number().int().min(1).max(100).default(20),
 });
+
+/**
+ * 改动日志的查询参数。
+ *
+ * `changed=text1` 只回「动过 text1」的那些记录 —— 聊天历史靠它翻页，
+ * 不会被同一条数据上的心跳日志挤掉。参数用**字段名**（驼峰），
+ * 服务端内部再映射成列名。
+ */
+export const logQuerySchema = pageSchema.extend({
+  changed: z
+    .string()
+    .max(32)
+    .optional()
+    .refine((v) => v === undefined || v in FIELD_TO_COLUMN, {
+      message: `changed 只支持这些字段：${Object.keys(FIELD_TO_COLUMN).join(' / ')}`,
+    }),
+});

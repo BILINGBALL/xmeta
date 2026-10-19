@@ -574,6 +574,15 @@ export async function getToyData(
   );
 }
 
+/** 列表允许排序的列。只给白名单，拼进 SQL 前必须过这里。 */
+export const LIST_SORT_COLUMNS = [
+  'tag_tinyint',
+  'tag_int1',
+  'tag_int2',
+  'tag_bigint',
+  'updated_at',
+] as const;
+
 /** 列一个 scope 下所有人的数据（分页） */
 export async function listToyData(input: {
   toyId: string;
@@ -583,6 +592,8 @@ export async function listToyData(input: {
   tagTinyint?: number | null;
   /** true = 只列 is_public 的（非作者视角）。过滤要进 SQL，否则分页和 total 都会错 */
   publicOnly?: boolean;
+  /** 排行榜用：按某一列排序（列名已由路由用白名单校验） */
+  sort?: { column: string; dir: 'asc' | 'desc' } | null;
 }): Promise<{ items: ToyDataRow[]; total: number }> {
   const params: unknown[] = [input.toyId, input.scope];
   let filter = '';
@@ -597,9 +608,19 @@ export async function listToyData(input: {
     `select count(*) as n from toy_data where ${where}`,
     params,
   );
+
+  // 排序只走白名单。没传就按 uid —— 和以前一样，分页稳定。
+  const sortable =
+    input.sort && (LIST_SORT_COLUMNS as readonly string[]).includes(input.sort.column)
+      ? input.sort
+      : null;
+  const orderBy = sortable
+    ? `${sortable.column} ${sortable.dir === 'asc' ? 'asc' : 'desc'}, uid`
+    : 'uid';
+
   const items = await query<ToyDataRow>(
     `select ${DATA_COLUMNS} from toy_data
-      where ${where} order by uid
+      where ${where} order by ${orderBy}
       limit $${params.length + 1} offset $${params.length + 2}`,
     [...params, input.size, (input.page - 1) * input.size],
   );
@@ -621,16 +642,25 @@ export async function listToyDataLog(
   dataId: string,
   page: number,
   size: number,
+  /** 只看动过这一列（库里的列名，比如 text_1）。为空表示全部 */
+  changedColumn?: string | null,
 ): Promise<{ items: ToyDataLogRow[]; total: number }> {
+  const params: unknown[] = [dataId];
+  let filter = '';
+  if (changedColumn) {
+    params.push(changedColumn);
+    filter = ' and $2 = any(changed)';
+  }
+
   const totalRow = await queryOne<{ n: string }>(
-    `select count(*) as n from toy_data_log where data_id = $1`,
-    [dataId],
+    `select count(*) as n from toy_data_log where data_id = $1${filter}`,
+    params,
   );
   const items = await query<ToyDataLogRow>(
     `select id, data_id, actor_uid, action, changed, before, after, created_at
-       from toy_data_log where data_id = $1
-      order by id desc limit $2 offset $3`,
-    [dataId, size, (page - 1) * size],
+       from toy_data_log where data_id = $1${filter}
+      order by id desc limit $${params.length + 1} offset $${params.length + 2}`,
+    [...params, size, (page - 1) * size],
   );
   return { items: items.rows, total: Number(totalRow?.n ?? 0) };
 }
@@ -777,14 +807,29 @@ export async function writeToyData(input: {
 
     // 写完再比一次：inc 的最终值只有数据库知道，事先算不出来
     const changed = diffColumns(before, row);
-    await writeLog(client, {
-      dataId: row.id,
-      actorUid: input.actorUid,
-      action: 'update',
-      changed,
-      before: pick(before, changed),
-      after: pick(row, changed),
-    });
+
+    // 没有变化 **不等于** 没有发生。
+    //
+    // 一行可能被很多人写（is_public + open_edit，比如问卷：大家都往同一个
+    // text 字段填答案）。A 填「红色」、B 也填「红色」是两次不同的提交；
+    // 只按 diff 记的话，B 在日志里就消失了 —— 而问卷恰恰是从日志里收答案的。
+    //
+    // 所以没 diff 时，把这次**提交的字段**记下来：before 和 after 相同，
+    // 但 actor 和值都在。什么都没提交（比如只带 ttl）才真的不记。
+    const submitted = [
+      ...new Set([...Object.keys(input.changes.columns), ...Object.keys(inc)]),
+    ];
+    const logged = changed.length > 0 ? changed : submitted;
+    if (logged.length > 0) {
+      await writeLog(client, {
+        dataId: row.id,
+        actorUid: input.actorUid,
+        action: 'update',
+        changed: logged,
+        before: pick(before, logged),
+        after: pick(row, logged),
+      });
+    }
     return { row, created: false, changed };
   });
 }
@@ -823,7 +868,8 @@ async function writeLog(
     after: unknown;
   },
 ): Promise<void> {
-  if (entry.changed.length === 0) return;
+  // 这里**不再**用「changed 为空就跳过」来过滤：没变化也可能是值得记的一次
+  // 提交（同一行被多人写、填了同样的值）。要不要记由调用方决定。
   await client.query(
     `insert into toy_data_log (data_id, actor_uid, action, changed, before, after)
      values ($1, $2, $3, $4, $5::jsonb, $6::jsonb)`,
