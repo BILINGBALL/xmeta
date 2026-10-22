@@ -652,6 +652,41 @@ test('数据：列表能按数字标签排序（排行榜），排序字段只�
   assert.equal(bad.status, 400, 'extra / 文本列不在排序白名单里');
 });
 
+test('数据：房间池只列展示的；房间号 / 标题能搜到隐藏房间', async () => {
+  const a = await tokenFor(`rooma_${RUN}_openid`);
+  const b = await tokenFor(`roomb_${RUN}_openid`);
+
+  await kv('PUT', '/api/kv/roompool', a, {
+    isPublic: true, tagTinyint: 1, tagBigint: '123456', text2: '热闹大厅',
+  });
+  await kv('PUT', '/api/kv/roompool', b, {
+    isPublic: true, tagTinyint: 0, tagBigint: '654321', text2: '安静小屋',
+  });
+
+  // 池子：只展示 tagTinyint=1 的
+  const shown = await kv('GET', '/api/kv/roompool/list?tagTinyint=1', a);
+  assert.equal(shown.status, 200);
+  assert.equal(shown.json.total, 1);
+  assert.equal(shown.json.items[0].text2, '热闹大厅');
+
+  // 隐藏房间仍然公开：按房间号能精确找到
+  const byNumber = await kv('GET', '/api/kv/roompool/list?tagBigint=654321', a);
+  assert.equal(byNumber.status, 200);
+  assert.equal(byNumber.json.total, 1);
+  assert.equal(byNumber.json.items[0].text2, '安静小屋');
+  assert.equal(byNumber.json.items[0].tagBigint, '654321');
+
+  // 按标题也能找到隐藏房间
+  const byTitle = await kv('GET', `/api/kv/roompool/list?q=${encodeURIComponent('小屋')}`, a);
+  assert.equal(byTitle.status, 200);
+  assert.equal(byTitle.json.total, 1);
+  assert.equal(byTitle.json.items[0].tagBigint, '654321');
+
+  // 参数校验
+  assert.equal((await kv('GET', '/api/kv/roompool/list?tagBigint=abc', a)).status, 400);
+  assert.equal((await kv('GET', '/api/kv/roompool/list?q=' + 'x'.repeat(65), a)).status, 400);
+});
+
 test(`数据：额度 ${ROW_QUOTA.user} 行，超了报 quota_exceeded`, async () => {
   // 用一个干净的人，别被前面几个用例建的行影响计数
   const fresh = await tokenFor(`quota_${RUN}_openid`);

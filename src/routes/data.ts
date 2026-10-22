@@ -184,12 +184,15 @@ function listKey(
   scope: string,
   publicOnly: boolean,
   tagTinyint: number | null,
+  tagBigint: string | null,
+  q: string | null,
   page: number,
   size: number,
   sort: { column: string; dir: string } | null,
 ): string {
   const sortKey = sort ? sort.column + ':' + sort.dir : '-';
-  return `kv:list:${toyId}:${scope}:${publicOnly ? 'pub' : 'all'}:${tagTinyint ?? '-'}:${page}:${size}:${sortKey}`;
+  return `kv:list:${toyId}:${scope}:${publicOnly ? 'pub' : 'all'}:${tagTinyint ?? '-'}:` +
+    `${tagBigint ?? '-'}:${q ?? '-'}:${page}:${size}:${sortKey}`;
 }
 
 export async function dataRoutes(
@@ -241,6 +244,25 @@ export async function dataRoutes(
       rawTag === undefined || rawTag === '' ? null : Number.parseInt(String(rawTag), 10);
 
     const tag = Number.isNaN(tagTinyint) ? null : tagTinyint;
+
+    // 房间号精确查（隐藏房间也能查到）
+    const rawBigint = (req.query as Record<string, unknown> | undefined)?.tagBigint;
+    const tagBigint =
+      rawBigint === undefined || rawBigint === null || rawBigint === ''
+        ? null
+        : String(rawBigint).trim();
+    if (tagBigint !== null && !/^\d{1,20}$/.test(tagBigint)) {
+      throw Errors.invalidParam('tagBigint 只能是数字');
+    }
+
+    // 标题模糊搜（房间池只展示 tagTinyint=1 的，搜索不受影响）
+    const rawQ = (req.query as Record<string, unknown> | undefined)?.q;
+    let q = rawQ === undefined || rawQ === null ? null : String(rawQ).trim();
+    if (q !== null && q.length > 64) {
+      throw Errors.invalidParam('q 最多 64 个字');
+    }
+    if (!q) q = null;
+
     const rawSort = String((req.query as Record<string, unknown> | undefined)?.sort ?? '');
     const rawOrder = String((req.query as Record<string, unknown> | undefined)?.order ?? 'desc').toLowerCase();
     const sortColumn = rawSort ? LIST_SORTABLE[rawSort] : null;
@@ -253,7 +275,9 @@ export async function dataRoutes(
       ? { column: sortColumn, dir: rawOrder === 'asc' ? 'asc' : 'desc' }
       : null;
     const publicOnly = !caller.isOwner;
-    const key = listKey(caller.toy.toy_id, scope, publicOnly, tag, page, size, sort);
+    const key = listKey(
+      caller.toy.toy_id, scope, publicOnly, tag, tagBigint, q, page, size, sort,
+    );
 
     const result = await cache.getOrFill<{ items: ToyDataRow[]; total: number }>(
       key,
@@ -265,6 +289,8 @@ export async function dataRoutes(
           page,
           size,
           tagTinyint: tag,
+          tagBigint,
+          q,
           publicOnly,
           sort,
         }),

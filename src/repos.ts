@@ -590,6 +590,10 @@ export async function listToyData(input: {
   page: number;
   size: number;
   tagTinyint?: number | null;
+  /** 房间号：按 tag_bigint 精确查（隐藏的房间也能查到） */
+  tagBigint?: string | null;
+  /** 标题搜索：对 text2 做模糊匹配（房间池只展示 tagTinyint=1 的） */
+  q?: string | null;
   /** true = 只列 is_public 的（非作者视角）。过滤要进 SQL，否则分页和 total 都会错 */
   publicOnly?: boolean;
   /** 排行榜用：按某一列排序（列名已由路由用白名单校验） */
@@ -601,6 +605,15 @@ export async function listToyData(input: {
   if (typeof input.tagTinyint === 'number') {
     params.push(input.tagTinyint);
     filter += ` and tag_tinyint = $${params.length}`;
+  }
+  if (input.tagBigint) {
+    params.push(input.tagBigint);
+    filter += ` and tag_bigint = $${params.length}`;
+  }
+  if (input.q) {
+    const like = `%${input.q.replace(/[\\%_]/g, '\\$&')}%`;
+    params.push(like);
+    filter += ` and text_2 ilike $${params.length} escape '\\'`;
   }
   const where = `toy_id = $1 and scope = $2 and expires_at > now()${filter}`;
 

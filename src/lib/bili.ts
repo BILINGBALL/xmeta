@@ -14,6 +14,12 @@ import { Errors } from '../errors.js';
  *       https://www.bilibilitoy.com/toy/<slug>/<toy_id>-v<build>/index.html
  *     再抓那个地址，就是作者真正发布的源码。
  *
+ *     2026-10 起，部分 toy（目前见到的都是带水印素材的）的 shell 不再
+ *     直接下发 iframe，而是一个「登录提示」页（HTTP 200，正文只有
+ *     __TOY_LOGIN_GATE__）。这些 toy 的 iframe 用的是新发布模型的
+ *     无版本号地址：https://www.bilibilitoy.com/toy/<slug>/index.html
+ *     那个地址匿名可访问，直接抓它就行，见 fetchToySource 里的兜底。
+ *
  * 两条通道都可能变更或限流，所以调用方要能容忍失败；这里不做缓存，
  * 需要缓存的话在调用方加（toy 元数据适合缓存几小时）。
  */
@@ -23,6 +29,7 @@ const DETAIL_PATH = '/x/sunflower/artifex/toy/detail';
 const SHELL_BASE = 'https://www.bilibili.com';
 /** 内容域。只允许抓这个后缀，防止被塞任意 URL 造成 SSRF。 */
 const CONTENT_HOST_SUFFIX = '.bilibilitoy.com';
+const CONTENT_BASE = 'https://www.bilibilitoy.com';
 
 const FETCH_TIMEOUT_MS = 10_000;
 const MAX_HTML_BYTES = 4 * 1024 * 1024;
@@ -184,6 +191,19 @@ export type ToySource = {
 };
 
 /**
+ * 新发布模型的 toy 内容就在内容域的无版本号路径上。
+ * shell 被换成登录提示页时，拿它当兜底。
+ */
+function directContentUrl(slug: string): string {
+  return `${CONTENT_BASE}/toy/${slug}/index.html`;
+}
+
+/** 这页是不是 B站 的登录提示页（不是 toy 源码） */
+function isLoginGate(html: string): boolean {
+  return html.includes('__TOY_LOGIN_GATE__');
+}
+
+/**
  * 抓取作者发布的 toy 源码。
  * 先抓 shell 解出内容地址，再抓内容本身。
  */
@@ -193,10 +213,31 @@ export async function fetchToySource(slug: string): Promise<ToySource> {
 
   const rawContentUrl = extractContentUrl(shellHtml);
   if (!rawContentUrl) {
-    throw Errors.upstreamFetchFailed(
-      '没能从 shell 页面里解出 iframe 地址，B站 页面结构可能变了',
-      { shellUrl },
-    );
+    // shell 里没有 iframe：多半是 B站 换成了登录提示页（见文件头的说明）。
+    // 这类 toy 用的是无版本号内容地址，浏览器里的 iframe 最终也指向它。
+    // 别因为 shell 变了就直接判认领失败。
+    const contentUrl = directContentUrl(slug);
+    let html: string;
+    try {
+      html = await fetchText(contentUrl, CONTENT_HOST_SUFFIX);
+    } catch (err) {
+      throw Errors.upstreamFetchFailed(
+        '没能从 shell 页面里解出 iframe 地址，B站 页面结构可能变了',
+        {
+          shellUrl,
+          triedUrl: contentUrl,
+          loginGate: isLoginGate(shellHtml),
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      );
+    }
+    if (isLoginGate(html)) {
+      throw Errors.upstreamFetchFailed(
+        'B站 对内容地址也要求登录了，抓不到 toy 源码',
+        { shellUrl, triedUrl: contentUrl },
+      );
+    }
+    return { shellUrl, contentUrl, html };
   }
 
   const contentUrl = assertAllowedContentUrl(rawContentUrl);
