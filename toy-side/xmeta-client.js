@@ -507,6 +507,9 @@
       jwt: res.access_token,
       uid: decodeSub(res.access_token),
       expiresAt: Date.now() + res.expires_in * 1000,
+      // 用户在过桥页自己填的展示资料，没填就是 null。不是身份信息，别拿它鉴权。
+      nickname: typeof res.nickname === 'string' && res.nickname ? res.nickname : null,
+      avatar: typeof res.avatar === 'string' && res.avatar ? res.avatar : null,
       raw: res
     }
     saveSession()
@@ -534,7 +537,14 @@
     var expiresAt = claims.exp * 1000
     if (expiresAt <= Date.now()) return false
 
-    SESSION = { jwt: jwt, uid: claims.sub || null, expiresAt: expiresAt }
+    // 从外部装进来的 token 只有字符串，拿不到展示资料
+    SESSION = {
+      jwt: jwt,
+      uid: claims.sub || null,
+      expiresAt: expiresAt,
+      nickname: null,
+      avatar: null
+    }
     saveSession()
     emit()
     return true
@@ -560,7 +570,9 @@
       localStorage.setItem(SESSION_KEY, JSON.stringify({
         jwt: SESSION.jwt,
         uid: SESSION.uid,
-        expiresAt: SESSION.expiresAt
+        expiresAt: SESSION.expiresAt,
+        nickname: SESSION.nickname,
+        avatar: SESSION.avatar
       }))
     } catch (e) { /* 隐私模式，忽略 */ }
   }
@@ -577,7 +589,14 @@
     if (!raw || !raw.jwt || !raw.expiresAt) return
     if (raw.expiresAt <= Date.now()) { clearStoredSession(); return }
 
-    SESSION = { jwt: raw.jwt, uid: raw.uid, expiresAt: raw.expiresAt }
+    SESSION = {
+      jwt: raw.jwt,
+      uid: raw.uid,
+      expiresAt: raw.expiresAt,
+      // 旧版本存下来的会话没有这两个字段
+      nickname: raw.nickname || null,
+      avatar: raw.avatar || null
+    }
     emit()
   }
 

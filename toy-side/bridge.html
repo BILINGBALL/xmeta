@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>身份授权</title>
 <link rel="stylesheet" href="xmeta-ui.css">
+<style>
+  /* 只加这一页要用的：平台资料那一行 + 头像缩略图 */
+  .kv-src { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--xm-line); }
+  .kv-src:last-of-type { border-bottom: 0; }
+  .kv-src__k { flex: none; width: 44px; font-size: 13px; color: var(--xm-ink-3); }
+  .kv-src__v { flex: 1; min-width: 0; font-size: 13px; color: var(--xm-ink); word-break: break-all; }
+  .kv-src__img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; vertical-align: middle; }
+</style>
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 </head>
 <body class="xm">
@@ -40,7 +48,11 @@
       <div class="xm-facts">
         <div class="xm-fact">
           <div class="xm-fact__k">授权</div>
-          <div class="xm-fact__v">昵称 · 头像 · 一个<b>匿名标识</b></div>
+          <div class="xm-fact__v">一个<b>匿名标识</b>（toyOpenId）</div>
+        </div>
+        <div class="xm-fact">
+          <div class="xm-fact__k">昵称头像</div>
+          <div class="xm-fact__v">由你<b>自己填写</b>，下一步可以复制自己的资料</div>
         </div>
         <div class="xm-fact">
           <div class="xm-fact__k">用于</div>
@@ -63,13 +75,49 @@
     </div>
 
     <div class="xm-actions">
-      <button class="xm-btn xm-btn--primary" id="btnAllow">允许</button>
+      <button class="xm-btn xm-btn--primary" id="btnContinue">继续</button>
       <button class="xm-btn xm-btn--ghost" id="btnDeny">拒绝</button>
     </div>
     <div class="xm-actions" style="margin-top:8px">
       <button class="xm-btn xm-btn--link xm-btn--sm" id="btnStay">留在 XMETA</button>
     </div>
+    <p class="xm-small xm-mt xm-hidden" id="consentHint" style="color:var(--xm-danger)"></p>
     <p class="xm-small xm-mt xm-hidden" id="denyHint" style="color:var(--xm-danger)"></p>
+  </section>
+
+  <!-- ②b 填写展示资料：平台资料只展示、可复制，真正提交的是用户自己粘进去的值 -->
+  <section id="s-profile" class="xm-hidden">
+    <div class="xm-card xm-rise">
+      <p class="xm-label" style="margin-bottom:2px">你的 B站 资料（只给你看，不会自动上传）</p>
+      <div class="kv-src">
+        <span class="kv-src__k">昵称</span>
+        <span class="kv-src__v" id="pfNickname">—</span>
+        <button class="xm-tag xm-tag--btn" data-copy-target="pfNickname">复制</button>
+      </div>
+      <div class="kv-src">
+        <span class="kv-src__k">头像</span>
+        <span class="kv-src__v"><img class="kv-src__img" id="pfAvatar" alt="" referrerpolicy="no-referrer" hidden></span>
+        <button class="xm-tag xm-tag--btn" data-copy-target="pfAvatarUrl">复制链接</button>
+      </div>
+      <span id="pfAvatarUrl" class="xm-hidden">—</span>
+      <p class="xm-small xm-mt">复制之后粘贴到下面。不想展示的话留空就行。</p>
+    </div>
+
+    <div class="xm-card xm-mt xm-rise xm-rise--2">
+      <p class="xm-label">在 XMETA 里展示为</p>
+      <label class="xm-small" for="inNickname" style="display:block">昵称（可不填）</label>
+      <input id="inNickname" class="xm-input" type="text" maxlength="64"
+             placeholder="粘贴或自己起一个名字" autocomplete="off" spellcheck="false">
+      <label class="xm-small" for="inAvatar" style="display:block;margin-top:10px">头像地址（可不填）</label>
+      <input id="inAvatar" class="xm-input xm-mono" type="url" maxlength="1000"
+             placeholder="https://…" autocomplete="off" spellcheck="false">
+      <p class="xm-small xm-mt xm-hidden" id="profileErr" style="color:var(--xm-danger)"></p>
+    </div>
+
+    <div class="xm-actions xm-rise xm-rise--3">
+      <button class="xm-btn xm-btn--primary" id="btnAllow">允许</button>
+      <button class="xm-btn xm-btn--ghost" id="btnBackConsent">返回</button>
+    </div>
   </section>
 
   <!-- ③ 等授权 / 签发 -->
@@ -218,7 +266,7 @@ if (CID && req && req.cid === CID) {
 // 启动时写一个标记，第三方 toy 的诊断行里就能看到，一眼确认。
 //
 // 改了这一页就把它 +1。
-const BRIDGE_VERSION = 9
+const BRIDGE_VERSION = 11
 try {
   const qs0 = new URLSearchParams(location.search)
   localStorage.setItem('xmeta:bridge', JSON.stringify({
@@ -233,7 +281,7 @@ try {
 } catch (e) { /* 忽略 */ }
 
 const $ = (id) => document.getElementById(id)
-const SECTIONS = ['s-loading', 's-consent', 's-working', 's-done', 's-error']
+const SECTIONS = ['s-loading', 's-consent', 's-profile', 's-working', 's-done', 's-error']
 
 const show = (name) => SECTIONS.forEach((s) => $(s).classList.toggle('xm-hidden', s !== name))
 
@@ -326,6 +374,10 @@ const post = (path, body) =>
 // ── 启动：确认 client_id 有效，再展示说明 ──
 async function boot() {
   show('s-loading')
+  // 重试时把上一轮拉到的资料清掉
+  platformProfile = null
+  savedProfile = { nickname: null, avatar: null }
+  lookupOk = false
   if (!CID) {
     fail('这一页不能直接打开。',
       '请回到游戏里点「开启联机」，由游戏跳转过来才会带上必要参数。')
@@ -373,31 +425,127 @@ async function boot() {
   show('s-consent')
 }
 
-// ── 用户点了「允许」—— 到这里才真正去要授权 ──
+// ── 展示资料：平台给的只用来展示/复制，提交的是用户自己粘进去的值 ──
+//
+// platformProfile 只在内存里，绝不落 localStorage。
+let platformProfile = null
+let savedProfile = { nickname: null, avatar: null }
+/** 预填接口是不是成功了。失败时提交空值要「省略字段」而不是传 null */
+let lookupOk = false
+
+const charLen = (s) => [...s].length
+
+/** 和服务端同一套规则，只是提前拦一下，省得白跑一趟 */
+function validateProfile(nickname, avatar) {
+  if (nickname) {
+    if (charLen(nickname) > 32) return '昵称最多 32 个字'
+    if (/[\u0000-\u001f\u007f<>]/.test(nickname)) return '昵称不能含特殊字符'
+  }
+  if (avatar) {
+    if (avatar.length > 1000) return '头像地址太长了'
+    if (!/^(https?:)?\/\//i.test(avatar)) return '头像必须是一个网址（https://…）'
+  }
+  return null
+}
+
+function renderProfileStep() {
+  const p = platformProfile || {}
+  $('pfNickname').textContent = p.nickname || '（没拿到昵称）'
+  $('pfAvatarUrl').textContent = p.avatar || ''
+
+  const img = $('pfAvatar')
+  if (p.avatar) { img.src = p.avatar; img.hidden = false } else { img.hidden = true }
+
+  // 预填的是**这个用户以前自己提交过**的值，不是平台资料
+  $('inNickname').value = savedProfile.nickname || ''
+  $('inAvatar').value = savedProfile.avatar || ''
+  hideInline('profileErr')
+}
+
+// ── 继续：拉平台资料 + 预填，然后进填写页 ──
+// getUserProfile 首次调用需要用户手势，所以放在点击里，不能放 boot
+$('btnContinue').addEventListener('click', async () => {
+  hideInline('consentHint')
+  $('btnContinue').disabled = true
+  try {
+    if (!platformProfile) {
+      if (!(await toy.isSupport('getUserProfile'))) {
+        throw new Error('当前环境不支持获取用户信息，可以手动填写，或请在 B站 App 内打开。')
+      }
+      const p = await toy.getUserProfile()
+      if (!p.toyOpenId) throw new Error('这款 toy 没有开启 OpenID 模式，暂时无法使用联机身份。')
+      platformProfile = p
+    }
+
+    // 预填。失败不挡授权 —— 旧服务端没有这个接口、网络抖一下都可能。
+    savedProfile = { nickname: null, avatar: null }
+    lookupOk = false
+    try {
+      const saved = await post('/api/bridge/profile', {
+        cid: CID,
+        fromToyId: srcToyId,
+        toyOpenId: platformProfile.toyOpenId
+      })
+      savedProfile = { nickname: saved.nickname || null, avatar: saved.avatar || null }
+      lookupOk = true
+    } catch (e) {
+      console.warn('[xmeta] 预填失败（不影响授权）：', e)
+    }
+
+    renderProfileStep()
+    show('s-profile')
+  } catch (e) {
+    showInline('consentHint', e.message || String(e))
+  } finally {
+    $('btnContinue').disabled = false
+  }
+})
+
+$('btnBackConsent').addEventListener('click', () => show('s-consent'))
+
+// ── 允许：本地规则 → 平台内容安全 → 提交 ──
 $('btnAllow').addEventListener('click', async () => {
+  hideInline('profileErr')
+  const nickname = $('inNickname').value.trim()
+  const avatar = $('inAvatar').value.trim()
+
+  const bad = validateProfile(nickname, avatar)
+  if (bad) return showInline('profileErr', bad)
+
   $('btnAllow').disabled = true
   try {
-    if (!(await toy.isSupport('getUserProfile'))) {
-      throw new Error('当前环境不支持获取用户信息，请在 B站 App 内或电脑浏览器打开。')
+    // 平台的内容安全检测。只在提交时调一次（有配额），空昵称直接跳过。
+    if (nickname && typeof toy.checkInputSafety === 'function' &&
+        await toy.isSupport('checkInputSafety')) {
+      let passed = false
+      let status = 'unavailable'
+      try {
+        const r = await toy.checkInputSafety({ text: nickname, scene: 'nickname' })
+        passed = !!r.passed
+        status = r.status
+      } catch (e) {
+        status = 'unavailable'
+      }
+      if (!passed) {
+        showInline('profileErr', status === 'rejected'
+          ? '这个昵称不能用，换一个试试'
+          : '暂时没法校验昵称，稍后再试，或留空昵称继续')
+        return
+      }
     }
 
-    $('workingText').textContent = '正在获取授权…'
     show('s-working')
-    const profile = await toy.getUserProfile()
-
-    if (!profile.toyOpenId) {
-      throw new Error('这款游戏没有开启 OpenID 模式，暂时无法使用联机身份。')
-    }
-
     $('workingText').textContent = '正在签发身份…'
+
+    // 预填失败时，空值要「省略字段」而不是传 null —— 后者会把已保存的资料清掉
     pendingReturn = await post('/api/bridge/authorize', {
       cid: CID,
       // 服务端拿它和 cid 反查出来的 toy 比 —— 抄来的 client_id 会在这儿被拒
       fromToyId: srcToyId,
       ttl: selectedTtl(),
-      toyOpenId: profile.toyOpenId,
-      nickname: profile.nickname,
-      avatar: profile.avatar
+      toyOpenId: platformProfile.toyOpenId,
+      nickname: nickname || (lookupOk ? null : undefined),
+      avatar: avatar || (lookupOk ? null : undefined)
     })
 
     show('s-done')
@@ -405,7 +553,31 @@ $('btnAllow').addEventListener('click', async () => {
     fail('授权没有完成。', e.message || String(e))
     // 服务端在签发那一步也会拦这一类 —— 同样给作者指条路
     if (e.code === 'source_toy_mismatch') showClaimHint()
+  } finally {
     $('btnAllow').disabled = false
+  }
+})
+
+// ── 复制按钮：复制的是页面上显示的值，不把它塞进 HTML 属性（引号会破坏属性）──
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-copy-target]')
+  if (!btn || btn.disabled) return
+  const el = $(btn.getAttribute('data-copy-target'))
+  const val = el ? el.textContent.trim() : ''
+  if (!val || val === '—' || val.charAt(0) === '（') return
+  try {
+    await navigator.clipboard.writeText(val)
+    const orig = btn.textContent
+    btn.textContent = '已复制'
+    btn.disabled = true
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false }, 1200)
+  } catch (err) {
+    // 降级：选中文本让用户自己长按复制
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
   }
 })
 
@@ -415,6 +587,8 @@ function showInline(id, msg) {
   el.textContent = msg
   el.classList.remove('xm-hidden')
 }
+
+function hideInline(id) { $(id).classList.add('xm-hidden') }
 
 /**
  * 这一跳的来源 toy id。两种参数都可能出现，优先取原生那个：
@@ -484,6 +658,14 @@ function navigateToToy(slug, extra, hintId) {
     try { opened = window.open(toyUrl(slug, params), '_blank') } catch (err) { /* 忽略 */ }
     if (opened) return // 兜底成功了
 
+    // 旧版 B站 App 的 WebView：window.open 直接返回 null，上面那条走不通。
+    // 再试一次整页跳转 —— 落到目标 toy 的 shell，由它自己加载内层 iframe。
+    // 这条路不需要弹窗权限，也不依赖瞬时手势，正好补上旧 WebView 的缺口。
+    try {
+      location.replace(toyUrl(slug, params))
+      return
+    } catch (err) { /* 落到下面统一提示 */ }
+
     showInline(hintId,
       '跳转没有成功（' + (e.message || e) + '）。请再点一次。\n' + uaDiag())
     console.warn('[xmeta] 跳转失败：', e, navigator.userActivation)
@@ -504,6 +686,8 @@ $('btnDeny').addEventListener('click', () => {
 $('btnTopBack').addEventListener('click', () => {
   if (!ctx) return
   if (pendingReturn) return returnWithCode()
+  // 正在填资料：先退回同意页，而不是直接拒掉
+  if (!$('s-profile').classList.contains('xm-hidden')) return show('s-consent')
   navigateToToy(ctx.slug, null, 'denyHint')
 })
 

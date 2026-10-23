@@ -33,9 +33,47 @@ export const identitySchema = z.object({
     .min(8, 'toyOpenId 太短，可能没开启 OpenID 模式')
     .max(512, 'toyOpenId 过长')
     .regex(/^[\x21-\x7e]+$/, 'toyOpenId 含非法字符'),
-  nickname: z.string().max(200).nullish(),
-  avatar: z.string().max(1000).nullish(),
 });
+
+/**
+ * 展示资料：昵称和头像。
+ *
+ * **这是用户自己填的，不是平台资料。** `toy.getUserProfile()` 返回的昵称/头像
+ * 只允许在过桥页上展示给用户看，由他自己复制粘贴进来 —— 不允许客户端直接上传。
+ *
+ * 三态语义（由 upsertUser 实现）：
+ *   · 字段缺省      = 不修改（`undefined`）
+ *   · `null` / 空串 = 明确清空
+ *   · 有值          = 设置
+ */
+const MAX_NICKNAME_CHARS = 32;
+
+const nicknameSchema = z
+  .string()
+  // 这个版本的 zod 没有 .normalize()，放到 transform 里做
+  .transform((v) => v.trim().normalize('NFC'))
+  .refine((v) => [...v].length <= MAX_NICKNAME_CHARS, `昵称最多 ${MAX_NICKNAME_CHARS} 个字`)
+  .refine((v) => !/[\u0000-\u001f\u007f<>]/.test(v), '昵称含非法字符')
+  .nullish()
+  // 不能写成 v => v || null：zod 对**缺省字段**也会跑 transform，那样 undefined
+  // 会被折叠成 null，等于每次授权都把旧昵称清掉。
+  .transform((v) => (v === undefined ? undefined : v || null));
+
+/** `//host/x.png`、`http://host/x.png` 一律升级成 https —— 页面跑在 https 上，http 会被拦 */
+function toHttpsUrl(v: string): string {
+  if (v.startsWith('//')) return 'https:' + v;
+  return v.replace(/^http:\/\//i, 'https://');
+}
+
+const avatarSchema = z
+  .string()
+  .trim()
+  .max(1000, '头像地址最多 1000 个字符')
+  .refine((v) => v === '' || /^(https?:)?\/\/\S+$/i.test(v), '头像必须是一个网址（会统一转成 https）')
+  .nullish()
+  .transform((v) => (v === undefined ? undefined : v ? toHttpsUrl(v) : null));
+
+export const profileFields = { nickname: nicknameSchema, avatar: avatarSchema };
 
 export const slugSchema = z
   .string()
@@ -52,7 +90,7 @@ export const refreshToySchema = identitySchema.pick({ toyOpenId: true }).extend(
   slug: slugSchema,
 });
 
-export const bridgeAuthorizeSchema = identitySchema.extend({
+export const bridgeAuthorizeSchema = identitySchema.extend(profileFields).extend({
   cid: z.string().min(1).max(128),
   /**
    * 这一跳的来源 toy_id —— 中心 toy 的授权页从地址上读出来的
@@ -68,6 +106,12 @@ export const bridgeAuthorizeSchema = identitySchema.extend({
       message: `授权时长只支持 ${ALLOWED_TOKEN_TTL_HOURS.join(' / ')} 小时`,
     })
     .nullish(),
+});
+
+/** 过桥页预填：按 toyOpenId 查这个人已经提交过的昵称/头像 */
+export const bridgeProfileSchema = identitySchema.extend({
+  cid: z.string().min(1).max(128),
+  fromToyId: z.string().regex(/^\d+$/, '来源 toy_id 只能是数字'),
 });
 
 export const introspectSchema = z.object({

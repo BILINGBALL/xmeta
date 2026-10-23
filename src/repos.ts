@@ -63,14 +63,24 @@ export type AuthCodeRow = {
  */
 export async function upsertUser(input: {
   toyOpenId: string;
+  /**
+   * 三态：`undefined` = 不改，`null` = 清空，字符串 = 设置。
+   *
+   * 不能再用 coalesce —— 那样区分不了「没提供」和「明确清空」，用户就永远
+   * 改不掉（也删不掉）自己填过的昵称。
+   */
   nickname?: string | null;
   avatar?: string | null;
 }): Promise<AppUser> {
+  const nicknameSet = input.nickname !== undefined;
+  const avatarSet = input.avatar !== undefined;
   const params = [
     config.MY_TOY_ID,
     input.toyOpenId,
     input.nickname ?? null,
     input.avatar ?? null,
+    nicknameSet,
+    avatarSet,
   ];
 
   // 先试 UPDATE。
@@ -85,8 +95,8 @@ export async function upsertUser(input: {
   // 代价只有一个：新用户多一次往返（老用户仍是一次）—— 几乎没有代价。
   const updated = await queryOne<AppUser>(
     `update app_user
-        set nickname     = coalesce($3, nickname),
-            avatar       = coalesce($4, avatar),
+        set nickname     = case when $5 then $3 else nickname end,
+            avatar       = case when $6 then $4 else avatar end,
             last_seen_at = now()
       where home_toy_id = $1 and toy_open_id = $2
       returning id, home_toy_id, toy_open_id, nickname, avatar`,
@@ -101,8 +111,8 @@ export async function upsertUser(input: {
     `insert into app_user (home_toy_id, toy_open_id, nickname, avatar, last_seen_at)
      values ($1, $2, $3, $4, now())
      on conflict (home_toy_id, toy_open_id) do update
-        set nickname     = coalesce(excluded.nickname, app_user.nickname),
-            avatar       = coalesce(excluded.avatar, app_user.avatar),
+        set nickname     = case when $5 then excluded.nickname else app_user.nickname end,
+            avatar       = case when $6 then excluded.avatar else app_user.avatar end,
             last_seen_at = now()
      returning id, home_toy_id, toy_open_id, nickname, avatar`,
     params,
@@ -549,6 +559,21 @@ export async function getProfileInToy(toyId: string, uid: string): Promise<UserP
        join identity_usage iu on iu.uid = u.id and iu.toy_id = $2
       where u.id = $1`,
     [uid, toyId],
+  );
+}
+
+/**
+ * 过桥页预填用：只读这个人的昵称/头像。
+ *
+ * **不调用 upsertUser** —— 一次查询不该把人“造”出来，也不该刷 last_seen_at。
+ * 没这个人时返回 null，接口层统一回 `{ nickname: null, avatar: null }`。
+ */
+export async function getDisplayProfile(
+  toyOpenId: string,
+): Promise<{ nickname: string | null; avatar: string | null } | null> {
+  return queryOne(
+    `select nickname, avatar from app_user where home_toy_id = $1 and toy_open_id = $2`,
+    [config.MY_TOY_ID, toyOpenId],
   );
 }
 

@@ -130,15 +130,13 @@ XMETA.onSession(s => console.log('uid =', s.uid, 'jwt =', s.jwt))
 **请求**
 
 ```json
-{
-  "toyOpenId": "xxxxxx",
-  "nickname": "昵称",
-  "avatar": "https://...",
-  "slug": "your-toy-slug"
-}
+{ "toyOpenId": "xxxxxx", "slug": "your-toy-slug" }
 ```
 
-`nickname` / `avatar` 可选。`slug` 只能含字母、数字、下划线、短横线，最长 64。
+`slug` 只能含字母、数字、下划线、短横线，最长 64。
+
+> **不再接收 `nickname` / `avatar`** —— 认领只需要匿名标识。老页面上多传的
+> 字段会被直接忽略，不会落库。
 
 **响应** —— 还没认领过（有 `nonce` 和指引）：
 
@@ -183,8 +181,10 @@ XMETA.onSession(s => console.log('uid =', s.uid, 'jwt =', s.jwt))
 **请求**
 
 ```json
-{ "toyOpenId": "xxxxxx", "nickname": "昵称", "avatar": "https://...", "slug": "your-toy-slug" }
+{ "toyOpenId": "xxxxxx", "slug": "your-toy-slug" }
 ```
+
+同样不再接收昵称/头像。
 
 **响应**
 
@@ -298,9 +298,33 @@ XMETA.onSession(s => console.log('uid =', s.uid, 'jwt =', s.jwt))
 
 ---
 
+### POST /api/bridge/profile
+
+过桥页预填用：这个 `toyOpenId` 以前提交过昵称/头像吗？
+
+**请求**
+
+```json
+{ "cid": "xmeta_xxx", "fromToyId": "27289601636352", "toyOpenId": "xxxxxx" }
+```
+
+**响应**
+
+```json
+{ "nickname": "小明", "avatar": "https://..." }
+```
+
+没有这个人、或者这个人没填过，都是两个 `null` —— 两者不区分，少一个存在性探针。
+只回展示资料，不回 uid / 任何身份信息。用 POST 而不是 GET：`toyOpenId` 是
+密钥级数据，不能进 URL 和日志。
+
+**错误**：`client_not_found`(404)、`toy_not_verified`(403)、`source_toy_mismatch`(403)、`rate_limited`(429)。
+
+---
+
 ### POST /api/bridge/authorize
 
-用户点了「同意授权」之后调用，请求体里带 `toy.getUserProfile()` 的结果。
+用户点了「允许」之后调用。`toyOpenId` 来自 `toy.getUserProfile()`；`nickname` / `avatar` 是**用户在页面上自己粘贴的**，不是平台资料 —— 平台返回的头像昵称只在页面上展示、供用户复制。
 
 **请求**
 
@@ -320,6 +344,8 @@ XMETA.onSession(s => console.log('uid =', s.uid, 'jwt =', s.jwt))
 | `cid` | 要授权的 client_id，最长 128 |
 | `fromToyId` | **必填**。这一跳来自哪个 toy_id —— 授权页从地址上读出来的（App 端是原生拼的 `from_spmid`，Web 端是 SDK 拼的 `spm_id_from`）。服务端拿它和 cid 反查出来的 toy 比，对不上直接 `403` |
 | `ttl` | 可选，用户选的授权时长（小时），只接受 `3` / `6` / `12` / `24`。不传按 `6` |
+| `nickname` | 用户自己填的昵称，可选。三态：**不传 = 不改**、`null` / 空串 = 清空、有值 = 设置。≤ 32 个字，不许控制字符和 `<>` |
+| `avatar` | 用户自己填的头像地址，可选。同上三态。必须 `http(s)://` 或 `//`，会统一升成 `https://` |
 
 **响应**
 
@@ -368,11 +394,16 @@ XMETA.onSession(s => console.log('uid =', s.uid, 'jwt =', s.jwt))
   "token_type": "Bearer",
   "expires_in": 21600,
   "audience": "27289601636352",
-  "toy_slug": "your-toy-slug"
+  "toy_slug": "your-toy-slug",
+  "nickname": "用户自己填的昵称",
+  "avatar": "https://用户自己填的头像"
 }
 ```
 
 `audience` 就是你的 toy_id，方便自检这枚 token 只对你有效。`expires_in` 是用户选的那个时长（秒）。
+
+`nickname` / `avatar` 是这个用户**自己填的展示资料**，没填就是 `null`。它们只是
+展示用，**不是鉴权信息**，别拿它做身份判断。
 
 **错误**
 
@@ -469,7 +500,7 @@ Payload：
 | `tagTinyint` | 0 ~ 255 | 数字标签。当 boolean 用就传 0/1 |
 | `tagInt1` | ±32767 | 数字标签 |
 | `tagInt2` | ±21 亿 | 数字标签 |
-| `tagBigint` | 字符串 | 超出 JS 安全整数，所以**收字符串**（`"-9007199254740993"`），也收小整数 |
+| `tagBigint` | 字符串 | 超出 JS 安全整数，所以**收字符串**（`"-9007199254740993"`），也收小整数。**响应里一律是字符串**（包括 `"0"`），因为 PostgreSQL 的 bigint 是用字符串返回的 |
 | `text1` | ≤ 128 字符 | |
 | `text2` | ≤ 512 字符 | |
 | `textLong` | ≤ 1024 字符 | 超长请放 `extra` |
@@ -518,6 +549,8 @@ Payload：
 | `page` | 1 | |
 | `size` | 20 | 一页最多 100 |
 | `tagTinyint` | — | 按这个数字标签精确筛选 |
+| `tagBigint` | — | 按这个整数标签精确筛选（房间号这类 6~10 位数字） |
+| `q` | — | 按 `text2` 模糊搜索（标题），最多 64 字 |
 | `sort` | — | 按字段排序：`tagTinyint` / `tagInt1` / `tagInt2` / `tagBigint` / `updatedAt`。**只收这几个**，别的不收 |
 | `order` | `desc` | `asc` / `desc` |
 
@@ -536,6 +569,13 @@ Payload：
 >
 > 这样请求次数只跟「要取多少名」有关，跟「一共打了多少次」无关。
 > 列表仍然最多缓存 30 秒；刚写入的那一行以写接口的返回为准。
+
+> **房间池 / 隐藏房间**
+>
+> `tagTinyint` 的语义由玩具自己定。Demo 里 `1 = 展示`、`0 = 不展示`：
+> 房间池用 `?tagTinyint=1`；`tagBigint` 和 `q` 不看这个标记，所以未展示的
+> 房间只要知道房间号或标题就能搜到。它们仍然是 `isPublic: true`，
+> **不是私密房间** —— 只是不主动列出来。
 
 ---
 
@@ -608,6 +648,9 @@ Payload：
 ```
 
 只认 `tagTinyint` / `tagInt1` / `tagInt2` / `tagBigint` 四个数字标签。
+
+> `inc` 里的 `tagBigint` **只收数字**（服务端用数字做增量）；普通字段赋值时
+> `tagBigint` 才收字符串或小整数。响应里的 `tagBigint` 永远是字符串。
 
 **为什么需要它**：客户端「读出来 + 2 再写回去」在并发下必然丢更新（A 读到 1、B 也读到 1，各写 3 和 4，最后是 4 不是 6）。把**增量**交给服务端，一条 `col = col + $n` 才是原子的 —— 同行并发加减永远不会丢。
 
@@ -733,7 +776,7 @@ GET /api/kv/lobby/<uid>/log?page=1&size=100&changed=text1
 
 > **为什么要这道限制**：`uid` 是全平台唯一的，放开就等于开了一个「拿 uid 枚举全平台用户资料」的入口。限定在自己 toy 的玩家范围里，排行榜那种场景照样够用。
 >
-> 昵称/头像是**客户端上报的**（`getUserProfile` 来的），只当展示用，别拿它做鉴权或唯一性判断。头像 URL 是 B站 CDN 的，前端记得加 `referrerPolicy="no-referrer"`。
+> 昵称/头像是**用户在过桥页自己填的**，只当展示用，别拿它做鉴权或唯一性判断。头像 URL 是 B站 CDN 的，前端记得加 `referrerPolicy="no-referrer"`。
 
 ---
 
@@ -764,7 +807,7 @@ tagTinyint   tagInt1   tagInt2   tagBigint   text1   text2   textLong
   "tagTinyint": 1,
   "tagInt1": 100,
   "tagInt2": 0,
-  "tagBigint": 0,
+  "tagBigint": "0",
   "text1": "我的背包",
   "text2": null,
   "textLong": null,

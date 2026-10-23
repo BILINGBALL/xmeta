@@ -54,11 +54,8 @@ export async function claimRoutes(
     limit(req, 'claim:start', CLAIM_LIMIT.max, CLAIM_LIMIT.windowMs);
 
     const body = parse(startClaimSchema, req.body);
-    const user = await upsertUser({
-      toyOpenId: body.toyOpenId,
-      nickname: body.nickname ?? null,
-      avatar: body.avatar ?? null,
-    });
+    // 认领只需要 toyOpenId —— 昵称/头像不再上传（B站 运营要求）
+    const user = await upsertUser({ toyOpenId: body.toyOpenId });
 
     const detail = await fetchToyDetail(body.slug);
     if (!detail) throw Errors.toyNotFound(body.slug);
@@ -115,11 +112,7 @@ export async function claimRoutes(
     limit(req, 'claim:verify', VERIFY_LIMIT.max, VERIFY_LIMIT.windowMs);
 
     const body = parse(verifyClaimSchema, req.body);
-    const user = await upsertUser({
-      toyOpenId: body.toyOpenId,
-      nickname: body.nickname ?? null,
-      avatar: body.avatar ?? null,
-    });
+    const user = await upsertUser({ toyOpenId: body.toyOpenId });
 
     const toy = await getToyBySlug(body.slug);
     if (!toy) throw Errors.toyNotFound(body.slug);

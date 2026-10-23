@@ -41,8 +41,8 @@
     </div>
 
     <p class="xm-note xm-mt">
-      点「下一步」时会请求一次你的公开资料（昵称、头像）来确认身份。
-      平台会弹出确认框，你也可以拒绝。
+      点「下一步」时会请求一次你在本 toy 内的<b>匿名标识</b>来确认身份。
+      昵称和头像不会被读取上传。平台会弹出确认框，你也可以拒绝。
     </p>
 
     <div class="xm-actions xm-mt-lg">
@@ -249,11 +249,10 @@ $('btnStart').addEventListener('click', async () => {
   $('btnStart').disabled = true
   try {
     const p = await ensureProfile()
+    // 只上报匿名标识 —— 昵称/头像不上传（B站 运营要求）
     const res = await post('/api/claim/start', {
       slug,
-      toyOpenId: p.toyOpenId,
-      nickname: p.nickname,
-      avatar: p.avatar
+      toyOpenId: p.toyOpenId
     })
 
     if (res.state === 'verified') {
@@ -296,9 +295,7 @@ $('btnVerify').addEventListener('click', async () => {
     const p = await ensureProfile()
     const res = await post('/api/claim/verify', {
       slug: slugValue(),
-      toyOpenId: p.toyOpenId,
-      nickname: p.nickname,
-      avatar: p.avatar
+      toyOpenId: p.toyOpenId
     })
     $('clientId').textContent = res.clientId || '(无)'
     $('doneText').textContent = '这款 toy 已经归你所有。'

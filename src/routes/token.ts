@@ -8,6 +8,7 @@ import {
   consumeAuthCode,
   getClient,
   getToyById,
+  getUserById,
   peekAuthCode,
   recordUsage,
 } from '../repos.js';
@@ -73,6 +74,10 @@ export async function tokenRoutes(app: FastifyInstance): Promise<void> {
       ttlSeconds,
     });
 
+    // 用户自己填的展示资料 —— 没填过就是 null。
+    // 放在响应里是为了让 toy 不用为了显示名字再问一次；它不是鉴权信息。
+    const user = await getUserById(row.uid);
+
     return {
       access_token: token.accessToken,
       token_type: 'Bearer' as const,
@@ -80,6 +85,8 @@ export async function tokenRoutes(app: FastifyInstance): Promise<void> {
       /** 方便接入方自检：这个 token 只对下面这个 toy 有效 */
       audience: toy.toy_id,
       toy_slug: toy.slug,
+      nickname: user?.nickname ?? null,
+      avatar: user?.avatar ?? null,
     };
   });
 }

@@ -65,6 +65,24 @@ async function post(url: string, body: unknown): Promise<{ status: number; json:
   return { status: res.statusCode, json: JSON.parse(res.body) };
 }
 
+/**
+ * 换一个来源 IP 发请求。
+ *
+ * 过桥接口按 IP 限流 30 次/分钟，而整套用例默认都从 127.0.0.1 出来 ——
+ * 老用例正好用满那个额度，新用例再挤进来就会把别人挤成 429（表现为 token
+ * 拿不到、后面的请求 401）。新增用例换一个 IP，不动老用例的预算。
+ */
+async function postFrom(ip: string, url: string, body: unknown): Promise<{ status: number; json: any }> {
+  const res = await app.inject({
+    method: 'POST',
+    url,
+    payload: body as object,
+    headers: { 'content-type': 'application/json' },
+    remoteAddress: ip,
+  });
+  return { status: res.statusCode, json: JSON.parse(res.body) };
+}
+
 before(async () => {
   await runMigrations();
   app = await buildApp({ bili: stubBili, cache: testCache });
@@ -188,6 +206,141 @@ test('client_id 对不上的兑换失败，而且 code 会被烧掉', async () =
   assert.equal(retry.json.error.code, 'code_used');
 });
 
+test('过桥资料：自己填的昵称/头像能预填，也能随 JWT 一起带回', async () => {
+  const openid = `prof_${RUN}_openid`;
+  const nick = '玩家甲乙丙';
+
+  const auth = await postFrom('10.9.0.1', '/api/bridge/authorize', {
+    cid: clientId,
+    fromToyId: TOY_ID,
+    toyOpenId: openid,
+    nickname: nick,
+    // 相对协议地址：服务端要把它升成 https
+    avatar: '//i0.hdslb.com/bfs/face/x.png',
+  });
+  assert.equal(auth.status, 200);
+
+  const saved = await postFrom('10.9.0.1', '/api/bridge/profile', {
+    cid: clientId,
+    fromToyId: TOY_ID,
+    toyOpenId: openid,
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.json.nickname, nick, '预填要能拿回用户自己填的值');
+  assert.equal(saved.json.avatar, 'https://i0.hdslb.com/bfs/face/x.png', '相对协议地址要升级成 https');
+
+  const tok = await postFrom('10.9.0.1', '/api/oauth/token', {
+    grant_type: 'authorization_code',
+    code: auth.json.code,
+    client_id: clientId,
+  });
+  assert.equal(tok.status, 200);
+  assert.equal(tok.json.nickname, nick, '换 JWT 时要把资料带回来');
+  assert.equal(tok.json.avatar, 'https://i0.hdslb.com/bfs/face/x.png');
+});
+
+test('过桥资料：不传就保留，传 null 才清空', async () => {
+  const openid = `prof2_${RUN}_openid`;
+  const base = { cid: clientId, fromToyId: TOY_ID, toyOpenId: openid };
+  const get = () => post('/api/bridge/profile', base);
+
+  // 第一次：都填上
+  await postFrom('10.9.0.1', '/api/bridge/authorize', {
+    ...base,
+    nickname: '甲',
+    avatar: 'https://a.example/x.png',
+  });
+
+  // 只传昵称 → 头像保留
+  await postFrom('10.9.0.1', '/api/bridge/authorize', { ...base, nickname: '乙' });
+  let p = await get();
+  assert.equal(p.json.nickname, '乙');
+  assert.equal(p.json.avatar, 'https://a.example/x.png', '没传的字段要保留');
+
+  // 昵称传 null → 清空；头像仍然保留
+  await postFrom('10.9.0.1', '/api/bridge/authorize', { ...base, nickname: null });
+  p = await get();
+  assert.equal(p.json.nickname, null, 'null 是明确清空');
+  assert.equal(p.json.avatar, 'https://a.example/x.png');
+
+  // 空串也等于清空
+  await postFrom('10.9.0.1', '/api/bridge/authorize', { ...base, avatar: '' });
+  p = await get();
+  assert.equal(p.json.avatar, null, '空串等于清空');
+});
+
+test('过桥资料：没填过的人预填返回两个 null，不报错也不建用户', async () => {
+  const openid = `nobody_${RUN}_openid`;
+  const res = await postFrom('10.9.0.1', '/api/bridge/profile', {
+    cid: clientId,
+    fromToyId: TOY_ID,
+    toyOpenId: openid,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.nickname, null);
+  assert.equal(res.json.avatar, null);
+
+  // 预填不该把人“造”出来
+  const row = await pool.query(`select id from app_user where toy_open_id = $1`, [openid]);
+  assert.equal(row.rowCount, 0, '预填只读，不能建用户');
+});
+
+test('过桥资料：预填接口也要核对 cid 和来源', async () => {
+  const openid = `src_${RUN}_openid`;
+
+  const wrongSource = await postFrom('10.9.0.1', '/api/bridge/profile', {
+    cid: clientId,
+    fromToyId: '1',
+    toyOpenId: openid,
+  });
+  assert.equal(wrongSource.status, 403);
+  assert.equal(wrongSource.json.error.code, 'source_toy_mismatch');
+
+  const badCid = await postFrom('10.9.0.1', '/api/bridge/profile', {
+    cid: 'xmeta_not_a_client',
+    fromToyId: TOY_ID,
+    toyOpenId: openid,
+  });
+  assert.equal(badCid.status, 404);
+});
+
+test('过桥资料：长度、字符和头像协议都会被挡', async () => {
+  const base = { cid: clientId, fromToyId: TOY_ID, toyOpenId: `bad_${RUN}_openid` };
+  const cases: Record<string, unknown>[] = [
+    { nickname: 'x'.repeat(33) },            // 超过 32 个字符
+    { nickname: 'a\u0000b' },                 // 控制字符
+    { nickname: '<script>' },                // 尖括号
+    { avatar: 'data:image/png;base64,xxx' }, // 非 http(s)
+    { avatar: 'javascript:alert(1)' },
+    { avatar: 'ftp://x/y.png' },
+  ];
+  for (const c of cases) {
+    const res = await postFrom('10.9.0.1', '/api/bridge/authorize', { ...base, ...c });
+    assert.equal(res.status, 400, `应该被拒：${JSON.stringify(c)}`);
+  }
+});
+
+test('认领：不再接收昵称/头像', async () => {
+  const openid = `claimprof_${RUN}_openid`;
+  // 认领的是本测试自己的 toy（已经认领过），会 409；
+  // 但 upsertUser 在这之前就跑完了，正好用来验证字段有没有落库。
+  const res = await postFrom('10.9.0.1', '/api/claim/start', {
+    slug: SLUG,
+    toyOpenId: openid,
+    nickname: '不该落库',
+    avatar: 'https://x.example/y.png',
+  });
+  assert.ok(res.status === 409 || res.status === 200, `实际 ${res.status}`);
+
+  const row = await pool.query<{ nickname: string | null; avatar: string | null }>(
+    `select nickname, avatar from app_user where toy_open_id = $1`,
+    [openid],
+  );
+  assert.equal(row.rowCount, 1, '用户应该已经建出来了');
+  assert.equal(row.rows[0]!.nickname, null, '认领不再写昵称');
+  assert.equal(row.rows[0]!.avatar, null, '认领不再写头像');
+});
+
 test('换 JWT：签名与 claims 都正确', async () => {
 
   const { json: auth } = await post('/api/bridge/authorize', {
@@ -204,6 +357,8 @@ test('换 JWT：签名与 claims 都正确', async () => {
 
   assert.equal(status, 200);
   assert.equal(json.token_type, 'Bearer');
+  assert.ok('nickname' in json, '响应里带昵称字段');
+  assert.ok('avatar' in json, '响应里带头像字段');
   assert.equal(json.audience, TOY_ID);
 
   // 用发布的 JWKS 验签

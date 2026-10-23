@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { config, DEFAULT_TOKEN_TTL_HOURS } from '../config.js';
 import { Errors } from '../errors.js';
-import { bridgeAuthorizeSchema, parse } from '../http.js';
+import { bridgeAuthorizeSchema, bridgeProfileSchema, parse } from '../http.js';
 import { normalizeIconUrl } from '../lib/bili.js';
 import { randomToken } from '../lib/ids.js';
 import { rateLimit } from '../lib/ratelimit.js';
-import { getClient, getToyById, insertAuthCode, upsertUser } from '../repos.js';
+import { getClient, getDisplayProfile, getToyById, insertAuthCode, upsertUser } from '../repos.js';
 
 /**
  * Phase 1 —— 用户过桥。
@@ -21,6 +21,23 @@ import { getClient, getToyById, insertAuthCode, upsertUser } from '../repos.js';
  *    这么点体量的玩具不值得让接入方去理解 verifier/challenge。
  */
 
+/**
+ * cid → 校验过的 client 和 toy。
+ *
+ * 三个入口（context / authorize / profile）共用：cid 存在、没被撤销、
+ * 对应的 toy 已经完成认领。省得每处抄一遍、漏一处。
+ */
+async function verifiedClient(cid: string) {
+  const client = await getClient(cid);
+  if (!client || client.revoked_at) throw Errors.clientNotFound();
+
+  const toy = await getToyById(client.toy_id);
+  if (!toy) throw Errors.clientNotFound();
+  if (toy.state !== 'verified') throw Errors.toyNotVerified();
+
+  return { client, toy };
+}
+
 export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
   /** 过桥页加载时用：确认这个 client_id 有效，拿到要展示的 toy 信息 */
   app.get('/api/bridge/context', async (req: FastifyRequest) => {
@@ -32,12 +49,7 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
       throw Errors.invalidParam('缺少 cid');
     }
 
-    const client = await getClient(cid);
-    if (!client || client.revoked_at) throw Errors.clientNotFound();
-
-    const toy = await getToyById(client.toy_id);
-    if (!toy) throw Errors.clientNotFound();
-    if (toy.state !== 'verified') throw Errors.toyNotVerified();
+    const { client, toy } = await verifiedClient(cid);
 
     return {
       clientId: client.client_id,
@@ -53,19 +65,38 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  /** 用户在过桥页点了「开始授权」之后调用，body 里带 getUserProfile 的结果 */
+  /**
+   * 过桥页预填：这个 toyOpenId 以前提交过昵称/头像吗？
+   *
+   * 只回展示资料，不回 uid、也不区分「没这个人」和「这个人没填」—— 两种情况
+   * 都是两个 null，少一个存在性探针。
+   *
+   * 用 POST 而不是 GET：toyOpenId 是密钥级数据，不能进 query / 日志。
+   */
+  app.post('/api/bridge/profile', async (req) => {
+    // 单独一个桶，免得预填把 authorize 的 30 次/分钟额度吃掉
+    const rl = rateLimit(`bridge:prof:${req.ip}`, 30, 60_000);
+    if (!rl.ok) throw Errors.rateLimited(rl.retryAfter);
+
+    const body = parse(bridgeProfileSchema, req.body);
+    const { toy } = await verifiedClient(body.cid);
+    if (body.fromToyId !== toy.toy_id) throw Errors.sourceToyMismatch();
+
+    const saved = await getDisplayProfile(body.toyOpenId);
+    return {
+      nickname: saved?.nickname ?? null,
+      avatar: saved?.avatar ?? null,
+    };
+  });
+
+  /** 用户在过桥页点了「允许」之后调用 */
   app.post('/api/bridge/authorize', async (req) => {
     const rl = rateLimit(`bridge:auth:${req.ip}`, 30, 60_000);
     if (!rl.ok) throw Errors.rateLimited(rl.retryAfter);
 
     const body = parse(bridgeAuthorizeSchema, req.body);
 
-    const client = await getClient(body.cid);
-    if (!client || client.revoked_at) throw Errors.clientNotFound();
-
-    const toy = await getToyById(client.toy_id);
-    if (!toy) throw Errors.clientNotFound();
-    if (toy.state !== 'verified') throw Errors.toyNotVerified();
+    const { client, toy } = await verifiedClient(body.cid);
 
     // 来源必须是这枚 client_id 自己的 toy。
     //
@@ -78,10 +109,12 @@ export async function bridgeRoutes(app: FastifyInstance): Promise<void> {
     // 抄的人连原 toy 的 id 都不知道（更别说伪造），所以这道能把他挡在门外。
     if (body.fromToyId !== toy.toy_id) throw Errors.sourceToyMismatch();
 
+    // 昵称/头像不传就是 undefined —— upsertUser 按「不改」处理。
+    // 传 null 才是明确清空。三种语义见 src/http.ts 的 profileFields。
     const user = await upsertUser({
       toyOpenId: body.toyOpenId,
-      nickname: body.nickname ?? null,
-      avatar: body.avatar ?? null,
+      nickname: body.nickname,
+      avatar: body.avatar,
     });
 
     const code = randomToken(32);

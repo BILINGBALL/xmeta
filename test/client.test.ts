@@ -647,3 +647,74 @@ test('onSession 回调抛错，不该把调用方的脚本一起带走', () => {
   sb.XMETA.onSession(() => { reached = true; });
   assert.equal(reached, true, '后面的注册应该照常执行');
 });
+
+// ── 展示资料：用户自己填的昵称/头像 ──
+
+test('换到 token 后，session 里带上昵称/头像，并持久化', async () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+  seedCode(sb, { code: 'P', returnSlug: MY_SLUG });
+
+  sb.__fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      access_token: `h.${Buffer.from(JSON.stringify({ sub: '42' })).toString('base64url')}.s`,
+      token_type: 'Bearer',
+      expires_in: 3600,
+      nickname: '小明',
+      avatar: 'https://i0.hdslb.com/x.png',
+    }),
+  });
+
+  const s = await sb.XMETA.completeLogin();
+  assert.equal(s.nickname, '小明');
+  assert.equal(s.avatar, 'https://i0.hdslb.com/x.png');
+
+  const raw = JSON.parse(sb.__store.get('xmeta:sess:xmeta_t'));
+  assert.equal(raw.nickname, '小明', '要落到 localStorage');
+  assert.equal(raw.avatar, 'https://i0.hdslb.com/x.png');
+
+  // 换一个上下文，从同一份 localStorage 恢复
+  const sb2 = loadClient(sb.__store);
+  sb2.XMETA.configure(CFG);
+  const restored = sb2.XMETA.getSession();
+  assert.equal(restored.nickname, '小明');
+  assert.equal(restored.avatar, 'https://i0.hdslb.com/x.png');
+});
+
+test('没填资料时 session 里是 null（不是 undefined）', async () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+  seedCode(sb, { code: 'Q', returnSlug: MY_SLUG });
+
+  const s = await sb.XMETA.completeLogin();
+  assert.equal(s.nickname, null);
+  assert.equal(s.avatar, null);
+});
+
+test('旧版本存下来的会话没有这两个字段：恢复成 null', () => {
+  const sb = loadClient();
+  sb.__store.set('xmeta:sess:xmeta_t', JSON.stringify({
+    jwt: 'a.b.c', uid: '42', expiresAt: Date.now() + 3600_000,
+  }));
+  sb.XMETA.configure(CFG);
+
+  const s = sb.XMETA.getSession();
+  assert.ok(s);
+  assert.equal(s.nickname, null);
+  assert.equal(s.avatar, null);
+});
+
+test('setSession 装外部 token：拿不到资料，就是 null', () => {
+  const sb = loadClient();
+  sb.XMETA.configure(CFG);
+  const claims = Buffer.from(JSON.stringify({
+    sub: '42', exp: Math.floor(Date.now() / 1000) + 3600,
+  })).toString('base64url');
+
+  assert.equal(sb.XMETA.setSession(`h.${claims}.s`), true);
+  const s = sb.XMETA.getSession();
+  assert.equal(s.nickname, null);
+  assert.equal(s.avatar, null);
+});
