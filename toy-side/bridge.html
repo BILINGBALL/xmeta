@@ -12,6 +12,12 @@
   .kv-src__k { flex: none; width: 44px; font-size: 13px; color: var(--xm-ink-3); }
   .kv-src__v { flex: 1; min-width: 0; font-size: 13px; color: var(--xm-ink); word-break: break-all; }
   .kv-src__img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; vertical-align: middle; }
+
+  /* 同意页要塞得下「留在 XMETA」，这一页单独压缩（不影响其它页） */
+  #s-consent .xm-hero__ring { width: 72px; height: 72px; }
+  #s-consent .xm-hero__name { margin-top: 12px; font-size: 22px; }
+  #s-consent .xm-card { padding: 14px 16px; }
+  #s-consent .xm-fact { padding: 9px 0; }
 </style>
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 </head>
@@ -44,7 +50,7 @@
       <span class="xm-brand-link" id="xmetaLink">XMETA</span> 将为你免费提供该 toy 的联机服务
     </p>
 
-    <div class="xm-card xm-mt-lg xm-rise xm-rise--2">
+    <div class="xm-card xm-mt xm-rise xm-rise--2">
       <div class="xm-facts">
         <div class="xm-fact">
           <div class="xm-fact__k">授权</div>
@@ -61,7 +67,7 @@
       </div>
     </div>
 
-    <div class="xm-mt-lg xm-rise xm-rise--3">
+    <div class="xm-mt xm-rise xm-rise--3">
       <p class="xm-label">这次授权有效多久</p>
       <div class="xm-seg" id="ttlSeg">
         <label class="xm-seg__opt"><input type="radio" name="ttl" value="3">3 小时</label>
@@ -69,9 +75,6 @@
         <label class="xm-seg__opt"><input type="radio" name="ttl" value="12">12 小时</label>
         <label class="xm-seg__opt"><input type="radio" name="ttl" value="24">24 小时</label>
       </div>
-      <p class="xm-small xm-mt">
-        实际使用时间取决于 toy 作者如何保存该凭证。
-      </p>
     </div>
 
     <div class="xm-actions">
