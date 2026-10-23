@@ -26,7 +26,7 @@
     lobbyScope: 'lobby',
     // 改了字段布局就换一版标记，别让页面接着用旧房间的旧数据。
     // v1 的房间（比如还带着 0 血或者别的字段含义）会被当成不存在。
-    lobbyMarker: 'xmeta-lobby-v2',
+    lobbyMarker: 'xmeta-room-v3',
     homeScope: 'home',
     bagScope: 'bag',
     // 伤害榜：一人一条，公开。攻击时只加自己这条。
@@ -161,9 +161,14 @@
     myUid: null,
     session: null,
     tab: 'lobby',
+    lobbyTab: 'chat',          // 大厅内的二级标签：chat / rooms / homes / online
 
     lobbyHost: null,
     room: null,
+    roomPool: [],              // 大厅列表 / 搜索结果
+    roomSearch: '',            // 当前搜索词，空 = 展示中的大厅池
+    roomEditingTitle: false,
+    createRoomOwn: null,       // 创建弹窗里读到的自己那间（可能为 null）
     logs: [],                 // 最近 100 条改动，只用来算谁在线
     lastLogAt: 0,
     lastHeartbeatAt: 0,
@@ -294,6 +299,68 @@
   }
 
   // ─────────────────────────────────────────────────────────────
+  // UGC 内容安全
+  // ─────────────────────────────────────────────────────────────
+
+  const UGC_MAX_BYTES = 16384
+
+  function ugcError(message, code) {
+    const err = new Error(message)
+    err.code = code
+    return err
+  }
+
+  /**
+   * 写给别的玩家看的内容，落库/发出去之前先过平台的内容检测。
+   *
+   * 三态（见 toy-js-sdk-abilities）：
+   *   passed=true        → 放行
+   *   status=rejected    → 明确拒绝，换个内容
+   *   unavailable / 异常 / 环境不支持 → **都不算通过**，提示稍后再试
+   *
+   * 只在提交时调用，不要按键调用 —— 有调用配额，超了会抛 307044。
+   * text ≤ 16384 字节；scene 只做业务标记，不能含中文。
+   */
+  async function requireSafeUgc(text, scene) {
+    const raw = String(text == null ? '' : text)
+    if (!raw.trim()) throw ugcError('内容不能为空', 'empty')
+
+    const bytes = typeof TextEncoder !== 'undefined'
+      ? new TextEncoder().encode(raw).length
+      : raw.length * 3
+    if (bytes > UGC_MAX_BYTES) throw ugcError('内容太长了，精简一下', 'too_long')
+
+    if (typeof toy === 'undefined' || !toy || typeof toy.checkInputSafety !== 'function') {
+      throw ugcError('当前环境不支持内容检测，请升级 B站 App 后再试', 'unsupported')
+    }
+
+    // isSupport 是异步的；有就查，没有就直接调（老版本可能没这个方法）
+    if (typeof toy.isSupport === 'function') {
+      let supported = false
+      try { supported = await toy.isSupport('checkInputSafety') } catch (e) { supported = false }
+      if (!supported) {
+        throw ugcError('当前环境不支持内容检测，请升级 B站 App 后再试', 'unsupported')
+      }
+    }
+
+    let result
+    try {
+      result = await toy.checkInputSafety({ text: raw, scene })
+    } catch (e) {
+      // 307044 = 检测限流；其它网络/参数错误也一样，不能放行
+      const suffix = e && e.code ? '（' + e.code + '）' : ''
+      throw ugcError('内容检测失败，稍后再试' + suffix, 'check_failed')
+    }
+
+    if (result && result.passed === true) return true
+    if (result && result.status === 'rejected') {
+      throw ugcError('这段内容不能展示，换一句试试', 'rejected')
+    }
+    // unavailable 表示检测没跑成，绝不等于通过
+    throw ugcError('暂时没法验证内容，稍后再试', 'unavailable')
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // 身份与会话
   // ─────────────────────────────────────────────────────────────
   function handleAuthLost() {
@@ -330,6 +397,9 @@
     state.myUid = null
     state.session = null
     state.room = null
+    state.roomPool = []
+    state.roomSearch = ''
+    state.roomEditingTitle = false
     state.logs = []
     state.bag = null
     state.home = null
@@ -375,6 +445,7 @@
       startLoops()
       await refreshLobby()
       await Promise.all([refreshHomes(), refreshDamage(true)])
+      refreshRoomPool().catch(() => {})
       $('app').setAttribute('data-ready', '1')
     } catch (e) {
       showLoading(false)
@@ -413,20 +484,61 @@
     }
   }
 
-  function lobbyDefaults() {
+  function lobbyDefaults(roomNumber, title, shown) {
     return {
       ttl: 30 * 24 * 3600,         // 公共大厅开久一点；房主心跳时还会续期
       isPublic: true,
       // 心跳、聊天、Boss 血量都写在这一条上 —— 所以这三个字段要开给所有人
       openEdit: ['text1', 'tagInt1', 'tagInt2'],
-      tagTinyint: 1,
+      tagTinyint: shown === 0 ? 0 : 1, // 1 = 在大厅列表展示；0 = 不展示（仍然公开）
       tagInt1: nextHeartbeatValue(),
       tagInt2: CONFIG.bossMaxHp,
+      tagBigint: String(roomNumber), // 房间号（6-10 位数字，整数字段）
       text1: '',
-      text2: CONFIG.lobbyMarker,   // 房间标记，不开放给其他人改
-      textLong: '这是 xmeta 联机 Demo 的公共大厅。在线看心跳，聊天从日志读；伤害榜在 damage scope，一人一条。',
-      extra: { demo: CONFIG.lobbyMarker, bossMax: CONFIG.bossMaxHp }
+      text2: String(title || '我的大厅').slice(0, 40), // 房间标题
+      textLong: '这是 xmeta 联机 Demo 的大厅。在线看心跳，聊天从日志读；伤害榜在 damage scope，一人一条。',
+      extra: { version: CONFIG.lobbyMarker, bossMax: CONFIG.bossMaxHp }
     }
+  }
+
+  // ── 房间号：6-8 位数字（整数字段 tagBigint） ────────────────
+  function randomRoomNumber() {
+    const len = 6 + Math.floor(Math.random() * 3) // 6 / 7 / 8 位
+    const min = 10 ** (len - 1)
+    return String(min + Math.floor(Math.random() * (9 * min)))
+  }
+
+  async function roomNumberTaken(num) {
+    const r = await api(
+      'GET',
+      '/api/kv/' + encodeURIComponent(CONFIG.lobbyScope) +
+        '/list?page=1&size=10&tagBigint=' + encodeURIComponent(num),
+      undefined,
+      { quiet: true }
+    )
+    return (r.items || []).some((row) =>
+      usableRoom(row) || String(row.tagBigint) === String(num))
+  }
+
+  async function newRoomNumber() {
+    for (let i = 0; i < 8; i++) {
+      const num = randomRoomNumber()
+      if (!(await roomNumberTaken(num))) return num
+    }
+    return String(Date.now()).slice(-8)
+  }
+
+  function defaultRoomTitle() {
+    const name = nickname(state.myUid)
+    return name.startsWith('玩家 ') ? '我的大厅' : name + ' 的大厅'
+  }
+
+  async function createRoomRow(title) {
+    const number = await newRoomNumber()
+    // 自动建房的标题不取昵称：昵称是平台侧 UGC，可能没经过本站的检测。
+    const safeTitle = String(title || '我的大厅').slice(0, 40)
+    const w = await api('PUT', kvPath(CONFIG.lobbyScope), lobbyDefaults(number, safeTitle))
+    return w.data
   }
 
   async function ensureBag() {
@@ -467,13 +579,18 @@
 
   function usableRoom(row) {
     if (!row || row.isPublic !== true) return false
-    if (row.text2 !== CONFIG.lobbyMarker) return false
+    const version = row.extra && row.extra.version
+    if (version !== CONFIG.lobbyMarker) return false
     const open = Array.isArray(row.openEdit) ? row.openEdit : []
     if (!['text1', 'tagInt1', 'tagInt2'].every((f) => open.indexOf(f) >= 0)) return false
     // 血量上限必须是我们写进去的那个。旧房间没有这个字段、或者血量不是
     // 从满血开始的，不要拿来接着打 —— 否则显示和实际扣血会对不上。
     const max = row.extra && Number(row.extra.bossMax)
-    return Number.isFinite(max) && max > 0
+    if (!Number.isFinite(max) || max <= 0) return false
+    // 房间号必须是 6-10 位数字；标题不能为空
+    if (!/^\d{6,10}$/.test(String(row.tagBigint == null ? '' : row.tagBigint))) return false
+    if (!row.text2 || !String(row.text2).trim()) return false
+    return true
   }
 
   function uidCompare(a, b) {
@@ -535,6 +652,7 @@
       state.logs = []
     }
     state.lobbyHost = next
+    state.roomEditingTitle = false
     storageSet(LOBBY_HOST_KEY, next)
     setRoom(row)
     renderRoomInfo()
@@ -562,12 +680,13 @@
       state.lobbyHost = null
     }
 
+    // 没指定房间时：只从「展示中」的房间里挑最早创建的一间
     const listed = await api(
       'GET',
-      '/api/kv/' + encodeURIComponent(CONFIG.lobbyScope) + '/list?page=1&size=100'
+      '/api/kv/' + encodeURIComponent(CONFIG.lobbyScope) + '/list?page=1&size=100&tagTinyint=1'
     )
     const candidates = (listed.items || [])
-      .filter(usableRoom)
+      .filter((row) => Number(row.tagTinyint) === 1 && usableRoom(row))
       .sort((a, b) => {
         const ta = new Date(a.createdAt).getTime() || 0
         const tb = new Date(b.createdAt).getTime() || 0
@@ -576,34 +695,114 @@
 
     if (candidates.length) {
       const pick = candidates[0]
-      const r = await api('GET', kvPath(CONFIG.lobbyScope, pick.uid))
+      const r = await api('GET', kvPath(CONFIG.lobbyScope, pick.uid)).catch((e) => {
+        if (e.code === 'forbidden') return { data: null }
+        throw e
+      })
       if (usableRoom(r.data)) {
         switchLobby(pick.uid, r.data)
         return
       }
     }
 
-    // 还没有大厅：自己建一间。第一条 lobby 数据就是所有人的公共房间。
-    const w = await api('PUT', kvPath(CONFIG.lobbyScope), lobbyDefaults())
-    switchLobby(state.myUid, w.data)
+    // 展示中的房间一间都没有：自己开一间
+    const row = await createRoomRow()
+    switchLobby(state.myUid, row)
   }
 
   /**
-   * 单人测试用：把自己的 lobby 行建成新大厅，指针指过去。
-   * 这样 Boss 血量、聊天、心跳都在自己名下，不会再改到别人的行。
+   * 开一间自己的大厅：把自己的 lobby 行建成新房间，指针指过去。
+   * 已有自己的 v3 房间时保留房间号/标题/展示开关，只重置血量和聊天。
    */
-  async function createOwnLobby() {
+  // ── 创建 / 重置自己的大厅（弹窗） ──────────────────────────
+  let createRoomBusy = false
+
+  async function openCreateRoomModal() {
     if (!state.online) return
+    const node = $('createRoomModal')
+    if (!node) return
+
+    // 找自己那间：如果当前就在自己房里直接用它；否则查一次自己的 row
+    let own = state.lobbyHost === state.myUid ? state.room : null
+    if (!own) {
+      try {
+        const r = await api('GET', kvPath(CONFIG.lobbyScope))
+        own = usableRoom(r.data) ? r.data : null
+      } catch (e) {
+        own = null
+      }
+    }
+    state.createRoomOwn = own
+
+    if ($('createRoomTitle')) {
+      $('createRoomTitle').value = own ? String(own.text2 || '') : defaultRoomTitle()
+    }
+    if ($('createRoomShow')) {
+      $('createRoomShow').checked = own ? Number(own.tagTinyint) === 1 : true
+    }
+    if ($('createRoomHint')) {
+      $('createRoomHint').textContent = own
+        ? '已有的房间号 ' + String(own.tagBigint) + ' 会保留；创建会重置血量和聊天。'
+        : '会生成一个新的 6-8 位房间号。'
+    }
+
+    closeModal()
+    closeHomeModal()
+    node.classList.remove('xm-hidden')
+    setTimeout(() => {
+      const input = $('createRoomTitle')
+      if (input) input.focus()
+    }, 0)
+  }
+
+  function closeCreateRoomModal() {
+    const node = $('createRoomModal')
+    if (node) node.classList.add('xm-hidden')
+  }
+
+  async function submitCreateRoom() {
+    if (!state.online || createRoomBusy) return
+    const title = (($('createRoomTitle') && $('createRoomTitle').value) || '')
+      .trim().slice(0, 40) || '我的大厅'
+    const shown = $('createRoomShow') && $('createRoomShow').checked ? 1 : 0
+    const own = state.createRoomOwn
+
+    createRoomBusy = true
+    const btn = $('btnConfirmCreateRoom')
+    if (btn) { btn.disabled = true; btn.textContent = '创建中…' }
+
     try {
-      const w = await api('PUT', kvPath(CONFIG.lobbyScope), lobbyDefaults())
+      await requireSafeUgc(title, 'room.title')
+      let row
+      if (own && usableRoom(own)) {
+        // 保留房间号，只改标题 / 展示开关，重置血量与聊天
+        const r = await api('PATCH', kvPath(CONFIG.lobbyScope), {
+          text2: title,
+          tagTinyint: shown,
+          tagInt2: CONFIG.bossMaxHp,
+          text1: '',
+          ttl: 30 * 24 * 3600
+        })
+        row = r.data
+      } else {
+        const number = await newRoomNumber()
+        row = await api('PUT', kvPath(CONFIG.lobbyScope), lobbyDefaults(number, title, shown))
+      }
+
       resetChat()
-      switchLobby(state.myUid, w.data)
+      state.roomEditingTitle = false
+      switchLobby(state.myUid, row)
       state.logs = []
       renderAll()
-      showToast('开好了。这间大厅归你，打 Boss 只会改你自己的数据。')
+      closeCreateRoomModal()
+      showToast('开好了：房间号 ' + String(row.tagBigint) + '，发给朋友就能进')
       await refreshLobby()
+      refreshRoomPool().catch(() => {})
     } catch (e) {
       showError(e)
+    } finally {
+      createRoomBusy = false
+      if (btn) { btn.disabled = false; btn.textContent = '创建' }
     }
   }
 
@@ -943,6 +1142,7 @@
     renderBoss()
     renderHomeBoard()
     renderRoomInfo()
+    renderRoomPool()
     renderMe()
     renderReqs()
     renderClaims()
@@ -1079,6 +1279,9 @@
     document.querySelectorAll('[data-tab-panel]').forEach((panel) => {
       panel.classList.toggle('xm-hidden', panel.getAttribute('data-tab-panel') !== state.tab)
     })
+    if (state.tab === 'lobby') {
+      refreshRoomPool().catch(() => {})
+    }
     if (state.tab === 'boss') {
       renderBoss()
       refreshDamage(false).catch(() => {})
@@ -1093,6 +1296,32 @@
       renderRaw()
     }
     try { history.replaceState(null, '', '#' + state.tab) } catch (e) { /* 忽略 */ }
+  }
+
+  /** 大厅内的二级标签：聊天 / 房间 / 小窝 / 在线 */
+  function switchLobbyTab(name) {
+    const known = ['chat', 'rooms', 'homes', 'online']
+    const tab = known.indexOf(name) >= 0 ? name : 'chat'
+    state.lobbyTab = tab
+
+    document.querySelectorAll('[data-lobby-tab]').forEach((btn) => {
+      const on = btn.getAttribute('data-lobby-tab') === tab
+      btn.classList.toggle('is-active', on)
+      btn.setAttribute('aria-selected', on ? 'true' : 'false')
+    })
+    document.querySelectorAll('[data-lobby-panel]').forEach((panel) => {
+      panel.classList.toggle('xm-hidden', panel.getAttribute('data-lobby-panel') !== tab)
+    })
+
+    if (tab === 'chat') {
+      chatAutoscroll = true
+      renderChat()
+      loadChat(1, false).catch(() => {})
+    } else if (tab === 'rooms') {
+      refreshRoomPool().catch(() => {})
+    } else if (tab === 'homes') {
+      refreshHomes().catch(() => {})
+    }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -1188,7 +1417,8 @@
   let visitBusy = false
 
   function openHomeModal() {
-    closeModal()           // 和「什么是 xmeta」互斥
+    closeModal()           // 和其它弹窗互斥
+    closeCreateRoomModal()
     const node = $('homeModal')
     if (node) node.classList.remove('xm-hidden')
   }
@@ -1296,16 +1526,290 @@
     })
   }
 
+  // ── 房间卡：房间号 / 标题 / 展示开关 / 搜索 ──────────────
+
   function renderRoomInfo() {
+    const host = state.lobbyHost
+    const row = state.room
+    const mine = !!host && host === state.myUid
+
+    if ($('roomOwnerLabel')) {
+      $('roomOwnerLabel').textContent = host
+        ? '房主 uid ' + host + (mine ? '（你）' : '')
+        : '房主 uid —'
+    }
+    if ($('roomCode')) {
+      $('roomCode').textContent = row && row.tagBigint ? '#' + String(row.tagBigint) : '—'
+    }
+
+    const title = row ? String(row.text2 || '未命名大厅') : '—'
+    if ($('roomTitleText')) {
+      $('roomTitleText').textContent = title
+      $('roomTitleText').classList.toggle('xm-hidden', !!(mine && state.roomEditingTitle))
+    }
+    if ($('roomTitleInput')) {
+      const editing = !!(mine && state.roomEditingTitle)
+      $('roomTitleInput').classList.toggle('xm-hidden', !editing)
+      if (editing && document.activeElement !== $('roomTitleInput')) {
+        $('roomTitleInput').value = title === '—' ? '' : title
+      }
+    }
+    if ($('btnEditRoomTitle')) {
+      $('btnEditRoomTitle').classList.toggle('xm-hidden', !mine || state.roomEditingTitle)
+    }
+    if ($('btnSaveRoomTitle')) {
+      $('btnSaveRoomTitle').classList.toggle('xm-hidden', !(mine && state.roomEditingTitle))
+    }
+
+    if ($('roomShowText')) {
+      $('roomShowText').textContent = row
+        ? (Number(row.tagTinyint) === 1 ? '展示中' : '未展示')
+        : '—'
+    }
+    if ($('btnToggleRoomShow')) {
+      $('btnToggleRoomShow').classList.toggle('xm-hidden', !mine)
+      $('btnToggleRoomShow').textContent =
+        row && Number(row.tagTinyint) === 1 ? '设为不展示' : '设为展示'
+    }
+
     if (!$('roomInfo')) return
-    if (!state.room || !state.lobbyHost) {
+    if (!row || !host) {
       $('roomInfo').textContent = '正在找大厅…'
       return
     }
-    const mine = state.lobbyHost === state.myUid
-    $('roomInfo').textContent =
-      (mine ? '这间大厅是你开的' : '大厅房主 uid ' + state.lobbyHost) +
-      ' · 每 ' + Math.round(CONFIG.pollMs / 1000) + ' 秒同步 · 在线看心跳'
+    $('roomInfo').textContent = mine
+      ? '你的大厅 · 展示中会出现在下面，未展示的只能搜到'
+      : '公开大厅 · 房间号不是密码'
+  }
+
+  /** 大厅列表：只拉展示中的房间 */
+  async function refreshRoomPool() {
+    if (!state.online || state.authLost) return
+    try {
+      const r = await api(
+        'GET',
+        '/api/kv/' + encodeURIComponent(CONFIG.lobbyScope) + '/list?page=1&size=100&tagTinyint=1',
+        undefined,
+        { quiet: true }
+      )
+      let rows = (r.items || [])
+        .filter((row) => Number(row.tagTinyint) === 1 && usableRoom(row))
+
+      // 列表有 30 秒缓存：自己当前这间房以本地（刚 PATCH 过的）版本为准。
+      // 否则刚点了「不展示」，下一轮列表又把它加回来了。
+      const local = state.room && String(state.room.uid) === state.myUid ? state.room : null
+      if (local) {
+        rows = rows.filter((row) => String(row.uid) !== state.myUid)
+        if (Number(local.tagTinyint) === 1 && usableRoom(local)) rows.push(local)
+      }
+
+      rows.sort((a, b) =>
+        (new Date(b.createdAt).getTime() || 0) - (new Date(a.createdAt).getTime() || 0))
+      state.roomSearch = ''
+      state.roomPool = rows
+      renderRoomPool()
+    } catch (e) {
+      if (e.status !== 401 && e.status !== 429 && e.code !== 'network' && e.code !== 'timeout') {
+        showError(e)
+      }
+    }
+  }
+
+  function renderRoomPool() {
+    const box = $('roomPool')
+    if (!box) return
+
+    if ($('roomPoolTitle')) {
+      $('roomPoolTitle').textContent = state.roomSearch
+        ? '搜索结果：' + state.roomSearch
+        : '大厅列表'
+    }
+    if ($('btnClearRoomSearch')) {
+      $('btnClearRoomSearch').classList.toggle('xm-hidden', !state.roomSearch)
+    }
+
+    clear(box)
+    const rows = state.roomPool || []
+    if (!rows.length) {
+      box.appendChild(el('p', 'xm-empty', state.roomSearch
+        ? '没有匹配的房间。换个房间号或标题试试。'
+        : '还没有展示中的大厅。点右上角「＋ 新建」。'))
+      return
+    }
+
+    for (const row of rows) {
+      const uid = String(row.uid)
+      const current = uid === state.lobbyHost
+      const item = el('div', 'demo-room-row' + (current ? ' is-current' : ''))
+
+      const main = el('div', 'demo-room-row__main')
+      main.appendChild(el('b', null, String(row.text2 || '未命名大厅')))
+      main.appendChild(el('span', 'demo-room-row__meta',
+        '#' + String(row.tagBigint) +
+        ' · 房主 uid ' + uid +
+        (Number(row.tagTinyint) === 1 ? '' : ' · 未展示')))
+      item.appendChild(main)
+
+      if (current) {
+        item.appendChild(el('span', 'demo-room-row__badge', '当前'))
+      } else {
+        const btn = el('button', 'xm-btn xm-btn--quiet xm-btn--sm', '进房')
+        btn.addEventListener('click', () => joinRoomFromRow(row))
+        item.appendChild(btn)
+      }
+      box.appendChild(item)
+    }
+  }
+
+  async function joinRoomFromRow(row) {
+    if (!state.online || !row) return
+    const uid = String(row.uid)
+    if (uid === state.lobbyHost) return
+    if (!usableRoom(row)) { showToast('这间房间不是当前版本'); return }
+
+    resetChat()
+    state.roomEditingTitle = false
+    state.roomSearch = ''
+    switchLobby(uid, row)
+    state.logs = []
+    renderAll()
+    const input = $('roomCodeInput')
+    if (input) input.value = ''
+    await refreshLobby()
+    refreshDamage(true).catch(() => {})
+    refreshRoomPool().catch(() => {})
+    showToast('进房成功：' + (row.text2 || ('#' + row.tagBigint)))
+  }
+
+  let searchingRooms = false
+
+  /**
+   * 搜索 / 进房：6-10 位数字按房间号精确查；其它按标题模糊搜。
+   * 两者都不看 tagTinyint —— 未展示的房间也能搜到（它只是不进大厅列表）。
+   */
+  async function searchRooms() {
+    if (!state.online || searchingRooms) return
+    const input = $('roomCodeInput')
+    let q = (input && input.value || '').trim()
+    if (!q) { showToast('输入房间号或标题'); return }
+    if (q.startsWith('#')) q = q.slice(1)
+    const isNumber = /^\d{6,10}$/.test(q)
+
+    searchingRooms = true
+    const btn = $('btnJoinRoom')
+    if (btn) { btn.disabled = true; btn.textContent = '搜索中…' }
+    try {
+      const params = new URLSearchParams({ page: '1', size: '100' })
+      if (isNumber) params.set('tagBigint', q)
+      else params.set('q', q)
+
+      const r = await api(
+        'GET',
+        '/api/kv/' + encodeURIComponent(CONFIG.lobbyScope) + '/list?' + params.toString(),
+        undefined,
+        { quiet: true }
+      )
+      let rows = (r.items || []).filter(usableRoom)
+      // 服务端还没部署过滤参数时，客户端再筛一次
+      rows = rows.filter((row) => isNumber
+        ? String(row.tagBigint) === q
+        : String(row.text2 || '').toLowerCase().includes(q.toLowerCase()))
+
+      state.roomSearch = q
+      state.roomPool = rows
+      renderRoomPool()
+
+      if (!rows.length) {
+        showToast('没找到这个房间')
+        return
+      }
+      // 房间号唯一；找到就直接进
+      if (isNumber && rows.length === 1) await joinRoomFromRow(rows[0])
+    } catch (e) {
+      showError(e)
+    } finally {
+      searchingRooms = false
+      if (btn) { btn.disabled = false; btn.textContent = '搜索 / 进房' }
+    }
+  }
+
+  async function saveRoomTitle() {
+    if (!state.online || state.lobbyHost !== state.myUid) return
+    const input = $('roomTitleInput')
+    const title = ((input && input.value) || '').trim().slice(0, 40) || '我的大厅'
+    try {
+      await requireSafeUgc(title, 'room.title')
+      const r = await api('PATCH', kvPath(CONFIG.lobbyScope), { text2: title })
+      if (r.data) setRoom(r.data)
+      state.roomEditingTitle = false
+      renderRoomInfo()
+      // 大厅列表里的标题也立刻更新
+      for (const row of state.roomPool) {
+        if (String(row.uid) === state.myUid) row.text2 = title
+      }
+      renderRoomPool()
+      refreshRoomPool().catch(() => {})
+      showToast('房间标题已保存')
+    } catch (e) {
+      showError(e)
+    }
+  }
+
+  async function toggleRoomShow() {
+    if (!state.online || state.lobbyHost !== state.myUid || !state.room) return
+    const next = Number(state.room.tagTinyint) === 1 ? 0 : 1
+    try {
+      const r = await api('PATCH', kvPath(CONFIG.lobbyScope), { tagTinyint: next })
+      if (r.data) setRoom(r.data)
+      renderRoomInfo()
+
+      // 列表缓存要 30 秒才过期，先在本地把这一间加上 / 拿掉
+      if (!state.roomSearch) {
+        if (next === 1) {
+          if (!state.roomPool.some((row) => String(row.uid) === state.myUid)) {
+            state.roomPool.unshift(r.data)
+          }
+        } else {
+          state.roomPool = state.roomPool.filter((row) => String(row.uid) !== state.myUid)
+        }
+        renderRoomPool()
+      }
+      refreshRoomPool().catch(() => {})
+      showToast(next
+        ? '已在大厅列表展示'
+        : '已从大厅列表隐藏；仍可按房间号或标题搜到')
+    } catch (e) {
+      showError(e)
+    }
+  }
+
+  function editRoomTitle() {
+    if (state.lobbyHost !== state.myUid) return
+    state.roomEditingTitle = true
+    renderRoomInfo()
+    const input = $('roomTitleInput')
+    if (input) {
+      input.focus()
+      input.select()
+    }
+  }
+
+  async function copyRoomCode() {
+    const num = state.room && state.room.tagBigint ? String(state.room.tagBigint) : ''
+    if (!num) return
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('no clipboard')
+      await navigator.clipboard.writeText(num)
+      showToast('房间号已复制：' + num)
+    } catch (e) {
+      const input = $('roomCodeInput')
+      if (input) {
+        input.value = num
+        input.focus()
+        input.select()
+      }
+      showToast('复制被拦了，房间号已填进输入框')
+    }
   }
 
   // 聊天区
@@ -1380,6 +1884,7 @@
     const btn = $('btnSend')
     if (btn) btn.disabled = true
     try {
+      await requireSafeUgc(msg, 'lobby.chat')
       const r = await api('PATCH', kvPath(CONFIG.lobbyScope, state.lobbyHost), { text1: msg })
       if (r.modified === false) {
         showToast('和上一条一模一样，xmeta 不会记重复改动')
@@ -1733,6 +2238,7 @@
     const themeKey = THEMES[state.homeTheme] ? state.homeTheme : 'sakura'
     const theme = THEMES[themeKey]
     try {
+      await requireSafeUgc(motto, 'home.motto')
       const r = await api('PATCH', kvPath(CONFIG.homeScope), {
         text1: motto,
         text2: themeKey,
@@ -2037,6 +2543,9 @@
     document.querySelectorAll('[data-tab-btn]').forEach((btn) => {
       btn.addEventListener('click', () => switchTab(btn.getAttribute('data-tab-btn')))
     })
+    document.querySelectorAll('[data-lobby-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => switchLobbyTab(btn.getAttribute('data-lobby-tab')))
+    })
 
     $('chatForm').addEventListener('submit', async (e) => {
       e.preventDefault()
@@ -2054,12 +2563,32 @@
       loadChat(state.chatPage + 1, true).catch(() => {})
     })
 
+    $('roomJoinForm').addEventListener('submit', (e) => {
+      e.preventDefault()
+      searchRooms()
+    })
+    $('btnCopyRoom').addEventListener('click', copyRoomCode)
+    $('btnEditRoomTitle').addEventListener('click', editRoomTitle)
+    $('btnSaveRoomTitle').addEventListener('click', saveRoomTitle)
+    $('btnToggleRoomShow').addEventListener('click', toggleRoomShow)
+    $('btnClearRoomSearch').addEventListener('click', () => {
+      state.roomSearch = ''
+      refreshRoomPool().catch(() => {})
+    })
+    $('roomTitleInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        saveRoomTitle()
+      }
+    })
+
     $('btnAttack').addEventListener('click', attack)
     $('btnResetBoss').addEventListener('click', resetBoss)
     $('btnRefresh').addEventListener('click', () => {
       refreshLobby().catch(reportError)
       refreshHomes().catch(reportError)
       refreshDamage(true).catch(reportError)
+      refreshRoomPool().catch(reportError)
       showToast('已刷新')
     })
 
@@ -2083,11 +2612,19 @@
         await ensureLobby()
         await refreshLobby()
         refreshDamage(true).catch(() => {})
-        showToast('换到另一间大厅了')
+        refreshRoomPool().catch(() => {})
+        showToast('已重新按「最早创建」挑了一间展示中的大厅')
       } catch (e) { reportError(e, true) }
     })
-    $('btnOwnLobby').addEventListener('click', () => {
-      armButton($('btnOwnLobby'), '再点一次确认（会重置你自己的大厅）', createOwnLobby, 6000)
+    $('btnCreateRoom').addEventListener('click', () => {
+      openCreateRoomModal().catch(reportError)
+    })
+    $('btnConfirmCreateRoom').addEventListener('click', submitCreateRoom)
+    $('createRoomTitle').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        submitCreateRoom()
+      }
     })
 
     $('btnKnow').addEventListener('click', () => openModal())
@@ -2098,10 +2635,14 @@
     document.querySelectorAll('[data-close-home]').forEach((node) => {
       node.addEventListener('click', closeHomeModal)
     })
+    document.querySelectorAll('[data-close-create]').forEach((node) => {
+      node.addEventListener('click', closeCreateRoomModal)
+    })
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeModal()
         closeHomeModal()
+        closeCreateRoomModal()
       }
     })
 
@@ -2144,6 +2685,7 @@
 
   function openModal() {
     closeHomeModal()
+    closeCreateRoomModal()
     const node = $('xmetaModal')
     if (node) node.classList.remove('xm-hidden')
   }
@@ -2204,6 +2746,7 @@
     const hash = (location.hash || '').replace('#', '')
     state.tab = ['lobby', 'boss', 'me', 'debug'].indexOf(hash) >= 0 ? hash : 'lobby'
     switchTab(state.tab)
+    switchLobbyTab(state.lobbyTab || 'chat')
 
     // 调试面板里显示一版空白内容，别等用户点进去才崩
     renderReqs()

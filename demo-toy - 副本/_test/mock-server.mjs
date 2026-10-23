@@ -27,8 +27,10 @@ export const CLIENT_ID = 'xmeta_OXSY7nxlpKooXGd0oS95Cg'
 export const TOY_ID = '41072244021248'
 export const MY_UID = '2001'
 
-const MARKER = 'xmeta-lobby-v2'
+const MARKER = 'xmeta-room-v3'
 const BOSS_MAX = 100000
+const HOST_ROOM_NUMBER = '100100'
+const HOST_ROOM_TITLE = '房主的大厅'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -115,19 +117,22 @@ function seed() {
     tagTinyint: 1,
     tagInt1: 777,
     tagInt2: BOSS_MAX - 1234,
+    tagBigint: HOST_ROOM_NUMBER,
     text1: '消息 119',
-    text2: MARKER,
+    text2: HOST_ROOM_TITLE,
     textLong: '公共大厅：在线看心跳，聊天从日志按 text1 翻，伤害榜在 damage scope。',
-    extra: { demo: MARKER, bossMax: BOSS_MAX },
+    extra: { version: MARKER, bossMax: BOSS_MAX },
     createdAt: ago(createdAgo),
   }))
 
   addLog('lobby', '1001', '1001', 'create', [
-    'isPublic', 'openEdit', 'tagInt1', 'tagInt2', 'text1', 'text2', 'textLong', 'extra'
+    'isPublic', 'openEdit', 'tagInt1', 'tagInt2', 'tagBigint',
+    'text1', 'text2', 'textLong', 'extra'
   ], null, {
     isPublic: true,
     openEdit: ['text1', 'tagInt1', 'tagInt2'],
-    tagInt1: 1, tagInt2: BOSS_MAX, text1: '', text2: MARKER,
+    tagInt1: 1, tagInt2: BOSS_MAX, tagBigint: HOST_ROOM_NUMBER,
+    text1: '', text2: HOST_ROOM_TITLE,
     textLong: lobby.textLong, extra: lobby.extra,
   }, ago(createdAgo))
 
@@ -435,7 +440,11 @@ export async function startMockServer(port = 0) {
       const size = Math.min(100, Math.max(1, Number(url.searchParams.get('size') || 20)))
       const sortField = url.searchParams.get('sort') || ''
       const order = url.searchParams.get('order') === 'asc' ? 'asc' : 'desc'
-      const cacheKey = scope + ':' + page + ':' + size + ':' + sortField + ':' + order
+      const tagTinyint = url.searchParams.get('tagTinyint') || null
+      const tagBigint = url.searchParams.get('tagBigint') || null
+      const q = url.searchParams.get('q') || null
+      const cacheKey = scope + ':' + page + ':' + size + ':' + sortField + ':' + order +
+        ':' + (tagTinyint ?? '-') + ':' + (tagBigint ?? '-') + ':' + (q ?? '-')
       const cached = listCache.get(cacheKey)
       if (cached && Date.now() - cached.at < LIST_CACHE_MS) {
         return send(res, 200, cached.body)
@@ -443,6 +452,10 @@ export async function startMockServer(port = 0) {
       const sortable = ['tagInt1', 'tagInt2', 'tagTinyint']
       const all = Array.from(rows.values())
         .filter((r) => r.scope === scope && r.isPublic && new Date(r.expiresAt).getTime() > Date.now())
+        .filter((r) => tagTinyint === null || String(r.tagTinyint) === tagTinyint)
+        .filter((r) => tagBigint === null || String(r.tagBigint) === tagBigint)
+        .filter((r) => q === null ||
+          String(r.text2 || '').toLowerCase().includes(q.toLowerCase()))
         .sort((a, b) => {
           if (sortable.includes(sortField)) {
             const d = (Number(a[sortField]) || 0) - (Number(b[sortField]) || 0)
@@ -573,7 +586,24 @@ export async function startMockServer(port = 0) {
     }
     if (file === '/test-toy-sdk.js') {
       res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' })
-      return res.end('window.toy = window.toy || { navigate: function () { return Promise.resolve() } };')
+      return res.end(`
+        window.toy = window.toy || {
+          navigate: function () { return Promise.resolve() },
+          isSupport: function (ability) {
+            return Promise.resolve(ability === 'navigate' || ability === 'checkInputSafety')
+          },
+          checkInputSafety: function (req) {
+            var text = String((req && req.text) || '')
+            if (text.indexOf('BADWORD') >= 0) {
+              return Promise.resolve({ passed: false, status: 'rejected' })
+            }
+            if (text.indexOf('UNAVAILABLE') >= 0) {
+              return Promise.resolve({ passed: false, status: 'unavailable' })
+            }
+            return Promise.resolve({ passed: true, status: 'ok' })
+          }
+        };
+      `)
     }
 
     const allowed = ['/demo.js', '/xmeta-ui.css', '/index.html']

@@ -303,6 +303,42 @@ async function testOnline(origin, session) {
     assert.match(listText, /小明/)
     assert.match(listText, /测试玩家/)
 
+    // 大厅内的二级标签：默认聊天，按顺序可以切到房间 / 小窝 / 在线
+    assert.equal(
+      await page.eval("!document.querySelector('[data-lobby-panel=chat]').classList.contains('xm-hidden')"),
+      true,
+      '默认应该显示聊天'
+    )
+    assert.equal(
+      await page.eval("document.querySelector('[data-lobby-panel=online]').classList.contains('xm-hidden')"),
+      true,
+      '在线面板默认应该收起'
+    )
+    await page.click('[data-lobby-tab="rooms"]')
+    assert.equal(
+      await page.eval("!document.querySelector('[data-lobby-panel=rooms]').classList.contains('xm-hidden')"),
+      true,
+      '点房间后应该显示房间面板'
+    )
+    await page.click('[data-lobby-tab="homes"]')
+    assert.equal(
+      await page.eval("!document.querySelector('[data-lobby-panel=homes]').classList.contains('xm-hidden')"),
+      true,
+      '点小窝后应该显示小窝面板'
+    )
+    await page.click('[data-lobby-tab="online"]')
+    assert.equal(
+      await page.eval("!document.querySelector('[data-lobby-panel=online]').classList.contains('xm-hidden')"),
+      true,
+      '点在线后应该显示在线面板'
+    )
+    await page.click('[data-lobby-tab="chat"]')
+    assert.equal(
+      await page.eval("!document.querySelector('[data-lobby-panel=chat]').classList.contains('xm-hidden')"),
+      true,
+      '切回聊天面板'
+    )
+
     // 聊天输入框和发送按钮要并排：输入框有正常宽度，按钮不能把它挤出去
     const chatLayout = await page.eval(`(() => {
       const f = document.querySelector('#chatForm').getBoundingClientRect();
@@ -394,6 +430,33 @@ async function testOnline(origin, session) {
     }
     assert.equal(boardTotal, expectedTotal, '伤害榜累计要等于 Boss 掉的血')
 
+    // UGC：被内容检测拒绝 / 检测不可用时，消息不能发出去
+    for (const [bad, expect] of [['BADWORD 测试', '不能展示'], ['UNAVAILABLE 测试', '稍后再试']]) {
+      await page.eval(`
+        (function () {
+          const input = document.querySelector('#chatInput');
+          input.value = ${JSON.stringify(bad)};
+          document.querySelector('#chatForm').requestSubmit();
+        })()
+      `)
+      await page.waitFor(
+        "(document.querySelector('#errBox').textContent || '').includes(" + JSON.stringify(expect) + ')',
+        8000
+      )
+      assert.equal(
+        await page.eval("document.querySelector('#chatInput').value"),
+        bad,
+        '被拦下的消息要把原文还回输入框'
+      )
+    }
+    state = await (await fetch(origin + '/test/state')).json()
+    assert.ok(
+      !logsOf(state, 'lobby', '1001').some((e) =>
+        e.after && String(e.after.text1 || '').includes('BADWORD')),
+      '被拒绝的消息不能写进数据'
+    )
+    await page.eval("const e = document.querySelector('#errBox'); e.textContent = ''; e.classList.add('xm-hidden')")
+
     // 连发两条：第二条也要有头像和昵称，不能被「同一个人省略头像」吞掉
     const msg = '自动化测试消息 ' + Date.now()
     const msg2 = '第二条连着发 ' + Date.now()
@@ -456,6 +519,29 @@ async function testOnline(origin, session) {
     const bag2 = rowOf(state, 'bag', MY_UID)
     assert.ok(bag2.extra && Array.isArray(bag2.extra.items) && bag2.extra.items.length >= 1, '道具应该写进 extra')
 
+    // UGC：门牌被拒绝时不保存
+    await page.eval(`
+      (function () {
+        const err = document.querySelector('#errBox');
+        err.textContent = '';
+        err.classList.add('xm-hidden');
+        const input = document.querySelector('#homeMotto');
+        input.value = 'BADWORD 门牌';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('#btnSaveHome').click();
+      })()
+    `)
+    await page.waitFor(
+      "(document.querySelector('#errBox').textContent || '').includes('不能展示')",
+      8000
+    )
+    state = await (await fetch(origin + '/test/state')).json()
+    assert.notEqual(
+      rowOf(state, 'home', MY_UID).text1,
+      'BADWORD 门牌',
+      '被拒绝的门牌不能保存'
+    )
+
     // 我的：小窝
     await page.eval(`
       (function () {
@@ -492,6 +578,7 @@ async function testOnline(origin, session) {
 
     // 串门：弹出对方的小窝，再把被串门次数 +1
     await page.click('[data-tab-btn="lobby"]')
+    await page.click('[data-lobby-tab="online"]')
     await page.waitFor('document.querySelectorAll("#playerList .demo-player").length >= 2')
     const hostBefore = Number((rowOf((await (await fetch(origin + '/test/state')).json()), 'home', '1001') || {}).tagInt1 || 0)
     await page.eval(`
@@ -569,11 +656,147 @@ async function testOnline(origin, session) {
     assert.match(reqText, /\/api\/kv\/lobby/)
     await page.screenshot('04-debug.png')
 
+    // 房间：开自己的大厅、改标题、展示/不展示、按房间号回到原来那间
+    await page.click('[data-tab-btn="lobby"]')
+    await page.click('[data-lobby-tab="rooms"]')
+    assert.equal(
+      await page.eval("!document.querySelector('[data-lobby-panel=rooms]').classList.contains('xm-hidden')"),
+      true,
+      '点房间后应该显示房间面板'
+    )
+    await page.click('#btnCreateRoom')
+    await page.waitFor(
+      "!document.querySelector('#createRoomModal').classList.contains('xm-hidden')",
+      8000
+    )
+    assert.match(await page.text('#createRoomHint'), /生成一个新的/, '还没有自己的房间时应该提示生成新号码')
+
+    // UGC：标题被拒绝时不创建
+    await page.eval(`
+      (function () {
+        const err = document.querySelector('#errBox');
+        err.textContent = '';
+        err.classList.add('xm-hidden');
+        document.querySelector('#createRoomTitle').value = 'BADWORD 大厅';
+      })()
+    `)
+    await page.click('#btnConfirmCreateRoom')
+    await page.waitFor(
+      "(document.querySelector('#errBox').textContent || '').includes('不能展示')",
+      8000
+    )
+    assert.equal(
+      await page.eval("document.querySelector('#createRoomModal').classList.contains('xm-hidden')"),
+      false,
+      '被拒绝时弹窗不能关'
+    )
+    assert.equal(
+      await page.eval("document.querySelector('#roomOwnerLabel').textContent.includes('2001')"),
+      false,
+      '被拒绝时不能建房'
+    )
+
+    await page.eval(`
+      (function () {
+        document.querySelector('#createRoomTitle').value = '自动化大厅';
+      })()
+    `)
+    await page.click('#btnConfirmCreateRoom')
+    await page.waitFor(
+      "document.querySelector('#createRoomModal').classList.contains('xm-hidden')",
+      8000
+    )
+    await page.waitFor(
+      "(document.querySelector('#roomOwnerLabel').textContent || '').includes('2001')",
+      8000
+    )
+    assert.match(await page.text('#roomOwnerLabel'), /2001.*你/)
+    assert.match(
+      (await page.text('#roomCode')).trim(),
+      /^#\d{6,8}$/,
+      '房间号必须是 6-8 位数字'
+    )
+    assert.equal((await page.text('#roomTitleText')).trim(), '自动化大厅', '弹窗里的标题应该生效')
+
+    // 已有的编辑入口：先试一个会被拒绝的标题，再改成自动化大厅2
+    await page.click('#btnEditRoomTitle')
+    await page.eval(`
+      (function () {
+        const err = document.querySelector('#errBox');
+        err.textContent = '';
+        err.classList.add('xm-hidden');
+        const input = document.querySelector('#roomTitleInput');
+        input.value = 'BADWORD 标题';
+      })()
+    `)
+    await page.click('#btnSaveRoomTitle')
+    await page.waitFor(
+      "(document.querySelector('#errBox').textContent || '').includes('不能展示')",
+      8000
+    )
+    state = await (await fetch(origin + '/test/state')).json()
+    assert.equal(
+      rowOf(state, 'lobby', MY_UID).text2,
+      '自动化大厅',
+      '被拒绝的标题不能保存'
+    )
+
+    await page.eval(`
+      (function () {
+        const input = document.querySelector('#roomTitleInput');
+        input.value = '自动化大厅2';
+      })()
+    `)
+    await page.click('#btnSaveRoomTitle')
+    await page.waitFor(
+      "(document.querySelector('#roomTitleText').textContent || '') === '自动化大厅2'",
+      8000
+    )
+
+    // 设为不展示：从大厅列表消失；再设为展示：回到列表
+    await page.click('#btnToggleRoomShow')
+    await page.waitFor(
+      "(document.querySelector('#roomShowText').textContent || '') === '未展示'",
+      8000
+    )
+    await page.waitFor(
+      "!(document.querySelector('#roomPool').textContent || '').includes('自动化大厅2')",
+      8000
+    )
+    await page.click('#btnToggleRoomShow')
+    await page.waitFor(
+      "(document.querySelector('#roomShowText').textContent || '') === '展示中'",
+      8000
+    )
+    await page.waitFor(
+      "(document.querySelector('#roomPool').textContent || '').includes('自动化大厅2')",
+      8000
+    )
+
+    // 按房间号搜回房主那间（100100）
+    await page.eval(`
+      (function () {
+        const input = document.querySelector('#roomCodeInput');
+        input.value = '100100';
+        document.querySelector('#roomJoinForm').requestSubmit();
+      })()
+    `)
+    await page.waitFor(
+      "(document.querySelector('#roomOwnerLabel').textContent || '').includes('1001')",
+      8000
+    )
+    assert.match(await page.text('#roomTitleText'), /房主的大厅/)
+    assert.match(await page.text('#roomInfo'), /不是密码/, '别人的大厅是公开的')
+    await page.waitFor(
+      "(document.querySelector('#roomPoolTitle').textContent || '') === '大厅列表'",
+      8000
+    )
+
     await sleep(500)
     const realErrors = page.errors.filter((e) => !/favicon|Failed to load resource/i.test(e))
     assert.deepEqual(realErrors, [], '页面不应该有 console error / 未捕获异常')
 
-    console.log('  ✓ 大厅 / 聊天 / Boss / 背包 / 小窝 / 串门 / 调试面板都正常')
+    console.log('  ✓ 大厅 / 聊天 / Boss / 背包 / 小窝 / 串门 / 房间号 / 调试面板都正常')
   } finally {
     await browser.close()
   }

@@ -1,6 +1,6 @@
 # Toy JS SDK 能力清单
 
-> 更新时间：2026-09-09
+> 更新时间：2026-09-18
 
 Toy JS SDK 为你的 Toy 页面提供与 B站 App / Web 环境交互的能力。
 
@@ -14,7 +14,7 @@ Toy JS SDK 为你的 Toy 页面提供与 B站 App / Web 环境交互的能力。
 <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 ```
 
-加载后全局可用 `window.toy` 对象；除同步返回取消函数的 `onContainerChange` 外，其余方法返回 Promise。用户与作者数据、云存储和排行榜在 B站 App/Web 行为一致；保存图片、关闭页面、拉起分享和容器控制等能力仅在 B站 App 内可用，调用前建议先用 `isSupport` 判断。
+加载后全局可用 `window.toy` 对象；除同步返回取消函数的 `onContainerChange` 外，其余方法返回 Promise。用户与作者数据、云存储、排行榜和玩家输入内容检测在 B站 App/Web 行为一致；保存图片、关闭页面、拉起分享和容器控制等能力仅在 B站 App 内可用，调用前建议先用 `isSupport` 判断。
 
 ## 能力列表
 
@@ -23,7 +23,7 @@ Toy JS SDK 为你的 Toy 页面提供与 B站 App / Web 环境交互的能力。
 判断当前环境是否支持指定能力。
 
 参数：
-- `ability`: string（必填）- 能力名称：navigate | saveImageToAlbum | share | getQrCode | closeBrowser | getUserProfile | getCloudStorage | setCloudStorage | removeCloudStorage | getAuthorProfile | getAuthorVideos | getAuthorRelation | getVideoUserActions | submitScore | getRankList | getMyRank | requestCamera | requestMicrophone | stopMedia | onContainerChange | getContainerState | setContainerMode
+- `ability`: string（必填）- 能力名称：navigate | saveImageToAlbum | share | getQrCode | closeBrowser | getUserProfile | getCloudStorage | setCloudStorage | removeCloudStorage | getAuthorProfile | getAuthorVideos | getAuthorRelation | getVideoUserActions | submitScore | getRankList | getMyRank | requestCamera | requestMicrophone | stopMedia | onContainerChange | getContainerState | setContainerMode | checkInputSafety
 
 返回值：`Promise<boolean>`
 
@@ -400,6 +400,32 @@ requestMode({ immersive: true }) // 沉浸模式
 // 页面卸载或不再需要时调用 off() 取消监听
 ```
 
+### toy.checkInputSafety(req)
+
+检测玩家输入的文本是否可以展示（昵称、留言、涂鸦标题等会被其他玩家看到的内容），需用户已登录。无需在平台侧申请权限点，所有 Toy 直接可用。只返回 ok / rejected / unavailable 三态，unavailable 表示检测没跑成，不等于通过。
+
+参数：
+- `text`: string（必填）- 待检测文本，非空且 ≤16384 字节（UTF-8，一个汉字算 3 字节），超限本地抛 invalid_param
+- `scene`: string（可选）- 业务标记，用于区分昵称 / 留言等入口，不参与判定；字符集仅 [A-Za-z0-9_.:-]、≤64 字节，不能用中文
+
+返回值：`Promise<CheckInputSafetyResp>`
+
+```js
+const { passed, status } = await toy.checkInputSafety({
+  text: nicknameInput.value,
+  scene: 'nickname', // 可选，自己的业务标记，不影响判定
+})
+
+if (passed) {
+  saveNickname(nicknameInput.value)
+} else if (status === 'rejected') {
+  tip('这个昵称不能用，换一个试试')
+} else {
+  // status === 'unavailable'：检测没跑成，不要当作通过
+  tip('暂时没法验证，稍后再试')
+}
+```
+
 ## 环境支持
 
 | 方法 | B站 App | Web 端 |
@@ -427,6 +453,7 @@ requestMode({ immersive: true }) // 沉浸模式
 | onContainerChange | ✅ | ❌ |
 | getContainerState | ✅ | ❌ |
 | setContainerMode | ✅ | ❌ |
+| checkInputSafety | ✅ | ✅ |
 
 ## 注意事项
 
@@ -450,6 +477,7 @@ requestMode({ immersive: true }) // 沉浸模式
 - 使用摄像头或麦克风结束后必须调用 `stopMedia`，确认媒体轨道停止并释放设备。
 - 容器状态（`onContainerChange` / `getContainerState` / `setContainerMode`）仅 B站 App 内支持。`onContainerChange` 同步返回取消函数，调用后先收到一次完整状态；`getContainerState` 调用一次即可获取一次当前容器状态，`changedFields` 为空数组。状态包含 `deviceType`（phone / tablet / desktop / unknown）、CSS px 单位的 `viewport` 与 `safeArea`、`orientation`（portrait / landscape）和 `immersive`。
 - `setContainerMode` 是方向与沉浸状态的原子更新：未传字段保持当前状态，两个字段都不传会抛 `invalid_param`。`Promise<void>` 不是成功回执，不能据此判断已生效。想确认是否切换成功：先用 `onContainerChange()` 监听状态，再调用 `setContainerMode()`。如果之后收到的状态与你设置的一致，说明切换成功；没有收到变化时，无法确认是否成功（旧客户端可能不会通知状态变化）。`orientation: 'auto'` 表示跟随系统；手机不支持横屏且非沉浸组合。Web 端调用容器能力会抛 `unsupported`。
+- 玩家输入内容检测（`checkInputSafety`）：**无需在平台侧申请权限点，所有 Toy 直接可用**，`isSupport('checkInputSafety')` 为 `true` 即可直接调用。只返回 `ok` / `rejected` / `unavailable` 三态，**`unavailable` 表示检测没跑成，不等于通过**，请提示玩家稍后再试，不要放行内容。不返回命中的词、位置、规则与供应商信息，因此无法在 Toy 内标出「哪几个字有问题」。`text` ≤16384 字节（UTF-8，一个汉字 3 字节），`scene` 只是你自己的业务标记、不参与判定且不能用中文（字符集仅 `[A-Za-z0-9_.:-]`）。有调用配额：请在玩家提交内容时检测，不要每次按键都调用，命中限流会抛 `307044` 而不是返回 `unavailable`。App 与 Web 行为一致，只校验登录态，不触发用户数据确认弹窗。
 
 ## 频率限制与最佳实践
 
