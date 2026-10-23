@@ -111,6 +111,40 @@
       <div id="tdFields"></div>
     </div>
 
+    <!-- 展示资料：作者可能从没当过玩家，所以在这里也能改 -->
+    <div class="xm-card xm-mt-lg">
+      <p class="xm-label">我的展示资料（所有 toy 共用）</p>
+      <p class="xm-small" style="margin-bottom:4px">
+        平台资料的复制按钮在下面，复制后粘贴进输入框保存。
+      </p>
+
+      <div class="xm-item" style="padding:10px 0;border-bottom:1px solid var(--xm-line)">
+        <div style="flex:none;width:56px;color:var(--xm-ink-3);font-size:13px">B站昵称</div>
+        <div style="flex:1;min-width:0;word-break:break-all" id="tdPfNick">—</div>
+        <button class="xm-tag xm-tag--btn" data-copy-target="tdPfNick">复制</button>
+      </div>
+      <div class="xm-item" style="padding:10px 0">
+        <div style="flex:none;width:56px;color:var(--xm-ink-3);font-size:13px">B站头像</div>
+        <div style="flex:1;min-width:0">
+          <img id="tdPfAvatar" alt="" referrerpolicy="no-referrer" hidden
+               style="width:32px;height:32px;border-radius:50%;object-fit:cover;vertical-align:middle">
+        </div>
+        <button class="xm-tag xm-tag--btn" data-copy-target="tdPfAvatarUrl">复制链接</button>
+      </div>
+      <span id="tdPfAvatarUrl" class="xm-hidden">—</span>
+
+      <label class="xm-small" for="tdInNick" style="display:block;margin-top:12px">昵称（可不填）</label>
+      <input id="tdInNick" class="xm-input" type="text" maxlength="64" autocomplete="off" spellcheck="false">
+      <label class="xm-small" for="tdInAvatar" style="display:block;margin-top:10px">头像地址（可不填）</label>
+      <input id="tdInAvatar" class="xm-input xm-mono" type="url" maxlength="1000"
+             placeholder="https://…" autocomplete="off" spellcheck="false">
+      <p class="xm-small xm-mt xm-hidden" id="tdPfErr"></p>
+
+      <div class="xm-actions xm-mt">
+        <button class="xm-btn xm-btn--primary" id="btnSaveProfile">保存资料</button>
+      </div>
+    </div>
+
     <div class="xm-actions xm-mt-lg">
       <button class="xm-btn xm-btn--ghost" id="tdRefresh">刷新 toy 信息</button>
     </div>
@@ -372,6 +406,18 @@ function showToyDetail(slug) {
     fieldRow('slug', t.slug, true) +
     fieldRow('认领时间', t.verifiedAt ? new Date(t.verifiedAt).toLocaleString() : '—')
 
+  // 展示资料：上面是平台给的（只供复制），下面是已经保存的值
+  const pf = currentProfile || {}
+  $('tdPfNick').textContent = pf.nickname || '—'
+  $('tdPfAvatarUrl').textContent = pf.avatar || ''
+  if (pf.avatar) { $('tdPfAvatar').src = pf.avatar; $('tdPfAvatar').hidden = false }
+  else { $('tdPfAvatar').hidden = true }
+
+  const me = (lastData && lastData.user) || {}
+  $('tdInNick').value = me.nickname || ''
+  $('tdInAvatar').value = me.avatar || ''
+  $('tdPfErr').classList.add('xm-hidden')
+
   show('s-toy-detail')
 }
 
@@ -486,6 +532,73 @@ $('ownedList').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-toy-slug]')
   if (!btn) return
   showToyDetail(btn.getAttribute('data-toy-slug'))
+})
+
+// ── toy 详情页：保存展示资料 ──
+function showPfMsg(msg, ok) {
+  const el = $('tdPfErr')
+  el.textContent = msg
+  el.style.color = ok ? 'var(--xm-ok)' : 'var(--xm-danger)'
+  el.classList.remove('xm-hidden')
+}
+
+$('btnSaveProfile').addEventListener('click', async () => {
+  if (!currentProfile || !currentProfile.toyOpenId) return
+  const nickname = $('tdInNick').value.trim()
+  const avatar = $('tdInAvatar').value.trim()
+
+  // 客户端只兜一下长度，规则以服务端为准
+  if ([...nickname].length > 32) return showPfMsg('昵称最多 32 个字')
+
+  $('btnSaveProfile').disabled = true
+  try {
+    const r = await request('/api/me/profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toyOpenId: currentProfile.toyOpenId, nickname: nickname, avatar: avatar })
+    })
+
+    // 用服务端返回的值回填 —— 头像可能已经被换掉了
+    if (lastData && lastData.user) {
+      lastData.user.nickname = r.nickname
+      lastData.user.avatar = r.avatar
+    }
+    $('tdInNick').value = r.nickname || ''
+    $('tdInAvatar').value = r.avatar || ''
+
+    // 顶部的昵称/头像跟着变
+    $('nickname').textContent = r.nickname || '(无昵称)'
+    if (r.avatar) { $('avatar').src = r.avatar; $('avatar').hidden = false }
+    else { $('avatar').hidden = true }
+
+    showPfMsg('已保存', true)
+  } catch (e) {
+    showPfMsg(e.message || String(e))
+  } finally {
+    $('btnSaveProfile').disabled = false
+  }
+})
+
+// ── 复制（按元素 id 取文本，不把值塞进 HTML 属性）──
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-copy-target]')
+  if (!btn || btn.disabled) return
+  const el = $(btn.getAttribute('data-copy-target'))
+  const val = el ? el.textContent.trim() : ''
+  if (!val || val === '—' || val.charAt(0) === '（') return
+  try {
+    await navigator.clipboard.writeText(val)
+    const orig = btn.textContent
+    btn.textContent = '已复制'
+    btn.disabled = true
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false }, 1200)
+  } catch (err) {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }
 })
 
 // ── toy 详情页：刷新 toy 信息 ──

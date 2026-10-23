@@ -249,6 +249,28 @@ XMETA.onSession(s => console.log('uid =', s.uid, 'jwt =', s.jwt))
 
 ---
 
+### POST /api/me
+
+个人中心的数据源。请求 `{ toyOpenId: xxxxxx }`，返回
+`{ user, ownedToys, usage }`。
+
+### POST /api/me/profile
+
+改自己的展示资料（和过桥页填的是同一份，所有 toy 共用）。
+
+**请求**
+
+```json
+{ toyOpenId: xxxxxx, nickname: 小明, avatar: https://i0.hdslb.com/... }
+```
+
+字段三态和 `/api/bridge/authorize` 完全一致；头像的规则也一样（只保留 B站
+图床，其它回落默认头像）。
+
+**响应**：`{ uid: 42, nickname: 小明, avatar: https://... }`
+
+---
+
 ## 3. 过桥
 
 ```
@@ -345,7 +367,7 @@ XMETA.onSession(s => console.log('uid =', s.uid, 'jwt =', s.jwt))
 | `fromToyId` | **必填**。这一跳来自哪个 toy_id —— 授权页从地址上读出来的（App 端是原生拼的 `from_spmid`，Web 端是 SDK 拼的 `spm_id_from`）。服务端拿它和 cid 反查出来的 toy 比，对不上直接 `403` |
 | `ttl` | 可选，用户选的授权时长（小时），只接受 `3` / `6` / `12` / `24`。不传按 `6` |
 | `nickname` | 用户自己填的昵称，可选。三态：**不传 = 不改**、`null` / 空串 = 清空、有值 = 设置。≤ 32 个字，不许控制字符和 `<>` |
-| `avatar` | 用户自己填的头像地址，可选。同上三态。必须 `http(s)://` 或 `//`，会统一升成 `https://` |
+| `avatar` | 用户自己填的头像地址，可选。同上三态。**只保留 B站 图床上的地址**（`*.hdslb.com` / `*.bilibili.com`），其它地址一律回落成默认头像；`http://` 和 `//` 会统一升成 `https://` |
 
 **响应**
 

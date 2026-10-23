@@ -248,20 +248,20 @@ test('过桥资料：不传就保留，传 null 才清空', async () => {
   await postFrom('10.9.0.1', '/api/bridge/authorize', {
     ...base,
     nickname: '甲',
-    avatar: 'https://a.example/x.png',
+    avatar: 'https://i0.hdslb.com/bfs/face/a.png',
   });
 
   // 只传昵称 → 头像保留
   await postFrom('10.9.0.1', '/api/bridge/authorize', { ...base, nickname: '乙' });
   let p = await get();
   assert.equal(p.json.nickname, '乙');
-  assert.equal(p.json.avatar, 'https://a.example/x.png', '没传的字段要保留');
+  assert.equal(p.json.avatar, 'https://i0.hdslb.com/bfs/face/a.png', '没传的字段要保留');
 
   // 昵称传 null → 清空；头像仍然保留
   await postFrom('10.9.0.1', '/api/bridge/authorize', { ...base, nickname: null });
   p = await get();
   assert.equal(p.json.nickname, null, 'null 是明确清空');
-  assert.equal(p.json.avatar, 'https://a.example/x.png');
+  assert.equal(p.json.avatar, 'https://i0.hdslb.com/bfs/face/a.png');
 
   // 空串也等于清空
   await postFrom('10.9.0.1', '/api/bridge/authorize', { ...base, avatar: '' });
@@ -304,20 +304,71 @@ test('过桥资料：预填接口也要核对 cid 和来源', async () => {
   assert.equal(badCid.status, 404);
 });
 
-test('过桥资料：长度、字符和头像协议都会被挡', async () => {
+test('过桥资料：昵称的长度和字符会被挡', async () => {
   const base = { cid: clientId, fromToyId: TOY_ID, toyOpenId: `bad_${RUN}_openid` };
   const cases: Record<string, unknown>[] = [
-    { nickname: 'x'.repeat(33) },            // 超过 32 个字符
-    { nickname: 'a\u0000b' },                 // 控制字符
-    { nickname: '<script>' },                // 尖括号
-    { avatar: 'data:image/png;base64,xxx' }, // 非 http(s)
-    { avatar: 'javascript:alert(1)' },
-    { avatar: 'ftp://x/y.png' },
+    { nickname: 'x'.repeat(33) }, // 超过 32 个字符
+    { nickname: 'a\u0000b' },      // 控制字符
+    { nickname: '<script>' },     // 尖括号
   ];
   for (const c of cases) {
     const res = await postFrom('10.9.0.1', '/api/bridge/authorize', { ...base, ...c });
     assert.equal(res.status, 400, `应该被拒：${JSON.stringify(c)}`);
   }
+});
+
+test('过桥资料：头像只保留 B站 图床，其它地址回落成默认图', async () => {
+  const DEF = 'https://p0.hdslb.com/bfs/face/member/noface.jpg';
+  const base = { cid: clientId, fromToyId: TOY_ID, toyOpenId: `av_${RUN}_openid` };
+
+  for (const avatar of [
+    'https://evil.example/x.png',
+    'ftp://x/y.png',
+    'data:image/png;base64,xxx',
+    'javascript:alert(1)',
+    'not a url',
+  ]) {
+    const r = await postFrom('10.9.0.3', '/api/bridge/authorize', { ...base, avatar });
+    assert.equal(r.status, 200, `${avatar} 不该被拒`);
+    const p = await postFrom('10.9.0.3', '/api/bridge/profile', base);
+    assert.equal(p.json.avatar, DEF, `${avatar} 应该回落成默认头像`);
+  }
+
+  // B站 自己的图床照常保留；http / 相对协议会升成 https
+  for (const avatar of ['https://i0.hdslb.com/bfs/face/x.png', 'http://i0.hdslb.com/bfs/face/y.png']) {
+    await postFrom('10.9.0.3', '/api/bridge/authorize', { ...base, avatar });
+    const p = await postFrom('10.9.0.3', '/api/bridge/profile', base);
+    assert.ok(
+      p.json.avatar.startsWith('https://i0.hdslb.com/bfs/face/'),
+      `${avatar} 应该保留，实际 ${p.json.avatar}`,
+    );
+  }
+});
+
+test('个人中心：能改自己的展示资料，头像同样收敛到 B站 图床', async () => {
+  const openid = `meprof_${RUN}_openid`;
+  const ip = '10.9.0.4';
+
+  // 先让这个人存在
+  await postFrom(ip, '/api/bridge/authorize', {
+    cid: clientId,
+    fromToyId: TOY_ID,
+    toyOpenId: openid,
+  });
+
+  const saved = await postFrom(ip, '/api/me/profile', {
+    toyOpenId: openid,
+    nickname: '作者甲',
+    avatar: 'https://evil.example/x.png',
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.json.nickname, '作者甲');
+  assert.equal(saved.json.avatar, 'https://p0.hdslb.com/bfs/face/member/noface.jpg');
+
+  // 只改昵称，头像不动
+  const again = await postFrom(ip, '/api/me/profile', { toyOpenId: openid, nickname: '作者乙' });
+  assert.equal(again.json.nickname, '作者乙');
+  assert.equal(again.json.avatar, 'https://p0.hdslb.com/bfs/face/member/noface.jpg');
 });
 
 test('认领：不再接收昵称/头像', async () => {

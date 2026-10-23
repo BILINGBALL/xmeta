@@ -441,10 +441,7 @@ function validateProfile(nickname, avatar) {
     if (charLen(nickname) > 32) return '昵称最多 32 个字'
     if (/[\u0000-\u001f\u007f<>]/.test(nickname)) return '昵称不能含特殊字符'
   }
-  if (avatar) {
-    if (avatar.length > 1000) return '头像地址太长了'
-    if (!/^(https?:)?\/\//i.test(avatar)) return '头像必须是一个网址（https://…）'
-  }
+  if (avatar && avatar.length > 1000) return '头像地址太长了'
   return null
 }
 

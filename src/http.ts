@@ -65,15 +65,31 @@ function toHttpsUrl(v: string): string {
   return v.replace(/^http:\/\//i, 'https://');
 }
 
+/** 头像只认 B站 自己的图床 —— 页面上的地址最后都要收敛到这里 */
+const BILI_IMAGE_HOST = /(^|\.)(hdslb\.com|bilibili\.com)$/i;
+const DEFAULT_AVATAR = 'https://p0.hdslb.com/bfs/face/member/noface.jpg';
+
 const avatarSchema = z
   .string()
   .trim()
   .max(1000, '头像地址最多 1000 个字符')
-  .refine((v) => v === '' || /^(https?:)?\/\/\S+$/i.test(v), '头像必须是一个网址（会统一转成 https）')
   .nullish()
-  .transform((v) => (v === undefined ? undefined : v ? toHttpsUrl(v) : null));
+  .transform((v) => {
+    if (v === undefined) return undefined
+    if (!v) return null
+    let url
+    try {
+      url = new URL(toHttpsUrl(v))
+    } catch {
+      return DEFAULT_AVATAR
+    }
+    return BILI_IMAGE_HOST.test(url.hostname) ? url.href : DEFAULT_AVATAR
+  });
 
 export const profileFields = { nickname: nicknameSchema, avatar: avatarSchema };
+
+/** 个人中心改展示资料：和过桥页同一套字段和校验 */
+export const profileUpdateSchema = identitySchema.extend(profileFields);
 
 export const slugSchema = z
   .string()

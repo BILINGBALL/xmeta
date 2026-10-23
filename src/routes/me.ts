@@ -2,8 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { query, queryOne } from '../db.js';
 import { Errors } from '../errors.js';
-import { mineSchema, parse } from '../http.js';
+import { mineSchema, parse, profileUpdateSchema } from '../http.js';
 import { normalizeIconUrl } from '../lib/bili.js';
+import { upsertUser } from '../repos.js';
 import { rateLimit } from '../lib/ratelimit.js';
 
 /**
@@ -155,5 +156,25 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
         uses: r.uses,
       })),
     };
+  });
+
+  /**
+   * 改自己的展示资料。
+   *
+   * 和过桥页用的是同一套字段与校验（profileUpdateSchema）：昵称三态、
+   * 头像只保留 B站 图床上的地址。
+   */
+  app.post('/api/me/profile', async (req) => {
+    const rl = rateLimit(`me:profile:${req.ip}`, 20, 60_000);
+    if (!rl.ok) throw Errors.rateLimited(rl.retryAfter);
+
+    const body = parse(profileUpdateSchema, req.body);
+    const user = await upsertUser({
+      toyOpenId: body.toyOpenId,
+      nickname: body.nickname,
+      avatar: body.avatar,
+    });
+
+    return { uid: user.id, nickname: user.nickname, avatar: user.avatar };
   });
 }
