@@ -4,6 +4,7 @@ import { query, queryOne } from '../db.js';
 import { Errors } from '../errors.js';
 import { mineSchema, parse, profileUpdateSchema } from '../http.js';
 import { normalizeIconUrl } from '../lib/bili.js';
+import { PROFILE_CACHE_TTL_SECONDS, profileCacheKey, type Cache } from '../lib/cache.js';
 import { upsertUser } from '../repos.js';
 import { rateLimit } from '../lib/ratelimit.js';
 
@@ -61,7 +62,11 @@ type UsageRow = {
   uses: number;
 };
 
-export async function meRoutes(app: FastifyInstance): Promise<void> {
+export async function meRoutes(
+  app: FastifyInstance,
+  opts: { cache: Cache },
+): Promise<void> {
+  const cache = opts.cache;
   app.post('/api/me', async (req) => {
     const rl = rateLimit(`me:${req.ip}`, 60, 60_000);
     if (!rl.ok) throw Errors.rateLimited(rl.retryAfter);
@@ -174,6 +179,25 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
       nickname: body.nickname,
       avatar: body.avatar,
     });
+
+    // 资料变了：把这个人在各个 toy 下的缓存一起刷新，别人立刻能看到新名字
+    try {
+      const used = await query<{ toy_id: string }>(
+        `select toy_id from identity_usage where uid = $1`,
+        [user.id],
+      );
+      await Promise.all(
+        used.rows.map((r) =>
+          cache.set(
+            profileCacheKey(r.toy_id, user.id),
+            { uid: user.id, nickname: user.nickname, avatar: user.avatar },
+            PROFILE_CACHE_TTL_SECONDS,
+          ),
+        ),
+      );
+    } catch (err) {
+      req.log.warn({ err }, '刷新资料缓存失败');
+    }
 
     return { uid: user.id, nickname: user.nickname, avatar: user.avatar };
   });

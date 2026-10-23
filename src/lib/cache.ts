@@ -13,6 +13,13 @@ import { Redis } from 'ioredis';
  *
  * 一切 Redis 操作都有超时并且**失败即当作 miss** —— 缓存绝不允许把请求带挂。
  */
+/** 昵称/头像的缓存键。同一个人在不同 toy 的可见性不同，键里必须带 toy */
+export const profileCacheKey = (toyId: string, uid: string): string =>
+  `kv:profile:${toyId}:${uid}`;
+
+/** 昵称/头像的缓存时长。用户改资料时会主动刷新，所以这里可以放长一点 */
+export const PROFILE_CACHE_TTL_SECONDS = 600;
+
 export type Cache = {
   readonly enabled: boolean;
   /** 命中返回数据；未命中、出错一律返回 undefined（注意和「缓存了一个 null」区分） */

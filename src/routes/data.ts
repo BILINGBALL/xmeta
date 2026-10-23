@@ -11,7 +11,7 @@ import {
   scopeSchema,
 } from '../http.js';
 import { config } from '../config.js';
-import type { Cache } from '../lib/cache.js';
+import { PROFILE_CACHE_TTL_SECONDS, profileCacheKey, type Cache } from '../lib/cache.js';
 import { verifyToken } from '../lib/jwt.js';
 import { rateLimit } from '../lib/ratelimit.js';
 import {
@@ -478,8 +478,8 @@ export async function dataRoutes(
     const found = await Promise.all(
       uids.map((uid) =>
         cache.getOrFill<UserProfile | null>(
-          `kv:profile:${caller.toy.toy_id}:${uid}`,
-          600, // 昵称改了最多旧 10 分钟，换来的是这一次不用查库
+          profileCacheKey(caller.toy.toy_id, uid),
+          PROFILE_CACHE_TTL_SECONDS,
           () => getProfileInToy(caller.toy.toy_id, uid),
         ),
       ),

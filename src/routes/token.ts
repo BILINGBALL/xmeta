@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { DEFAULT_TOKEN_TTL_HOURS } from '../config.js';
 import { Errors } from '../errors.js';
+import { PROFILE_CACHE_TTL_SECONDS, profileCacheKey, type Cache } from '../lib/cache.js';
 import { parse, tokenSchema } from '../http.js';
 import { issueToken } from '../lib/jwt.js';
 import { rateLimit } from '../lib/ratelimit.js';
@@ -31,7 +32,11 @@ import {
  * 注意：code 是先被消费掉再校验的。取走即作废，后面任何一步失败都不会
  * 把它放回去 —— 省得一次调用失败后被别人捡去重放。
  */
-export async function tokenRoutes(app: FastifyInstance): Promise<void> {
+export async function tokenRoutes(
+  app: FastifyInstance,
+  opts: { cache: Cache },
+): Promise<void> {
+  const cache = opts.cache;
   app.post('/api/oauth/token', async (req) => {
     const rl = rateLimit(`token:${req.ip}`, 60, 60_000);
     if (!rl.ok) throw Errors.rateLimited(rl.retryAfter);
@@ -77,6 +82,23 @@ export async function tokenRoutes(app: FastifyInstance): Promise<void> {
     // 用户自己填的展示资料 —— 没填过就是 null。
     // 放在响应里是为了让 toy 不用为了显示名字再问一次；它不是鉴权信息。
     const user = await getUserById(row.uid);
+
+    // 资料可能刚改过（用户在过桥页重新填了），顺手刷一下缓存 ——
+    // 否则别的玩家要等 TTL（10 分钟）才看得到新名字。
+    //
+    // 放在换 token 这一步而不是授权那一步：读缓存的前提是 identity_usage
+    // 里有这个人，而那条记录正是这里 recordUsage 写的。
+    if (user) {
+      try {
+        await cache.set(
+          profileCacheKey(toy.toy_id, user.id),
+          { uid: user.id, nickname: user.nickname, avatar: user.avatar },
+          PROFILE_CACHE_TTL_SECONDS,
+        );
+      } catch (err) {
+        req.log.warn({ err }, '刷新资料缓存失败');
+      }
+    }
 
     return {
       access_token: token.accessToken,

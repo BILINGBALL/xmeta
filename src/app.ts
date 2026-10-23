@@ -72,11 +72,11 @@ export async function buildApp(deps: AppDeps = realDeps): Promise<FastifyInstanc
   await app.register(staticRoutes);
   await app.register(statsRoutes);
   await app.register(claimRoutes, { bili: deps.bili });
-  await app.register(meRoutes);
+  await app.register(meRoutes, { cache: deps.cache });
   await app.register(introspectRoutes);
   await app.register(bridgeRoutes);
   await app.register(dataRoutes, { cache: deps.cache });
-  await app.register(tokenRoutes);
+  await app.register(tokenRoutes, { cache: deps.cache });
 
   return app;
 }

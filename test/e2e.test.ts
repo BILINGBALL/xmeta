@@ -371,6 +371,60 @@ test('个人中心：能改自己的展示资料，头像同样收敛到 B站 �
   assert.equal(again.json.avatar, 'https://p0.hdslb.com/bfs/face/member/noface.jpg');
 });
 
+test('申请 JWT 时会把昵称/头像刷进缓存', async () => {
+  const openid = `pcache_${RUN}_openid`;
+  const ip = '10.9.0.5';
+  const nick = '缓存甲';
+  const avatar = 'https://i0.hdslb.com/bfs/face/p.png';
+
+  const auth = await postFrom(ip, '/api/bridge/authorize', {
+    cid: clientId,
+    fromToyId: TOY_ID,
+    toyOpenId: openid,
+    nickname: nick,
+    avatar,
+  });
+  const tok = await postFrom(ip, '/api/oauth/token', {
+    grant_type: 'authorization_code',
+    code: auth.json.code,
+    client_id: clientId,
+  });
+  assert.equal(tok.status, 200);
+
+  const uid = uidOf(tok.json.access_token);
+  assert.deepEqual(
+    await testCache.get(`kv:profile:${TOY_ID}:${uid}`),
+    { uid, nickname: nick, avatar },
+    '换 JWT 之后缓存里应该已经是新资料',
+  );
+});
+
+test('个人中心改资料会刷新他已经用过的 toy 的缓存', async () => {
+  const openid = `pcache2_${RUN}_openid`;
+  const ip = '10.9.0.6';
+
+  // 先换一次 token，产生 identity_usage（缓存刷新的前提）
+  const auth = await postFrom(ip, '/api/bridge/authorize', {
+    cid: clientId,
+    fromToyId: TOY_ID,
+    toyOpenId: openid,
+  });
+  const tok = await postFrom(ip, '/api/oauth/token', {
+    grant_type: 'authorization_code',
+    code: auth.json.code,
+    client_id: clientId,
+  });
+  const uid = uidOf(tok.json.access_token);
+
+  await postFrom(ip, '/api/me/profile', { toyOpenId: openid, nickname: '缓存乙', avatar: '' });
+
+  const cached = await testCache.get<{ nickname: string; avatar: string }>(
+    `kv:profile:${TOY_ID}:${uid}`,
+  );
+  assert.equal(cached?.nickname, '缓存乙');
+  assert.equal(cached?.avatar, 'https://p0.hdslb.com/bfs/face/member/noface.jpg');
+});
+
 test('认领：不再接收昵称/头像', async () => {
   const openid = `claimprof_${RUN}_openid`;
   // 认领的是本测试自己的 toy（已经认领过），会 409；
