@@ -422,7 +422,10 @@ function showToyDetail(slug) {
 
   const me = (lastData && lastData.user) || {}
   $('tdInNick').value = me.nickname || ''
-  $('tdInAvatar').value = me.avatar || ''
+  // 默认头像不预填（服务端在「没填 / 不合规」时会落这张）
+  const DEFAULT_AVATAR = 'https://p0.hdslb.com/bfs/face/member/noface.jpg'
+  $('tdInAvatar').value =
+    String(me.avatar || '').trim() === DEFAULT_AVATAR ? '' : (me.avatar || '')
   $('tdPfErr').classList.add('xm-hidden')
 
   show('s-toy-detail')

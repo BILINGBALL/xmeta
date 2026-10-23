@@ -442,6 +442,10 @@ let savedProfile = { nickname: null, avatar: null }
 /** 预填接口是不是成功了。失败时提交空值要「省略字段」而不是传 null */
 let lookupOk = false
 
+// 服务端在「没填 / 不合规」时会落这张默认图。预填时别把它塞回输入框。
+const DEFAULT_AVATAR = 'https://p0.hdslb.com/bfs/face/member/noface.jpg'
+const isDefaultAvatar = (u) => String(u || '').trim() === DEFAULT_AVATAR
+
 const charLen = (s) => [...s].length
 
 /** 和服务端同一套规则，只是提前拦一下，省得白跑一趟 */
@@ -464,7 +468,7 @@ function renderProfileStep() {
 
   // 预填的是**这个用户以前自己提交过**的值，不是平台资料
   $('inNickname').value = savedProfile.nickname || ''
-  $('inAvatar').value = savedProfile.avatar || ''
+  $('inAvatar').value = isDefaultAvatar(savedProfile.avatar) ? '' : (savedProfile.avatar || '')
   hideInline('profileErr')
 }
 
