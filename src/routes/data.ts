@@ -479,7 +479,7 @@ export async function dataRoutes(
       uids.map((uid) =>
         cache.getOrFill<UserProfile | null>(
           `kv:profile:${caller.toy.toy_id}:${uid}`,
-          300, // 昵称改了最多旧 5 分钟，换来的是这一次不用查库
+          600, // 昵称改了最多旧 10 分钟，换来的是这一次不用查库
           () => getProfileInToy(caller.toy.toy_id, uid),
         ),
       ),

@@ -573,6 +573,10 @@ $('btnSaveProfile').addEventListener('click', async () => {
       lastData.user.nickname = r.nickname
       lastData.user.avatar = r.avatar
     }
+    // 本地快照也要一起更新，否则下次打开会先闪一下旧值
+    if (lastData && currentProfile && currentProfile.toyOpenId) {
+      writeCache(currentProfile.toyOpenId, lastData)
+    }
     $('tdInNick').value = r.nickname || ''
     $('tdInAvatar').value = r.avatar || ''
 
