@@ -100,3 +100,6 @@ export const DEFAULT_TOKEN_TTL_HOURS = 6;
 export const TTL_SECONDS_MAX = 30 * 24 * 3600;
 /** 不传 ttl 时的默认值（7 天）。只有 PUT 用得到 —— PATCH 不带就是不动 */
 export const TTL_SECONDS_DEFAULT = 7 * 24 * 3600;
+
+/** 没有自定义头像时用的默认图（B站 的默认头像） */
+export const DEFAULT_AVATAR = 'https://p0.hdslb.com/bfs/face/member/noface.jpg';

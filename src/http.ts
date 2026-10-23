@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ALLOWED_TOKEN_TTL_HOURS, TTL_SECONDS_MAX } from './config.js';
+import { ALLOWED_TOKEN_TTL_HOURS, DEFAULT_AVATAR, TTL_SECONDS_MAX } from './config.js';
 import { Errors } from './errors.js';
 
 export function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, any>, data: unknown): T {
@@ -67,7 +67,6 @@ function toHttpsUrl(v: string): string {
 
 /** 头像只认 B站 自己的图床 —— 页面上的地址最后都要收敛到这里 */
 const BILI_IMAGE_HOST = /(^|\.)(hdslb\.com|bilibili\.com)$/i;
-const DEFAULT_AVATAR = 'https://p0.hdslb.com/bfs/face/member/noface.jpg';
 
 const avatarSchema = z
   .string()
@@ -76,7 +75,8 @@ const avatarSchema = z
   .nullish()
   .transform((v) => {
     if (v === undefined) return undefined
-    if (!v) return null
+    // 没填和填了不合规的地址，都落默认头像
+    if (!v) return DEFAULT_AVATAR
     let url
     try {
       url = new URL(toHttpsUrl(v))

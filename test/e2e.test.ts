@@ -266,7 +266,7 @@ test('过桥资料：不传就保留，传 null 才清空', async () => {
   // 空串也等于清空
   await postFrom('10.9.0.1', '/api/bridge/authorize', { ...base, avatar: '' });
   p = await get();
-  assert.equal(p.json.avatar, null, '空串等于清空');
+  assert.equal(p.json.avatar, 'https://p0.hdslb.com/bfs/face/member/noface.jpg', '空串落默认头像');
 });
 
 test('过桥资料：没填过的人预填返回两个 null，不报错也不建用户', async () => {
@@ -389,7 +389,8 @@ test('认领：不再接收昵称/头像', async () => {
   );
   assert.equal(row.rowCount, 1, '用户应该已经建出来了');
   assert.equal(row.rows[0]!.nickname, null, '认领不再写昵称');
-  assert.equal(row.rows[0]!.avatar, null, '认领不再写头像');
+  assert.equal(row.rows[0]!.avatar, 'https://p0.hdslb.com/bfs/face/member/noface.jpg',
+    '认领不写平台头像，落默认图');
 });
 
 test('换 JWT：签名与 claims 都正确', async () => {

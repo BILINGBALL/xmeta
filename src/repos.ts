@@ -1,6 +1,6 @@
 import type pg from 'pg';
 import { query, queryOne, withTransaction } from './db.js';
-import { TTL_SECONDS_DEFAULT, config } from './config.js';
+import { DEFAULT_AVATAR, TTL_SECONDS_DEFAULT, config } from './config.js';
 import { Errors } from './errors.js';
 import { fetchToyDetail, type ToyDetail } from './lib/bili.js';
 
@@ -78,7 +78,8 @@ export async function upsertUser(input: {
     config.MY_TOY_ID,
     input.toyOpenId,
     input.nickname ?? null,
-    input.avatar ?? null,
+    // 新建用户没填头像时也落默认图；UPDATE 分支用 avatarSet 判断，不会误写
+    input.avatar ?? DEFAULT_AVATAR,
     nicknameSet,
     avatarSet,
   ];
