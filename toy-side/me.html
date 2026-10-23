@@ -82,7 +82,7 @@
     </div>
 
     <div class="xm-foot">
-      <span class="xm-brand"><span class="xm-brand__dot"></span>xmeta 身份服务</span>
+      <span class="xm-brand"><span class="xm-brand__dot"></span><span class="xm-brand-link" data-xmeta-about>xmeta</span> 身份服务</span>
     </div>
   </section>
 
@@ -645,6 +645,55 @@ $('tdRefresh').addEventListener('click', async () => {
     btn.textContent = orig
   }
 })
+</script>
+
+<!-- xmeta 介绍弹窗：页脚那个 xmeta 点开就是它 -->
+<div id="xmetaModal" class="xm-modal xm-hidden">
+  <div class="xm-modal__mask" data-close-xmeta></div>
+  <div class="xm-modal__card">
+    <button class="xm-modal__close" data-close-xmeta aria-label="关闭">×</button>
+    <div class="xm-modal__brand">
+      <span class="xm-brand__dot"></span>xmeta
+    </div>
+    <p class="xm-modal__title">什么是 xmeta？</p>
+    <p class="xm-modal__body">
+      xmeta 是一个独立的<b>联机身份服务 toy</b>。
+      你在 xmeta 里的 toyOpenId 会作为你的匿名身份——它和你在其它 toy 里的 toyOpenId 没有关系，xmeta 也看不到它们。
+    </p>
+    <p class="xm-modal__body">
+      你授权给某个 toy 时，xmeta 给它签发一张<b>只对这个 toy 有效</b>的凭证；
+      不同 toy 拿到的凭证互不通用，A toy 的凭证访问不了 B toy 的数据。
+    </p>
+    <p class="xm-modal__body">
+      xmeta 完全免费，不收集任何个人信息。
+    </p>
+    <p class="xm-modal__body" style="font-size:12px;color:var(--xm-ink-3)">
+      xmeta 属自发电项目，暂无服务质量和稳定性承诺，感谢理解~ 让我们一起建设美好未来！
+    </p>
+    <button class="xm-btn xm-btn--primary" data-close-xmeta style="width:100%;margin-top:8px">知道了</button>
+    <p style="margin:14px 0 0;text-align:center;font-size:11px;color:var(--xm-ink-3);opacity:.75">
+      © 南通异元科技有限公司
+    </p>
+  </div>
+</div>
+
+<script>
+;(function () {
+  var modal = document.getElementById('xmetaModal')
+  if (!modal) return
+  function open() { modal.classList.remove('xm-hidden') }
+  function close() { modal.classList.add('xm-hidden') }
+
+  var links = document.querySelectorAll('[data-xmeta-about]')
+  for (var i = 0; i < links.length; i++) links[i].addEventListener('click', open)
+
+  var closers = modal.querySelectorAll('[data-close-xmeta]')
+  for (var j = 0; j < closers.length; j++) closers[j].addEventListener('click', close)
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modal.classList.contains('xm-hidden')) close()
+  })
+})()
 </script>
 </body>
 </html>
