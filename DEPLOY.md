@@ -355,12 +355,33 @@ curl -i -X OPTIONS https://api.你的域名.com/api/kv/package   -H "Origin: htt
 
 ## 7. 升级
 
+**推荐：在开发机上一键部署**
+
+```bash
+./deploy.sh root@<服务器地址>
+```
+
+脚本会：先花 15 秒探一下服务器能不能连 GitHub（能就连过去 `reset --hard`
+到 `origin/main`，不能就在本机打包 scp）→ 只有 `package-lock.json` 的内容变了
+才 `npm ci` → 构建 → 重启 → 打一次 `/health`。
+
+> 这台服务器经常连不上 GitHub，手工 `git pull` 会卡两分钟再失败 —— 那 15 秒的
+> 探测就是为这个准备的。服务器上不该有本地改动，所以脚本用的是 `reset --hard`
+> 而不是 `pull`。
+
+**手工的话：**
+
 ```bash
 cd /srv/xmeta
-git pull
-npm ci
+# 能连 GitHub：
+git fetch origin main && git reset --hard origin/main
+# 连不上：在开发机 `git archive` 打包，scp 过去解包
+
+npm ci          # 只有 package-lock.json 变了才需要
 npm run build
 pm2 restart xmeta
 ```
 
 迁移是幂等的，启动时自动跑，不用单独执行。
+
+> **toy 页面不在服务端**（`toy-side/*.html`、`xmeta-ui.css`），要手动传到 toy 平台。
