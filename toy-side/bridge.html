@@ -106,11 +106,17 @@
     <div class="xm-card xm-mt xm-rise xm-rise--2">
       <p class="xm-label">在 XMETA 里展示为</p>
       <label class="xm-small" for="inNickname" style="display:block">昵称（可不填）</label>
-      <input id="inNickname" class="xm-input" type="text" maxlength="64"
-             placeholder="自己起一个名字" autocomplete="off" spellcheck="false">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="inNickname" class="xm-input" type="text" maxlength="64" style="flex:1;min-width:0"
+               placeholder="自己起一个名字" autocomplete="off" spellcheck="false">
+        <button class="xm-tag xm-tag--btn" data-clear="inNickname">清空</button>
+      </div>
       <label class="xm-small" for="inAvatar" style="display:block;margin-top:10px">头像地址（可不填）</label>
-      <input id="inAvatar" class="xm-input xm-mono" type="url" maxlength="1000"
-             placeholder="https://…" autocomplete="off" spellcheck="false">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="inAvatar" class="xm-input xm-mono" type="url" maxlength="1000" style="flex:1;min-width:0"
+               placeholder="https://…" autocomplete="off" spellcheck="false">
+        <button class="xm-tag xm-tag--btn" data-clear="inAvatar">清空</button>
+      </div>
       <p class="xm-small xm-mt xm-hidden" id="profileErr" style="color:var(--xm-danger)"></p>
     </div>
 
@@ -553,6 +559,17 @@ $('btnAllow').addEventListener('click', async () => {
   } finally {
     $('btnAllow').disabled = false
   }
+})
+
+// ── 清空输入框 ──
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-clear]')
+  if (!btn) return
+  const el = document.getElementById(btn.getAttribute('data-clear'))
+  if (!el) return
+  el.value = ''
+  el.focus()
+  hideInline('profileErr')
 })
 
 // ── 复制按钮：复制的是页面上显示的值，不把它塞进 HTML 属性（引号会破坏属性）──
