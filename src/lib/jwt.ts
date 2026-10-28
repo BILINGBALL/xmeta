@@ -86,6 +86,9 @@ async function loadOrCreateKey(): Promise<ActiveKey> {
       [kid, JSON.stringify(privateJwk), JSON.stringify(publicJwk)],
     );
 
+    // 刚生成的新公钥要能立刻被验签用上
+    invalidateJwksCache();
+
     return { kid, privateKey: priv as KeyLike, publicJwk };
   });
 }
@@ -139,12 +142,35 @@ export async function issueToken({
   return { accessToken, expiresIn: ttl, jti };
 }
 
-/** 全部未退休的公钥，供 JWKS 端点发布 */
-export async function listPublicJwks(): Promise<JWK[]> {
+async function loadPublicJwks(): Promise<JWK[]> {
   const res = await query<{ public_jwk: JWK }>(
     `select public_jwk from jwt_signing_key where retired_at is null order by created_at desc`,
   );
   return res.rows.map((r) => r.public_jwk);
+}
+
+/**
+ * 公钥的进程内缓存。
+ *
+ * 每个带 JWT 的请求验签都要用一遍，而公钥几个月才轮转一次 —— 之前这里是
+ * 每次都查库，等于把「鉴权」变成了「鉴权 + 一次数据库往返」。
+ *
+ * 失效有两条路：本进程生成新密钥时主动清（见 loadOrCreateKey），以及一个
+ * 短 TTL（多实例部署时，能在一个 TTL 内看到别的实例生成的密钥）。
+ */
+const JWKS_CACHE_TTL_MS = 60_000;
+let jwksCache: { keys: JWK[]; at: number } | null = null;
+
+export function invalidateJwksCache(): void {
+  jwksCache = null;
+}
+
+/** 全部未退休的公钥。带进程内缓存，JWKS 端点也用这一份。 */
+export async function listPublicJwks(): Promise<JWK[]> {
+  if (jwksCache && Date.now() - jwksCache.at < JWKS_CACHE_TTL_MS) return jwksCache.keys;
+  const keys = await loadPublicJwks();
+  jwksCache = { keys, at: Date.now() };
+  return keys;
 }
 
 /**
