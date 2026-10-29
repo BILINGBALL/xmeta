@@ -599,8 +599,18 @@ function profilePayload() {
   return JSON.stringify({ nickname: p.nickname || '', avatar: p.avatar || '' })
 }
 
+/**
+ * 点「一键复制」时页面自己留一份。
+ *
+ * 桌面端这一页是跨域 iframe（B站 的外壳），Chrome 默认不给 iframe 读剪贴板
+ * 的权限（clipboard-read），navigator.clipboard.readText() 会被直接拒。
+ * 那种情况下「一键粘贴」就用这份兜底 —— 两个按钮本来就在同一页上。
+ */
+let copiedPayload = null
+
 async function copyAll() {
   const text = profilePayload()
+  copiedPayload = text
   if (navigator.clipboard && navigator.clipboard.writeText) {
     try { await navigator.clipboard.writeText(text); return true } catch (e) { /* 落到兜底 */ }
   }
@@ -637,9 +647,12 @@ function parsePayload(text) {
 }
 
 async function pasteAll() {
-  if (!(navigator.clipboard && navigator.clipboard.readText)) return null
   let text = ''
-  try { text = await navigator.clipboard.readText() } catch (e) { return null }
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    try { text = await navigator.clipboard.readText() } catch (e) { text = '' }
+  }
+  // 读不到剪贴板（桌面端 iframe 会被权限策略拦）→ 用刚才点「一键复制」时留下的
+  if (!text) text = copiedPayload || ''
   if (!text) return null
   const p = parsePayload(text)
   if (!p.nickname && !p.avatar) return null
