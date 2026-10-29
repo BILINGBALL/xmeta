@@ -91,23 +91,27 @@
   <!-- ②b 填写展示资料：平台资料只展示、可复制，真正提交的是用户自己粘进去的值 -->
   <section id="s-profile" class="xm-hidden">
     <div class="xm-card xm-rise">
-      <p class="xm-label" style="margin-bottom:2px">你的 B站 资料（只给你看，不会自动上传）</p>
+      <p class="xm-label" style="margin-bottom:2px">你的 B站 资料（不会自动上传）</p>
       <div class="kv-src">
         <span class="kv-src__k">昵称</span>
         <span class="kv-src__v" id="pfNickname">—</span>
-        <button class="xm-tag xm-tag--btn" data-copy-target="pfNickname">复制</button>
       </div>
       <div class="kv-src">
         <span class="kv-src__k">头像</span>
         <span class="kv-src__v"><img class="kv-src__img" id="pfAvatar" alt="" referrerpolicy="no-referrer" hidden></span>
-        <button class="xm-tag xm-tag--btn" data-copy-target="pfAvatarUrl">复制链接</button>
       </div>
       <span id="pfAvatarUrl" class="xm-hidden">—</span>
       <p class="xm-small xm-mt">不想展示的话留空就行。</p>
+      <div class="xm-actions xm-mt">
+        <button class="xm-btn xm-btn--primary" id="btnCopyAll">一键复制</button>
+      </div>
     </div>
 
     <div class="xm-card xm-mt xm-rise xm-rise--2">
       <p class="xm-label">在 XMETA 里展示为</p>
+      <div class="xm-actions" style="margin-bottom:14px">
+        <button class="xm-btn xm-btn--primary" id="btnPasteAll">一键粘贴</button>
+      </div>
       <label class="xm-small" for="inNickname" style="display:block">昵称（可不填）</label>
       <div style="display:flex;gap:8px;align-items:center">
         <input id="inNickname" class="xm-input" type="text" maxlength="64" style="flex:1;min-width:0"
@@ -579,27 +583,83 @@ document.addEventListener('click', (e) => {
   hideInline('profileErr')
 })
 
-// ── 复制按钮：复制的是页面上显示的值，不把它塞进 HTML 属性（引号会破坏属性）──
-document.addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-copy-target]')
-  if (!btn || btn.disabled) return
-  const el = $(btn.getAttribute('data-copy-target'))
-  const val = el ? el.textContent.trim() : ''
-  if (!val || val === '—' || val.charAt(0) === '（') return
-  try {
-    await navigator.clipboard.writeText(val)
-    const orig = btn.textContent
-    btn.textContent = '已复制'
-    btn.disabled = true
-    setTimeout(() => { btn.textContent = orig; btn.disabled = false }, 1200)
-  } catch (err) {
-    // 降级：选中文本让用户自己长按复制
-    const range = document.createRange()
-    range.selectNodeContents(el)
-    const sel = window.getSelection()
-    sel.removeAllRanges()
-    sel.addRange(range)
+// ── 一键复制 / 一键粘贴 ──
+//
+// 昵称和头像打包成一段 JSON 放进剪贴板，粘贴时再拆开填进两个输入框。
+// 剪贴板读取在部分手机 WebView 里会被拦（需要手势或权限），读不到就提示手填。
+function flash(btn, text) {
+  const orig = btn.textContent
+  btn.textContent = text
+  btn.disabled = true
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false }, 1400)
+}
+
+function profilePayload() {
+  const p = platformProfile || {}
+  return JSON.stringify({ nickname: p.nickname || '', avatar: p.avatar || '' })
+}
+
+async function copyAll() {
+  const text = profilePayload()
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try { await navigator.clipboard.writeText(text); return true } catch (e) { /* 落到兜底 */ }
   }
+  // 老 WebView 兜底：临时 textarea + execCommand
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.top = '-1000px'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch (e) { return false }
+}
+
+/** 解析剪贴板内容。优先 JSON，也认「第一行昵称、第二行头像」这种纯文本 */
+function parsePayload(text) {
+  const out = { nickname: '', avatar: '' }
+  try {
+    const o = JSON.parse(text)
+    if (o && typeof o === 'object') {
+      if (typeof o.nickname === 'string') out.nickname = o.nickname.trim()
+      if (typeof o.avatar === 'string') out.avatar = o.avatar.trim()
+      return out
+    }
+  } catch (e) { /* 不是 JSON，往下按行拆 */ }
+  const lines = String(text).split(/\r?\n/).map((x) => x.trim()).filter(Boolean)
+  out.nickname = lines.find((x) => !/^https?:\/\//i.test(x)) || ''
+  out.avatar = lines.find((x) => /^https?:\/\//i.test(x)) || ''
+  return out
+}
+
+async function pasteAll() {
+  if (!(navigator.clipboard && navigator.clipboard.readText)) return null
+  let text = ''
+  try { text = await navigator.clipboard.readText() } catch (e) { return null }
+  if (!text) return null
+  const p = parsePayload(text)
+  if (!p.nickname && !p.avatar) return null
+  $('inNickname').value = p.nickname
+  $('inAvatar').value = p.avatar
+  return p
+}
+
+$('btnCopyAll').addEventListener('click', async () => {
+  hideInline('profileErr')
+  const ok = await copyAll()
+  if (ok) flash($('btnCopyAll'), '已复制')
+  else showInline('profileErr', '复制没成功，可以手动填写')
+})
+
+$('btnPasteAll').addEventListener('click', async () => {
+  hideInline('profileErr')
+  const p = await pasteAll()
+  if (p) { flash($('btnPasteAll'), '已填入'); return }
+  showInline('profileErr', '没能读取剪贴板，可以手动填写')
 })
 
 /** 就地提示，不切页面 —— 切走会把人困在「重试 → 再点 → 又失败」的循环里 */
