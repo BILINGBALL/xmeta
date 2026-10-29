@@ -670,7 +670,7 @@ $('btnPasteAll').addEventListener('click', async () => {
   hideInline('profileErr')
   const p = await pasteAll()
   if (p) { flash($('btnPasteAll'), '已填入'); return }
-  showInline('profileErr', '没能读取剪贴板，可以手动填写')
+  showInline('profileErr', '没能读取剪贴板 —— 用上面的单项「复制」，再到输入框里粘贴就行')
 })
 
 // ── 单项复制：只复制昵称、或者只复制头像地址 ──
