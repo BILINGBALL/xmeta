@@ -103,10 +103,12 @@
       <div class="kv-src">
         <span class="kv-src__k">昵称</span>
         <span class="kv-src__v" id="pfNickname">—</span>
+        <button class="xm-tag xm-tag--btn" data-copy-target="pfNickname">复制</button>
       </div>
       <div class="kv-src">
         <span class="kv-src__k">头像</span>
         <span class="kv-src__v"><img class="kv-src__img" id="pfAvatar" alt="" referrerpolicy="no-referrer" hidden></span>
+        <button class="xm-tag xm-tag--btn" data-copy-target="pfAvatarUrl">复制</button>
       </div>
       <span id="pfAvatarUrl" class="xm-hidden">—</span>
       <p class="xm-small xm-mt">不想展示的话留空就行。</p>
@@ -669,6 +671,34 @@ $('btnPasteAll').addEventListener('click', async () => {
   const p = await pasteAll()
   if (p) { flash($('btnPasteAll'), '已填入'); return }
   showInline('profileErr', '没能读取剪贴板，可以手动填写')
+})
+
+// ── 单项复制：只复制昵称、或者只复制头像地址 ──
+// 复制完自己去对应的输入框里粘贴（桌面端 Ctrl+V，移动端长按粘贴）。
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-copy-target]')
+  if (!btn || btn.disabled) return
+  const el = $(btn.getAttribute('data-copy-target'))
+  const val = el ? el.textContent.trim() : ''
+  if (!val || val === '—' || val.charAt(0) === '（') return
+  try {
+    await navigator.clipboard.writeText(val)
+    flash(btn, '已复制')
+  } catch (err) {
+    // 老环境兜底：临时 textarea + execCommand
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = val
+      ta.setAttribute('readonly', '')
+      ta.style.position = 'fixed'
+      ta.style.top = '-1000px'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      flash(btn, '已复制')
+    } catch (e2) { showInline('profileErr', '复制没成功，可以手动填写') }
+  }
 })
 
 /** 就地提示，不切页面 —— 切走会把人困在「重试 → 再点 → 又失败」的循环里 */
